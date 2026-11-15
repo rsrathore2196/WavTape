@@ -124,7 +124,7 @@ internal object PlaybackSessionStore {
         val host = uri.host.orEmpty().lowercase(java.util.Locale.ROOT)
         return item.mediaId.isNotBlank() && uri.toString().isNotBlank() &&
             host != "soundhelix.com" && !host.endsWith(".soundhelix.com") &&
-            uri.scheme in setOf("https", "http", "file", "content", "xtreme-offline", "xtreme-youtube", "xtreme-sabr")
+            uri.scheme in setOf("https", "http", "file", "content", "xtreme-offline", "xtreme-youtube", "xtreme-sabr", MusicCache.OFFLINE_SCHEME)
     }
 
     private val checkpointGeneration = java.util.concurrent.atomic.AtomicLong()

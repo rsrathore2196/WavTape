@@ -348,6 +348,19 @@ fun OtherSettingsPage(
                             )
                         }
 
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "${cacheStats.audioTrackCount} audio entries • ${cacheStats.completeAudioTrackCount} complete songs",
+                            fontSize = 10.5.sp, color = appColors.textMuted
+                        )
+                        Text(
+                            text = "Lyrics ${cacheStats.formattedLyrics} • HTTP ${cacheStats.formattedHttp} • Metadata ${cacheStats.formattedMetadata}",
+                            fontSize = 10.5.sp, color = appColors.textMuted
+                        )
+                        Text(
+                            text = "Downloads ${cacheStats.formattedDownloads} (${cacheStats.downloadTrackCount} songs) • Search memory ≈${cacheStats.formattedMemoryMetadata}",
+                            fontSize = 10.5.sp, color = appColors.textMuted
+                        )
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Usage quota bar
@@ -370,7 +383,7 @@ fun OtherSettingsPage(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "${(usagePercent * 100).toInt()}% of ${cacheStats.formattedQuota} limit",
+                                text = "${(usagePercent * 100).toInt()}% of ${cacheStats.formattedQuota} media limit",
                                 fontSize = 10.5.sp,
                                 color = appColors.textMuted
                             )
@@ -725,7 +738,7 @@ fun OtherSettingsPage(
             },
             text = {
                 Text(
-                    text = "This will clear temporary album art images and stream buffers (${cacheStats.formattedTotal}). Your playlists and favorite tracks will not be affected.",
+                    text = "This will clear album art, lyrics, metadata and persistent streamed audio (${cacheStats.formattedTotal}). Your downloads, playlists and favorite tracks will not be affected.",
                     fontSize = 13.sp,
                     color = appColors.textMuted
                 )

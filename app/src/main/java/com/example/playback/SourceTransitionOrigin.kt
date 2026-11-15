@@ -17,6 +17,9 @@ internal data class SourceTransitionOrigin(val track: MusicTrack, val sourceId: 
             return SourceTransitionOrigin(track, source, policy.upgradePolicyKey)
         }
         fun sourceId(trackId: String, uri: Uri, policy: PlaybackSourcePolicy): String? {
+            if (uri.scheme == "xtreme-cached") return uri.getQueryParameter("provider").takeIf {
+                com.example.service.StreamedAudioRepresentations.permitsCached(policy, uri)
+            }
             val host = uri.host.orEmpty()
             val registered = StreamingAddons.registeredSourceId(uri.toString())
             return when {

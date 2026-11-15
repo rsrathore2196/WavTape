@@ -1835,7 +1835,7 @@ class PlaybackManager(
 
     private suspend fun playTrackInternal(track: MusicTrack, queue: List<MusicTrack>, isExplicitPlaylist: Boolean = false,
         preserveQueue: Boolean = false) {
-        if (track.audioUrl.isBlank() || (Uri.parse(track.audioUrl).scheme !in setOf("http", "https", "file", "content", "xtreme-offline", "xtreme-youtube", "xtreme-sabr") &&
+        if (track.audioUrl.isBlank() || (Uri.parse(track.audioUrl).scheme !in setOf("http", "https", "file", "content", "xtreme-offline", "xtreme-youtube", "xtreme-sabr", com.example.service.MusicCache.OFFLINE_SCHEME) &&
             com.example.data.remote.StreamingAddons.mime(track.audioUrl) != androidx.media3.common.MimeTypes.APPLICATION_MPD)) {
             showPlaybackFailure("No playable stream is available for '${track.title}'.")
             return

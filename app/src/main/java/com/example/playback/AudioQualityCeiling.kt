@@ -122,6 +122,9 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
 
     fun isPreferred(track: com.example.data.model.MusicTrack): Boolean {
         val first = resolutionSourcesFor(track.id).firstOrNull() ?: return false
+        val cached = android.net.Uri.parse(track.audioUrl)
+        if (cached.scheme == "xtreme-cached") return com.example.service.StreamedAudioRepresentations.permitsCached(this, cached) &&
+            cached.getQueryParameter("provider") == first.id
         val host = android.net.Uri.parse(track.audioUrl).host.orEmpty()
         return when (first.kind) {
             PlaybackSourceKind.YOUTUBE -> com.example.data.remote.YouTubeAudioStreamService.isYouTubeAudio(track.id, track.audioUrl)
@@ -135,12 +138,18 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
         // The 320 AAC endpoint can declare a small VBR/container overhead. Keep
         // its actual reported rate, without retrying a valid tier in a loop.
         // This allowance never applies to capped YouTube/Data Saver streams.
+        if (uri.scheme == "xtreme-cached" && ceiling == AudioQualityCeiling.HIGH && bitrateKbps <= 336 &&
+            uri.getQueryParameter("kind") == PlaybackSourceKind.JIOSAAVN.name &&
+            uri.getQueryParameter("bitrate") == "320" &&
+            com.example.service.StreamedAudioRepresentations.permitsCached(this, uri)) return true
         val host = uri.host.orEmpty().lowercase(java.util.Locale.ROOT)
         return ceiling == AudioQualityCeiling.HIGH && allows(PlaybackSourceKind.JIOSAAVN) &&
             (host == "saavncdn.com" || host.endsWith(".saavncdn.com")) &&
             saavnRate.find(uri.path.orEmpty())?.groupValues?.get(1) == "320" && bitrateKbps <= 336
     }
     fun acceptsRemoteTrack(track: com.example.data.model.MusicTrack): Boolean {
+        if (android.net.Uri.parse(track.audioUrl).scheme == "xtreme-cached")
+            return com.example.service.StreamedAudioRepresentations.permitsCached(this, android.net.Uri.parse(track.audioUrl))
         if (com.example.data.remote.StreamingAddons.allowsRegisteredTransport(track.audioUrl, this)) return true
         val uri = android.net.Uri.parse(track.audioUrl)
         if (uri.scheme in setOf("file", "content", "xtreme-offline")) return true

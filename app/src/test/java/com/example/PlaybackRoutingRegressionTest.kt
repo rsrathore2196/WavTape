@@ -59,7 +59,9 @@ class PlaybackRoutingRegressionTest {
         val policy = PlaybackSourcePolicy(AudioQualityCeiling.HIGH, sources = PlaybackSource.newInstallDefaults)
         var extractions = 0
         val resolver = StreamResolver(
-            searchYouTube = { error("The selected recording already has a video ID") },
+            // Extraction recovery may search this same enabled provider. No alternate
+            // recording is available; disabled providers must still never be called.
+            searchYouTube = { emptyList() },
             searchStandard = { _, _ -> error("JioSaavn is disabled") },
             searchLossless = { error("Archive is disabled") },
             resolveYouTube = { _, _, _, _ ->

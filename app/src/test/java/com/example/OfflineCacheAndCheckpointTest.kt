@@ -33,7 +33,7 @@ class OfflineCacheAndCheckpointTest {
         (YouTubeAudioStreamService::class.java.getDeclaredField("cache").apply { isAccessible = true }
             .get(null) as android.util.LruCache<*, *>).evictAll()
     }
-    @Before fun setup() { closeCache(); context.cacheDir.resolve("xtreme_audio_cache").deleteRecursively(); clearExtractionMemory() }
+    @Before fun setup() { closeCache(); context.cacheDir.resolve("xtreme_audio_cache").deleteRecursively(); context.noBackupFilesDir.resolve("xtreme_streamed_audio_cache").deleteRecursively(); clearExtractionMemory() }
     @After fun cleanup() { closeCache(); clearExtractionMemory() }
 
     private fun save(itag: Int, rate: Int, complete: Boolean = true, sabr: Boolean = false) {

@@ -44,11 +44,19 @@ data class CacheStats(
     val autoTrimEnabled: Boolean = true,
     val autoPreCacheEnabled: Boolean = true,
     val cacheOnWifiOnly: Boolean = false,
-    val freeDiskSpaceBytes: Long = 0L
+    val freeDiskSpaceBytes: Long = 0L,
+    /** Journal entries can be partial or alternate encodes; they are not song counts. */
+    val completeAudioTrackCount: Int = 0,
+    val httpBytes: Long = 0L,
+    /** Explicit downloads are outside the disposable cache quota and clear actions. */
+    val downloadBytes: Long = 0L,
+    val downloadTrackCount: Int = 0,
+    /** Approximate in-memory models, excluded from every disk total. */
+    val memoryMetadataBytes: Long = 0L
 ) {
     val usagePercentage: Float
         get() = if (maxQuotaBytes > 0) {
-            (totalBytes.toFloat() / maxQuotaBytes.toFloat()).coerceIn(0f, 1f)
+            ((audioBytes + imageBytes).toFloat() / maxQuotaBytes.toFloat()).coerceIn(0f, 1f)
         } else 0f
 
     val formattedTotal: String get() = SmartCacheManager.formatBytes(totalBytes)
@@ -56,6 +64,9 @@ data class CacheStats(
     val formattedImage: String get() = SmartCacheManager.formatBytes(imageBytes)
     val formattedLyrics: String get() = SmartCacheManager.formatBytes(lyricsBytes)
     val formattedMetadata: String get() = SmartCacheManager.formatBytes(metadataBytes)
+    val formattedHttp: String get() = SmartCacheManager.formatBytes(httpBytes)
+    val formattedDownloads: String get() = SmartCacheManager.formatBytes(downloadBytes)
+    val formattedMemoryMetadata: String get() = SmartCacheManager.formatBytes(memoryMetadataBytes)
     val formattedQuota: String get() = SmartCacheManager.formatBytes(maxQuotaBytes)
     val formattedFreeDisk: String get() = SmartCacheManager.formatBytes(freeDiskSpaceBytes)
 }
@@ -133,12 +144,17 @@ object SmartCacheManager {
             val imageBytes = (image?.plus(legacyImageBytes.get())) ?: prefs?.getLong("stats_images", 0L) ?: 0L
             val lyrics = prefs?.getLong("stats_lyrics", 0L) ?: 0L
             val metadata = prefs?.getLong("stats_metadata", 0L) ?: 0L
-            _stats.value = CacheStats(audioBytes + imageBytes + lyrics + metadata, audioBytes, imageBytes,
-                lyrics, metadata, audio?.second ?: prefs?.getInt("stats_audio_count", 0) ?: 0,
-                quota,
-                prefs?.getBoolean(KEY_SMART_AUTO_TRIM, true) ?: true,
-                prefs?.getBoolean(KEY_AUTO_PRECACHE, true) ?: true,
-                prefs?.getBoolean(KEY_WIFI_ONLY, false) ?: false, context.cacheDir.freeSpace)
+            val http = prefs?.getLong("stats_http", 0L) ?: 0L
+            _stats.value = CacheStats(totalBytes = audioBytes + imageBytes + lyrics + metadata + http,
+                audioBytes = audioBytes, imageBytes = imageBytes, lyricsBytes = lyrics, metadataBytes = metadata,
+                audioTrackCount = audio?.second ?: prefs?.getInt("stats_audio_count", 0) ?: 0,
+                maxQuotaBytes = quota, autoTrimEnabled = prefs?.getBoolean(KEY_SMART_AUTO_TRIM, true) ?: true,
+                autoPreCacheEnabled = prefs?.getBoolean(KEY_AUTO_PRECACHE, true) ?: true,
+                cacheOnWifiOnly = prefs?.getBoolean(KEY_WIFI_ONLY, false) ?: false,
+                freeDiskSpaceBytes = context.noBackupFilesDir.freeSpace,
+                completeAudioTrackCount = prefs?.getInt("stats_complete_audio_count", 0) ?: 0,
+                httpBytes = http, downloadBytes = prefs?.getLong("stats_downloads", 0L) ?: 0L,
+                downloadTrackCount = prefs?.getInt("stats_download_count", 0) ?: 0)
             // No directory traversal and no forced Media3/Coil cache construction.
             if (scheduleMaintenance && System.currentTimeMillis() - lastReconciliation.get() !in 0 until STATS_MAX_AGE_MS)
                 refreshStats(userRequested = false)
@@ -162,21 +178,27 @@ object SmartCacheManager {
                 getPrefs()?.edit()?.putLong("stats_audio", value.audioBytes)?.putLong("stats_images", value.imageBytes)
                     ?.putLong("stats_lyrics", value.lyricsBytes)?.putLong("stats_metadata", value.metadataBytes)
                     ?.putInt("stats_audio_count", value.audioTrackCount)?.putLong("stats_checked_at", lastReconciliation.get())
-                    ?.putLong("stats_legacy_images", legacyImageBytes.get())?.apply()
+                    ?.putLong("stats_legacy_images", legacyImageBytes.get())
+                    ?.putLong("stats_http", value.httpBytes)?.putLong("stats_downloads", value.downloadBytes)
+                    ?.putInt("stats_download_count", value.downloadTrackCount)
+                    ?.putInt("stats_complete_audio_count", value.completeAudioTrackCount)?.apply()
             }
         }
     }
 
     /** Owner-reported committed sizes; no filesystem walks, decoding or disk writes here. */
-    fun cacheUsageChanged(audioBytes: Long? = null, audioTrackCount: Int? = null, imageBytes: Long? = null) {
+    fun cacheUsageChanged(audioBytes: Long? = null, audioTrackCount: Int? = null, imageBytes: Long? = null,
+        completeAudioTrackCount: Int? = null) {
         val before = _stats.value
         _stats.update { value ->
             val audio = audioBytes ?: value.audioBytes
             val image = imageBytes?.plus(legacyImageBytes.get()) ?: value.imageBytes
             if (audio == value.audioBytes && image == value.imageBytes &&
-                (audioTrackCount == null || audioTrackCount == value.audioTrackCount)) value else
+                (audioTrackCount == null || audioTrackCount == value.audioTrackCount) &&
+                (completeAudioTrackCount == null || completeAudioTrackCount == value.completeAudioTrackCount)) value else
                 value.copy(audioBytes = audio, imageBytes = image, audioTrackCount = audioTrackCount ?: value.audioTrackCount,
-                    totalBytes = audio + image + value.lyricsBytes + value.metadataBytes)
+                    completeAudioTrackCount = completeAudioTrackCount ?: value.completeAudioTrackCount,
+                    totalBytes = audio + image + value.lyricsBytes + value.metadataBytes + value.httpBytes)
         }
         if (_stats.value != before) {
             checkpoints.trySend(Unit)
@@ -184,6 +206,12 @@ object SmartCacheManager {
                 _stats.value.audioBytes + _stats.value.imageBytes > _stats.value.maxQuotaBytes)
                 smartAutoTrim()
         }
+    }
+
+    /** Download ledger/owner counters, independent from streamed-media quota accounting. */
+    internal fun downloadUsageChanged(bytes: Long, completeTracks: Int) {
+        _stats.update { it.copy(downloadBytes = bytes.coerceAtLeast(0L), downloadTrackCount = completeTracks.coerceAtLeast(0)) }
+        checkpoints.trySend(Unit)
     }
 
     fun refreshStats(userRequested: Boolean = true) {
@@ -217,13 +245,20 @@ object SmartCacheManager {
         val audio = audioOwner.cacheSpace
         val count = audioOwner.keys.size
         val images = calculateImageCacheBytes(ctx)
-        val lyrics = LyricsProvider.getCacheSize()
+        val lyrics = getFolderSize(File(ctx.cacheDir, "lyrics_cache"))
         val metadata = calculateMetadataCacheBytes(ctx)
-        _stats.value = CacheStats(audio + images + lyrics + metadata, audio, images, lyrics, metadata, count,
-            configuredQuota(ctx),
-            prefs?.getBoolean(KEY_SMART_AUTO_TRIM, true) ?: true,
-            prefs?.getBoolean(KEY_AUTO_PRECACHE, true) ?: true,
-            prefs?.getBoolean(KEY_WIFI_ONLY, false) ?: false, ctx.cacheDir.freeSpace)
+        val http = calculateHttpCacheBytes(ctx)
+        val downloads = com.example.downloads.OfflineDownloads.get(ctx).storageUsage()
+        _stats.value = CacheStats(totalBytes = audio + images + lyrics + metadata + http,
+            audioBytes = audio, imageBytes = images, lyricsBytes = lyrics, metadataBytes = metadata,
+            audioTrackCount = count, maxQuotaBytes = configuredQuota(ctx),
+            autoTrimEnabled = prefs?.getBoolean(KEY_SMART_AUTO_TRIM, true) ?: true,
+            autoPreCacheEnabled = prefs?.getBoolean(KEY_AUTO_PRECACHE, true) ?: true,
+            cacheOnWifiOnly = prefs?.getBoolean(KEY_WIFI_ONLY, false) ?: false,
+            freeDiskSpaceBytes = ctx.noBackupFilesDir.freeSpace,
+            completeAudioTrackCount = MusicCache.getCompleteCachedTrackCount(ctx), httpBytes = http,
+            downloadBytes = downloads.first, downloadTrackCount = downloads.second,
+            memoryMetadataBytes = (repositoryRef?.getSearchCacheEntryCount() ?: 0).toLong() * 1024L)
         lastReconciliation.set(System.currentTimeMillis())
         checkpoints.trySend(Unit)
     }
@@ -282,7 +317,8 @@ object SmartCacheManager {
     }
 
     suspend fun clearLyricsCache(): Long = maintainCache {
-        val freed = LyricsProvider.getCacheSize()
+        val ctx = appContext ?: return@maintainCache 0L
+        val freed = getFolderSize(File(ctx.cacheDir, "lyrics_cache"))
         LyricsProvider.clearCache()
         refreshStats()
         freed
@@ -304,7 +340,7 @@ object SmartCacheManager {
         val imageBytes = diskCache?.size ?: 0L
         diskCache?.clear()
         freed += (imageBytes - (diskCache?.size ?: 0L)).coerceAtLeast(0L)
-        freed += LyricsProvider.getCacheSize()
+        freed += getFolderSize(File(ctx.cacheDir, "lyrics_cache"))
         LyricsProvider.clearCache()
         repositoryRef?.clearSearchCache()
         freed += OnlineMusicApiService.trimNetworkCache(0L)
@@ -390,40 +426,24 @@ object SmartCacheManager {
         return size
     }
 
-    private suspend fun calculateMetadataCacheBytes(ctx: Context): Long {
+    private suspend fun calculateHttpCacheBytes(ctx: Context): Long {
+        var size = OnlineMusicApiService.peekNetworkCacheSize()
+            ?: getFolderSize(File(ctx.cacheDir, "http_music_cache"))
+        for (name in listOf("http_cache", "okhttp_cache")) size += getFolderSize(File(ctx.cacheDir, name))
+        return size
+    }
+
+    /** Separate owners are deliberately excluded, including lyrics and retained legacy audio. */
+    internal suspend fun calculateMetadataCacheBytes(ctx: Context): Long {
+        val ownedNames = setOf("xtreme_audio_cache", "xtreme_streamed_audio_cache", "image_cache",
+            "image_manager_disk_cache", "image_cache_default", "lyrics_cache", "http_cache",
+            "okhttp_cache", "http_music_cache")
         var size = 0L
-        val httpCache = File(ctx.cacheDir, "http_cache")
-        if (httpCache.exists()) size += getFolderSize(httpCache)
-        val okhttpCache = File(ctx.cacheDir, "okhttp_cache")
-        if (okhttpCache.exists()) size += getFolderSize(okhttpCache)
-        
-        // Scan other cache directories and temp files inside cacheDir
-        val knownNames = setOf(
-            "xtreme_audio_cache",
-            "image_cache",
-            "image_manager_disk_cache",
-            "image_cache_default",
-            "http_cache",
-            "okhttp_cache",
-            "http_music_cache"
-        )
-        ctx.cacheDir.listFiles()?.forEach { file ->
-            if (file.name !in knownNames) {
-                size += if (file.isDirectory) getFolderSize(file) else file.length()
+        for (root in listOfNotNull(ctx.cacheDir, ctx.externalCacheDir).distinctBy { it.canonicalPath }) {
+            root.listFiles()?.forEach { file ->
+                if (file.name !in ownedNames) size += if (file.isDirectory) getFolderSize(file) else file.length()
             }
         }
-
-        // Include external cache if available
-        ctx.externalCacheDir?.listFiles()?.forEach { file ->
-            if (file.name !in knownNames) {
-                size += if (file.isDirectory) getFolderSize(file) else file.length()
-            }
-        }
-
-        size += OnlineMusicApiService.peekNetworkCacheSize()
-            ?: File(ctx.cacheDir, "http_music_cache").takeIf { it.exists() }?.let { getFolderSize(it) } ?: 0L
-        val entryCount = repositoryRef?.getSearchCacheEntryCount() ?: 0
-        size += (entryCount * 1024L) // approx 1KB per cached search model
         return size
     }
 

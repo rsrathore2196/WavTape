@@ -80,6 +80,7 @@ class MusicService : MediaLibraryService() {
     private var volumeObserver: android.database.ContentObserver? = null
     private var volumeJob: Job? = null
     private var crossfade: com.example.playback.CrossfadeController? = null
+    private var nextAudioPrefetcher: NextAudioPrefetcher? = null
     private val outputPrecision = java.util.concurrent.atomic.AtomicReference(com.example.playback.OutputPrecision.PCM_16)
     private var verifiedSignalUri: Uri? = null
     private var verifiedSignalId: String? = null
@@ -316,6 +317,8 @@ class MusicService : MediaLibraryService() {
         // and matching actual decoder codec can supply representation metadata;
         // never use catalog estimates, the quality ceiling or a prior source's rate.
         val declaredRate = when {
+            uri.scheme == MusicCache.OFFLINE_SCHEME && uri.getQueryParameter("track") == item.mediaId &&
+                uri.getQueryParameter("codec").equals(decoded.codec, true) -> uri.getQueryParameter("bitrate")?.toIntOrNull() ?: 0
             com.example.data.remote.StreamingAddons.hasRegisteredTransport(uri.toString()) ->
                 com.example.data.remote.StreamingAddons.bitrateForStream(uri.toString(), decoded.codec)
             host == "archive.org" || host.endsWith(".archive.org") ->
@@ -848,6 +851,9 @@ class MusicService : MediaLibraryService() {
                 val address = item.localConfiguration?.uri
                 if (address?.scheme == com.example.downloads.OfflineDownloads.SCHEME)
                     return com.example.downloads.OfflineDownloads.get(this@MusicService).source(item)
+                if (address?.scheme == MusicCache.OFFLINE_SCHEME &&
+                    item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
+                    return MusicCache.cachedSource(this@MusicService, item)
                 if (address?.scheme in setOf("file", "content", "xtreme-offline") ||
                     item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
                     return transportSources.createMediaSource(com.example.data.remote.StreamingAddons.prepareMediaItem(item))
@@ -875,7 +881,8 @@ class MusicService : MediaLibraryService() {
         } finally { playerInitialization.close() }
 
         exoPlayer = player
-        com.example.playback.CrossfadeController.enableQueueReadAhead(player)
+        nextAudioPrefetcher = NextAudioPrefetcher(this, player, serviceScope, networkQuality,
+            resolve = ::resolveQueuedSource)
         crossfade = com.example.playback.CrossfadeController(player, serviceScope,
             canMix = { !com.example.playback.AudioSignalPath.state.value.directApproved },
             sourcePolicy = { networkQuality.sourcePolicy.value.key },
@@ -1197,6 +1204,11 @@ class MusicService : MediaLibraryService() {
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED) {
+                    player.currentMediaItem?.localConfiguration?.uri?.takeIf { it.scheme == MusicCache.OFFLINE_SCHEME }?.let { corrupt ->
+                        serviceScope.launch(AppDispatchers.Io) { MusicCache.invalidateCorruptRepresentation(this@MusicService, corrupt) }
+                    }
+                }
                 losslessDiscoveryJob?.cancel()
                 losslessDiscoveryJob = null
                 losslessDiscoveryKey = null
@@ -1377,6 +1389,7 @@ class MusicService : MediaLibraryService() {
         listeningClock.update(null, false, android.os.SystemClock.elapsedRealtime(), System.currentTimeMillis(), advancing = false)
         checkpointJob?.cancel()
         connectionScrobbler.close()
+        nextAudioPrefetcher?.close(); nextAudioPrefetcher = null
         crossfade?.close(); crossfade = null
         jioFallback?.cancel(); jioFallback = null
         serviceScope.cancel()

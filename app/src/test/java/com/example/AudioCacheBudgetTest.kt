@@ -86,7 +86,7 @@ class AudioCacheBudgetTest {
             assertEquals(SmartCacheManager.MAX_CACHE_BYTES,
                 context.getSharedPreferences("xtreme_smart_cache_preferences", 0).getLong("key_max_quota_bytes", 0))
             assertSame(cache, MusicCache.getSimpleCache(context))
-            assertTrue(context.cacheDir.resolve("xtreme_audio_cache").isDirectory)
+            assertTrue(context.noBackupFilesDir.resolve("xtreme_streamed_audio_cache").isDirectory)
         } finally {
             WorkManager.getInstance(context).cancelAllWork().result.get()
             cache.release(); owner.set(null, null)

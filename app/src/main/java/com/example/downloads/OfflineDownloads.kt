@@ -23,6 +23,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.example.data.model.MusicTrack
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -57,6 +58,47 @@ class OfflineDownloads internal constructor(
     private val owners = mutableMapOf<String, Int>()
     private val pendingDeletion = mutableSetOf<String>()
     private val database by lazy { StandaloneDatabaseProvider(context) }
+
+    /** Explicit statistics refresh only: no cache construction or worker reconciliation.
+     * Live owners report committed audio; closed stores count media spans on disk.
+     * The index, saved covers and other app files are not streamed-cache usage. */
+    internal suspend fun storageUsage(): Pair<Long, Int> = withContext(Dispatchers.IO) {
+        val records = lock.withLock {
+            if (loaded) _records.value else index.read()?.let { body ->
+                val rows = JSONObject(String(body, Charsets.UTF_8)).optJSONArray("records") ?: JSONArray()
+                (0 until rows.length()).map { OfflineJson.record(rows.getJSONObject(it)) }.associateBy { it.track.id }
+            }.orEmpty()
+        }
+        val live = synchronized(caches) { caches.mapValues { it.value.cacheSpace } }
+        var bytes = 0L
+        var completeTracks = 0
+        for (id in records.keys + live.keys) {
+            val record = records[id]
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val audio = live[id] ?: run {
+                val media = File(File(root, downloadKey(id)), "media")
+                var total = 0L
+                val directories = java.util.ArrayDeque<File>()
+                val visited = mutableSetOf<String>()
+                val mediaPath = media.canonicalPath
+                directories.add(media)
+                while (directories.isNotEmpty()) {
+                    val directory = directories.removeFirst()
+                    val path = directory.canonicalPath
+                    if (path != mediaPath && !path.startsWith(mediaPath + File.separator) || !visited.add(path)) continue
+                    directory.listFiles()?.forEach { file ->
+                        if (file.isDirectory) directories.add(file)
+                        else if (file.isFile && file.name.endsWith(".exo")) total += file.length()
+                    }
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                }
+                total
+            }
+            bytes += audio
+            if (audio > 0L && record?.status == DownloadStatus.COMPLETE) completeTracks++
+        }
+        bytes to completeTracks
+    }
 
     suspend fun load() = withContext(Dispatchers.IO) {
         val first = lock.withLock { val first = !loaded; loadLocked(); first }
@@ -107,6 +149,10 @@ class OfflineDownloads internal constructor(
         _records.value = records
         _preferences.value = preferences
         _collections.value = collections
+        val live = synchronized(caches) { caches.mapValues { it.value.cacheSpace } }
+        com.example.data.cache.SmartCacheManager.downloadUsageChanged(
+            records.entries.sumOf { (id, record) -> live[id] ?: record.bytes.coerceAtLeast(0L) },
+            records.values.count { it.status == DownloadStatus.COMPLETE && it.bytes > 0L })
     }
     internal suspend fun update(id: String, persist: Boolean = true, transform: (DownloadRecord) -> DownloadRecord) = withContext(Dispatchers.IO) {
         lock.withLock {

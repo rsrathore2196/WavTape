@@ -463,6 +463,23 @@ class MusicRepository private constructor(
             context?.let { com.example.data.local.OtherSettingsPreferences.loadPlaybackSources(it) }
             val monitor = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it) }
             val sourcePolicy = monitor?.sourcePolicySnapshot()
+            if (!forceRefresh && !manualUpgrade && failedUrl == null && rejectedUrls.isEmpty() && sourcePolicy != null) {
+                context?.let { ctx ->
+                    try {
+                        com.example.service.StreamedAudioRepresentations.lookup(ctx, track, sourcePolicy,
+                            preferredSourceId = preferredSourceId, currentSourceOnly = currentSourceOnly)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        // A broken/unavailable optional cache must not hide the normal
+                        // resolver. Offline resolution still fails locally on a cache miss.
+                        android.util.Log.w("MusicRepository", "Stream cache lookup unavailable", error)
+                        null
+                    }
+                }?.let { cached ->
+                    if (monitor.sourcePolicySnapshot().key == sourcePolicy.key) return@withContext cached
+                }
+            }
             val losslessVersion = sourcePolicy?.takeIf { it.allowsArchive }?.let { streamResolver.losslessDiscoveryVersion(track.id) }
             val quality = sourcePolicy?.ceiling?.audioQuality ?: AudioQuality.ULTRA_HD_320
             try {
@@ -485,9 +502,20 @@ class MusicRepository private constructor(
                     throw TrackUnavailableException(track.title, com.example.playback.PlaybackDiagnostics.unavailable(track.id, track.title, sourcePolicy))
                 }
                 // Sharing transports must never roll back newer cover/playlist metadata.
-                return@withContext track.copy(audioUrl = result.audioUrl, source = result.source, bitrateKbps = result.bitrateKbps,
+                val selected = track.copy(audioUrl = result.audioUrl, source = result.source, bitrateKbps = result.bitrateKbps,
                     qualityBadge = result.qualityBadge, isLossless = result.isLossless,
                     primaryArtists = track.primaryArtists.ifEmpty { result.primaryArtists })
+                context?.let { ctx ->
+                    // Cache bookkeeping must never prevent a verified stream from playing.
+                    try {
+                        com.example.service.StreamedAudioRepresentations.remember(ctx, selected, sourcePolicy)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        android.util.Log.w("MusicRepository", "Stream cache bookkeeping unavailable", error)
+                    }
+                }
+                return@withContext selected
             } catch (cancelled: CancellationException) {
                 currentCoroutineContext().ensureActive()
                 if (sourcePolicy != null && monitor?.sourcePolicySnapshot()?.key != sourcePolicy.key) return@repeat

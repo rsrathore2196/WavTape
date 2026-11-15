@@ -10,6 +10,7 @@ import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.local.AudioQualityPreferences
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.IOException
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.Cache
@@ -22,14 +23,23 @@ import java.io.File
 object MusicCache {
     const val DEFAULT_CACHE_SIZE = com.example.data.cache.SmartCacheManager.MIN_CACHE_BYTES -
         com.example.data.cache.SmartCacheManager.ARTWORK_CACHE_MAX_BYTES
-    private var audioEvictor: AdjustableAudioCacheEvictor? = null
+    private var audioEvictor: HeadAwareAudioCacheEvictor? = null
+    private val cacheEpoch = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    internal val prefetchEpoch: kotlinx.coroutines.flow.StateFlow<Long> = cacheEpoch
+    private val usageScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val usagePending = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var ownerDirectory: File? = null
+    const val OFFLINE_SCHEME = "xtreme-cached"
+    internal fun isLocal(uri: android.net.Uri): Boolean = uri.scheme?.lowercase(java.util.Locale.ROOT) in
+        setOf(null, "file", "content", "asset", "rawresource", "android.resource", "data")
     private val saavnRate = Regex("_(320|160|96|48)\\.(?:mp4|m4a)(?:$|[?#])")
 
     internal fun fullyCached(context: Context, key: String, knownLength: Long? = null): Boolean = runCatching {
         val cache = getSimpleCache(context)
-        val length = knownLength?.takeIf { it > 0 }
-            ?: androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(key))
-        length > 0 && cache.isCached(key, 0L, length)
+        val indexed = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(key))
+        val length = knownLength?.takeIf { it > 0 } ?: indexed
+        length > 0 && (indexed <= 0 || indexed == length) && cache.isCached(key, 0L, length) &&
+            cache.getCachedSpans(key).all { span -> span.file?.let { it.isFile && it.length() == span.length } == true }
     }.getOrDefault(false)
 
     internal fun offlineAudio(context: Context, video: String, cap: Int, sabr: Boolean,
@@ -53,7 +63,11 @@ object MusicCache {
             .put("length", stream.contentLength ?: 0L).put("cap", stream.selectionCapBps).toString()
         if (cache.getContentMetadata(stream.cacheKey).get(REPRESENTATION, "") != encoded)
             cache.applyContentMetadataMutations(stream.cacheKey,
-                androidx.media3.datasource.cache.ContentMetadataMutations().set(REPRESENTATION, encoded))
+                androidx.media3.datasource.cache.ContentMetadataMutations().set(REPRESENTATION, encoded).apply {
+                    if (stream.contentLength?.let { it > 0 } == true &&
+                        androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(stream.cacheKey)) <= 0)
+                        set("exo_len", requireNotNull(stream.contentLength))
+                })
     }
 
     private fun persistedRepresentations(context: Context, video: String): List<YouTubeAudioStreamService.AudioStream> {
@@ -92,11 +106,13 @@ object MusicCache {
         com.example.performance.MaintenanceScheduler.onCacheUsed(context)
         simpleCacheInstance?.let { return it }
         return synchronized(this) { simpleCacheInstance ?: run {
-            val cacheDir = File(context.cacheDir, "xtreme_audio_cache")
-            val evictor = AdjustableAudioCacheEvictor(com.example.data.cache.SmartCacheManager.audioBudget(
+            check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Audio cache must open on IO" }
+            val cacheDir = PersistentAudioCacheMigration.directory(context)
+            val evictor = HeadAwareAudioCacheEvictor(com.example.data.cache.SmartCacheManager.audioBudget(
                 com.example.data.cache.SmartCacheManager.configuredQuota(context)))
             val databaseProvider = StandaloneDatabaseProvider(context)
             val cache = SimpleCache(cacheDir, evictor, databaseProvider)
+            ownerDirectory = cacheDir
             audioEvictor = evictor
             simpleCacheInstance = cache
             cache
@@ -113,7 +129,13 @@ object MusicCache {
         peekCacheUsage()?.let { (bytes, count) ->
             com.example.data.cache.SmartCacheManager.cacheUsageChanged(audioBytes = bytes, audioTrackCount = count)
         }
+        scheduleUsageRefresh(context)
     }
+
+    internal fun isManifestRequest(spec: androidx.media3.datasource.DataSpec): Boolean =
+        spec.isFlagSet(androidx.media3.datasource.DataSpec.FLAG_ALLOW_GZIP) ||
+            spec.uri.path.orEmpty().endsWith(".m3u8", true) || spec.uri.path.orEmpty().endsWith(".mpd", true) ||
+            YouTubeAudioStreamService.cachedForUrl(spec.uri.toString())?.isHls == true
 
     fun createCacheDataSourceFactory(context: Context, connectTimeoutMs: Int = 15000,
         readTimeoutMs: Int = 15000): DataSource.Factory {
@@ -124,7 +146,19 @@ object MusicCache {
             .setReadTimeoutMs(readTimeoutMs)
 
         val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val rangedUpstream = DataSource.Factory { YouTubeMediaDataSource(app, upstreamFactory, httpDataSourceFactory) }
+        val rangedUpstream = DataSource.Factory {
+            val source = YouTubeMediaDataSource(app, upstreamFactory, httpDataSourceFactory)
+            object : DataSource by source {
+                private var requested: android.net.Uri? = null
+                override fun open(spec: androidx.media3.datasource.DataSpec): Long {
+                    requested = spec.uri
+                    return source.open(spec)
+                }
+                // CacheDataSource must not journal a signed CDN redirect URI.
+                override fun getUri() = requested
+                override fun close() { try { source.close() } finally { requested = null } }
+            }
+        }
 
         // Creating a Media3 factory happens on Main. Cache recovery happens only
         // when its data source opens on Media3's loader thread.
@@ -135,17 +169,45 @@ object MusicCache {
                 listeners.add(listener); delegate?.addTransferListener(listener)
             }
             override fun open(spec: androidx.media3.datasource.DataSpec): Long {
-                val online = com.example.playback.NetworkQualityMonitor.getInstance(app).sourcePolicySnapshot().online
-                val local = when (spec.uri.scheme) {
-                    null, "file", "content", "asset", "rawresource", "android.resource", "data" -> true
-                    else -> false
+                // Local audio already owns its bytes. Bypass both cache initialization
+                // and network-policy reads, including SAF and Android resources.
+                if (isLocal(spec.uri)) {
+                    val source = upstreamFactory.createDataSource()
+                    listeners.forEach(source::addTransferListener)
+                    delegate = source
+                    return source.open(spec)
                 }
-                val source = CacheDataSource.Factory().setCache(getSimpleCache(app))
-                    .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online || local })
+                val online = com.example.playback.NetworkQualityMonitor.getInstance(app).sourcePolicySnapshot().online
+                if (isManifestRequest(spec)) {
+                    if (!online) throw IOException("An adaptive stream needs an online manifest or an explicit download")
+                    // Signed segment URLs belong to the live tracker. Never persist
+                    // its playlist/MPD body in streamed-audio storage.
+                    val source = YouTubeMediaDataSource(app, upstreamFactory, httpDataSourceFactory)
+                    listeners.forEach(source::addTransferListener)
+                    delegate = source
+                    return try { source.open(spec) } catch (error: Exception) { close(); throw error }
+                }
+                val selectedKey = spec.key ?: StreamedAudioRepresentations.keyFor(spec.uri) ?: safeTransportKey(spec.uri)
+                StreamedAudioPrefetch.preempt(selectedKey)
+                val source: DataSource = try { CacheDataSource.Factory().setCache(getSimpleCache(app))
+                    .setCacheKeyFactory { request -> request.key ?: StreamedAudioRepresentations.keyFor(request.uri)
+                        ?: safeTransportKey(request.uri) }
+                    .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online })
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
+                } catch (failure: Exception) {
+                    if (!online) throw IOException("Cached audio is unavailable offline", failure)
+                    rangedUpstream.createDataSource()
+                }
                 listeners.forEach(source::addTransferListener)
                 delegate = source
-                return source.open(spec)
+                return try { source.open(spec) } catch (failure: Cache.CacheException) {
+                    close()
+                    if (!online) throw failure
+                    val upstream = rangedUpstream.createDataSource()
+                    listeners.forEach(upstream::addTransferListener)
+                    delegate = upstream
+                    try { upstream.open(spec) } catch (error: Exception) { close(); throw error }
+                } catch (error: Exception) { close(); throw error }
             }
             override fun read(buffer: ByteArray, offset: Int, length: Int) =
                 checkNotNull(delegate).read(buffer, offset, length)
@@ -154,6 +216,7 @@ object MusicCache {
             override fun close() {
                 try { delegate?.close() } finally {
                     delegate = null
+                    scheduleUsageRefresh(app)
                     peekCacheUsage()?.let { (bytes, count) ->
                         com.example.data.cache.SmartCacheManager.cacheUsageChanged(audioBytes = bytes, audioTrackCount = count)
                     }
@@ -218,7 +281,7 @@ object MusicCache {
                         if (offline && available == null) throw IOException("No cached audio fits the active quality profile")
                         android.net.Uri.parse(available?.second ?: requested)
                     }.also { boundJioUri = it }
-                    spec.buildUpon().setUri(target).setKey(if (target == spec.uri) spec.key else target.toString()).build()
+                    spec.buildUpon().setUri(target).setKey(if (target == spec.uri) spec.key else StreamedAudioRepresentations.keyFor(target) ?: safeTransportKey(target)).build()
                 } else if (spec.uri.scheme == "xtreme-sabr") {
                     val video = YouTubeAudioStreamService.videoIdFromUri(spec.uri)
                         ?: throw IOException("Invalid SABR recording")
@@ -279,11 +342,91 @@ object MusicCache {
         }
     }
 
+    internal fun scheduleUsageRefresh(context: Context) {
+        if (!usagePending.compareAndSet(false, true)) return
+        usageScope.launch {
+            try {
+                kotlinx.coroutines.delay(500L)
+                val cache = simpleCacheInstance ?: return@launch
+                com.example.data.cache.SmartCacheManager.cacheUsageChanged(audioBytes = cache.cacheSpace,
+                    audioTrackCount = cache.keys.size, completeAudioTrackCount = getCompleteCachedTrackCount(context))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (failure: Exception) { android.util.Log.d("MusicCache", "Audio usage refresh deferred", failure) }
+            finally { usagePending.set(false) }
+        }
+    }
+
+    internal fun safeTransportKey(uri: android.net.Uri): String {
+        val host = uri.host.orEmpty()
+        if ((host == "saavncdn.com" || host.endsWith(".saavncdn.com")) && uri.query == null)
+            return uri.toString()
+        return "transport:" + java.security.MessageDigest.getInstance("SHA-256")
+            .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    fun getCompleteCachedTrackCount(context: Context): Int {
+        val cache = getSimpleCache(context)
+        val adopted = StreamedAudioRepresentations.adoptedYoutubeVideos(cache)
+        val videos = cache.keys.mapNotNull { key ->
+            val metadata = cache.getContentMetadata(key).get(REPRESENTATION, "").orEmpty()
+            if (metadata.isBlank()) null else runCatching {
+                val json = org.json.JSONObject(metadata)
+                val length = json.optLong("length").takeIf { it > 0 }
+                if (fullyCached(context, key, length)) json.getString("video") else null
+            }.getOrNull()
+        }.toSet().minus(adopted).size
+        return videos + StreamedAudioRepresentations.completeSongCount(cache)
+    }
+
+    /** Cache-only source retains the session item; no resolver or HTTP fallback is constructed. */
+    internal fun cachedSource(context: Context, item: androidx.media3.common.MediaItem): androidx.media3.exoplayer.source.MediaSource {
+        val uri = requireNotNull(item.localConfiguration).uri
+        val key = uri.pathSegments.firstOrNull() ?: throw IOException("Invalid cached recording")
+        val data = DataSource.Factory {
+            object : DataSource {
+                private var delegate: DataSource? = null
+                private val listeners = mutableListOf<androidx.media3.datasource.TransferListener>()
+                override fun addTransferListener(listener: androidx.media3.datasource.TransferListener) { listeners += listener }
+                override fun open(spec: androidx.media3.datasource.DataSpec): Long {
+                    val policy = com.example.playback.NetworkQualityMonitor.getInstance(context).sourcePolicySnapshot()
+                    if (uri.getQueryParameter("track") != item.mediaId || !StreamedAudioRepresentations.validateCached(context, uri, policy) || !fullyCached(context, key))
+                        throw IOException("Cached audio is incomplete or incompatible with the active profile")
+                    val source = CacheDataSource.Factory().setCache(getSimpleCache(context))
+                        .setCacheKeyFactory { key }.setUpstreamDataSourceFactory(null)
+                        .setCacheWriteDataSinkFactory(null).createDataSource()
+                    delegate = source
+                    listeners.forEach(source::addTransferListener)
+                    return try { source.open(spec.buildUpon().setKey(key).build()) }
+                        catch (error: Exception) { close(); throw error }
+                }
+                override fun read(buffer: ByteArray, offset: Int, length: Int) = checkNotNull(delegate).read(buffer, offset, length)
+                override fun getUri() = delegate?.uri
+                override fun close() { try { delegate?.close() } finally { delegate = null } }
+            }
+        }
+        val mime = uri.getQueryParameter("mime") ?: item.localConfiguration?.mimeType
+        return androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(data)
+            .createMediaSource(item.buildUpon().setMimeType(mime).setCustomCacheKey(key).build())
+    }
+
+    /** Only a decoder/parser-confirmed corrupt representation is discarded. Network failures keep audio. */
+    internal fun invalidateCorruptRepresentation(context: Context, uri: android.net.Uri) {
+        if (uri.scheme != OFFLINE_SCHEME) return
+        val key = uri.pathSegments.singleOrNull() ?: return
+        if (!key.startsWith("stream:v1:") && !key.startsWith("youtube:") && !key.startsWith("youtube-sabr:")) return
+        StreamedAudioPrefetch.preempt(key)
+        getSimpleCache(context).removeResource(key)
+        scheduleUsageRefresh(context)
+    }
+
+    internal suspend fun prefetch(context: Context, uri: android.net.Uri, full: Boolean, allowed: () -> Boolean) =
+        StreamedAudioPrefetch.fetch(context, uri, full, allowed)
+
     fun getCacheSize(context: Context): Long {
         return try {
             getSimpleCache(context).cacheSpace
         } catch (e: Exception) {
-            val cacheDir = File(context.cacheDir, "xtreme_audio_cache")
+            val cacheDir = ownerDirectory ?: File(context.noBackupFilesDir, "xtreme_streamed_audio_cache")
             if (cacheDir.exists()) getFolderSize(cacheDir) else 0L
         }
     }
@@ -292,13 +435,19 @@ object MusicCache {
         return try {
             getSimpleCache(context).keys.size
         } catch (e: Exception) {
-            val cacheDir = File(context.cacheDir, "xtreme_audio_cache")
+            val cacheDir = ownerDirectory ?: File(context.noBackupFilesDir, "xtreme_streamed_audio_cache")
             if (cacheDir.exists()) (cacheDir.listFiles()?.count { it.isFile && it.name.endsWith(".exo") } ?: 0) else 0
         }
     }
 
     fun clearAudioCache(context: Context): Long {
-        return trimAudioCache(context, 0L)
+        cacheEpoch.value += 1L
+        StreamedAudioPrefetch.preemptAll()
+        val removed = trimAudioCache(context, 0L)
+        val legacyBytes = PersistentAudioCacheMigration.clearLegacy(context,
+            ownerDirectory ?: File(context.noBackupFilesDir, "xtreme_streamed_audio_cache"))
+        scheduleUsageRefresh(context)
+        return removed + legacyBytes
     }
 
     /** Remove committed spans through Media3 so its index and active writers stay consistent. */
@@ -313,7 +462,7 @@ object MusicCache {
                 cache.removeSpan(span)
             }
             com.example.data.cache.SmartCacheManager.cacheUsageChanged(audioBytes = cache.cacheSpace,
-                audioTrackCount = cache.keys.size)
+                audioTrackCount = cache.keys.size, completeAudioTrackCount = getCompleteCachedTrackCount(context))
             (before - cache.cacheSpace).coerceAtLeast(0L)
         } catch (e: Exception) {
             android.util.Log.w("MusicCache", "Cache trim error: ${e.message}")
@@ -331,38 +480,5 @@ object MusicCache {
     }
 }
 
-/** Media3 calls eviction callbacks under its cache lock, including reads that refresh recency. */
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-internal class AdjustableAudioCacheEvictor(initialBytes: Long) : CacheEvictor {
-    var maximumBytes: Long = initialBytes.coerceAtLeast(0L)
-        private set
-    private var size = 0L
-    private val oldest = java.util.TreeSet<CacheSpan> { a, b ->
-        val age = a.lastTouchTimestamp.compareTo(b.lastTouchTimestamp)
-        if (age != 0) age else a.compareTo(b)
-    }
-    fun setMaximumBytes(cache: Cache, bytes: Long) = synchronized(cache) {
-        maximumBytes = bytes.coerceAtLeast(0L)
-        evict(cache, 0L)
-    }
-    override fun requiresCacheSpanTouches() = true
-    override fun onCacheInitialized() {}
-    override fun onStartFile(cache: Cache, key: String, position: Long, length: Long) {
-        if (length >= 0L) evict(cache, length)
-    }
-    override fun onSpanAdded(cache: Cache, span: CacheSpan) {
-        if (oldest.add(span)) size += span.length
-        evict(cache, 0L)
-    }
-    override fun onSpanRemoved(cache: Cache, span: CacheSpan) {
-        if (oldest.remove(span)) size -= span.length
-    }
-    override fun onSpanTouched(cache: Cache, oldSpan: CacheSpan, newSpan: CacheSpan) {
-        onSpanRemoved(cache, oldSpan)
-        onSpanAdded(cache, newSpan)
-    }
-    private fun evict(cache: Cache, incoming: Long) {
-        while (oldest.isNotEmpty() && (size > maximumBytes || incoming > maximumBytes - size))
-            cache.removeSpan(oldest.first())
-    }
-}
+/** Source compatibility for existing callers; the persistent owner uses the same dynamic evictor. */
+internal typealias AdjustableAudioCacheEvictor = HeadAwareAudioCacheEvictor
