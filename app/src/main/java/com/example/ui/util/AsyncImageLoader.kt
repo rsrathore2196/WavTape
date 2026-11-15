@@ -44,8 +44,8 @@ class AsyncImageLoader(
     override val defaults = DefaultRequestOptions().copy(
         interceptorDispatcher = AppDispatchers.Io,
         fetcherDispatcher = AppDispatchers.Io,
-        decoderDispatcher = AppDispatchers.CpuBounded,
-        transformationDispatcher = AppDispatchers.CpuBounded
+        decoderDispatcher = AppDispatchers.Artwork,
+        transformationDispatcher = AppDispatchers.Artwork
     )
     override val components: ComponentRegistry get() = initialized?.components ?: emptyComponents
     override val memoryCache: MemoryCache? get() = initialized?.memoryCache

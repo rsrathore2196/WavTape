@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.data.remote.YouTubeAudioStreamService
+import com.example.performance.AppDispatchers
+import com.example.performance.WorkClass
+import com.example.performance.WorkStages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,32 +40,35 @@ internal data class ConnectionState(val youtube: List<YouTubeConnection> = empty
 internal class ConnectionStore internal constructor(context: Context) {
     private val context = context.applicationContext
     private val lock = Mutex()
-    private var loaded = false
+    @Volatile private var loaded = false
     private var encrypted: android.content.SharedPreferences? = null
     private val _state = MutableStateFlow(ConnectionState())
     val state = _state.asStateFlow()
-    suspend fun load(): Unit = withContext(Dispatchers.IO) { lock.withLock {
-        if (loaded) return@withLock
-        val master = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-        val prefs = EncryptedSharedPreferences.create(context, PREFS, master,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
-        val root = JSONObject(prefs.getString("connections", "{}") ?: "{}")
-        val youtube = root.optJSONArray("youtube") ?: JSONArray()
-        val sessions = (0 until youtube.length()).map { index -> youtube.getJSONObject(index).let {
-            YouTubeConnection(it.getString("id"), it.getString("name"), it.getString("cookie"),
-                it.optString("visitor"), it.optString("sync"), it.optString("user", "0")) } }
-        val spotify = root.optJSONObject("spotify")?.let { SpotifyConnection(it.getString("cookie"),
-            it.optString("bearer"), it.optLong("expires"), it.optString("name", "Spotify"), it.optString("client")) }
-        val fm = root.optJSONObject("lastfm") ?: JSONObject()
-        val lastFm = LastFmConnection(fm.optString("key"), fm.optString("secret"), fm.optString("session"),
-            fm.optString("name"), fm.optBoolean("enabled", true), fm.optBoolean("now", true), fm.optBoolean("primary", true),
-            fm.optInt("min", 30), fm.optInt("percent", 50), fm.optInt("seconds", 240), fm.optString("pending"))
-        encrypted = prefs
-        _state.value = ConnectionState(sessions, root.optString("active"), spotify, lastFm)
-        loaded = true
-        applyDiscoveryAccount()
-    } }
+    suspend fun load(): Unit = withContext(AppDispatchers.Io) {
+        if (loaded) return@withContext
+        WorkStages.disk(WorkClass.VISIBLE_CONTENT) { lock.withLock {
+            if (loaded) return@withLock
+            val master = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+            val prefs = EncryptedSharedPreferences.create(context, PREFS, master,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+            val root = JSONObject(prefs.getString("connections", "{}") ?: "{}")
+            val youtube = root.optJSONArray("youtube") ?: JSONArray()
+            val sessions = (0 until youtube.length()).map { index -> youtube.getJSONObject(index).let {
+                YouTubeConnection(it.getString("id"), it.getString("name"), it.getString("cookie"),
+                    it.optString("visitor"), it.optString("sync"), it.optString("user", "0")) } }
+            val spotify = root.optJSONObject("spotify")?.let { SpotifyConnection(it.getString("cookie"),
+                it.optString("bearer"), it.optLong("expires"), it.optString("name", "Spotify"), it.optString("client")) }
+            val fm = root.optJSONObject("lastfm") ?: JSONObject()
+            val lastFm = LastFmConnection(fm.optString("key"), fm.optString("secret"), fm.optString("session"),
+                fm.optString("name"), fm.optBoolean("enabled", true), fm.optBoolean("now", true), fm.optBoolean("primary", true),
+                fm.optInt("min", 30), fm.optInt("percent", 50), fm.optInt("seconds", 240), fm.optString("pending"))
+            encrypted = prefs
+            _state.value = ConnectionState(sessions, root.optString("active"), spotify, lastFm)
+            applyDiscoveryAccount()
+            loaded = true
+        } }
+    }
     suspend fun change(transform: (ConnectionState) -> ConnectionState) = withContext(Dispatchers.IO) {
         load()
         lock.withLock {

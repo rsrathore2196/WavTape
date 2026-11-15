@@ -83,14 +83,14 @@ class ManagedImageDiskCache(private val delegate: DiskCache, private val keyFile
             }
             entries.toString()
         }
-        synchronized(diskWriteLock) {
+        com.example.performance.WorkStages.disk(com.example.performance.WorkClass.MAINTENANCE) { synchronized(diskWriteLock) {
             if (synchronized(lock) { version == generation }) {
                 val temp = File(keyFile.parentFile, "${keyFile.name}.tmp")
                 temp.writeText(json)
                 check(temp.renameTo(keyFile)) { "Could not checkpoint artwork access index" }
                 persistedRevision = revision
             }
-        }
+        } }
     }
 
     override fun openSnapshot(key: String): DiskCache.Snapshot? = delegate.openSnapshot(key)?.also {

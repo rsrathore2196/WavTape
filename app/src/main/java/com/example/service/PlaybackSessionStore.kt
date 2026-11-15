@@ -150,61 +150,72 @@ internal object PlaybackSessionStore {
         }
     }
 
-    suspend fun restore(context: Context): Snapshot? = withContext(AppDispatchers.Io) {
+    suspend fun restore(context: Context, userRequested: Boolean = false): Snapshot? = withContext(AppDispatchers.Io +
+        (if (userRequested) com.example.performance.CriticalWork() else kotlin.coroutines.EmptyCoroutineContext)) {
         initialize(context)
         latest?.let { return@withContext it }
-        fileMutex.withLock {
-            try {
-                val text = requireNotNull(file).openRead().bufferedReader().use { it.readText() }
-                val root = withContext(AppDispatchers.CpuBounded) { JSONObject(text) }
-                if (root.optInt("version") != 1) return@withLock null
+        try {
+            // Keep the coherent file read atomic, then release its lock before any
+            // CPU admission or gesture wait. A concurrent newer checkpoint wins.
+            val text = fileMutex.withLock { requireNotNull(file).openRead().bufferedReader().use { it.readText() } }
+            com.example.performance.BackgroundWorkCoordinator.localDataPreparation(
+                urgent = { userRequested }, awaitFrameQuiet = false) {
+                val root = withContext(AppDispatchers.CpuBounded) {
+                    com.example.performance.BackgroundWorkCoordinator.traceWork("Queue JSON decoding") { JSONObject(text) }
+                }
+                if (root.optInt("version") != 1) return@localDataPreparation null
                 val queue = root.getJSONArray("queue")
-                if (queue.length() == 0) return@withLock null
+                if (queue.length() == 0) return@localDataPreparation null
                 val ids = withContext(AppDispatchers.CpuBounded) {
-                    (0 until queue.length()).map { queue.getJSONObject(it).getString("id") }.distinct()
+                    val slice = com.example.performance.ProcessingSlice()
+                    (0 until queue.length()).map { slice.checkpoint(); queue.getJSONObject(it).getString("id") }.distinct()
                 }
                 val known = (context.applicationContext as? com.example.XtremeMusicApp)?.database?.musicDao()?.let { dao ->
                     ids.chunked(900).flatMap { dao.getTracksByIds(it) }.associateBy { it.id }
                 }.orEmpty()
-                val items = withContext(AppDispatchers.CpuBounded) { (0 until queue.length()).map { index ->
-                    currentCoroutineContext().ensureActive()
-                    val entry = queue.getJSONObject(index)
-                    val id = entry.getString("id")
-                    val url = YouTubeAudioStreamService.playbackUri(id, entry.getString("uri"))
-                    val metadata = MediaMetadata.Builder().setTitle(com.example.data.repository.CatalogNames.clean(entry.optString("originalProviderTitle").ifBlank { entry.getString("title") }))
-                        .setArtist(entry.getString("artist")).setAlbumTitle(entry.optString("album"))
-                        .setGenre(entry.optString("genre")).setArtworkUri(entry.optString("artwork")
-                            .takeIf(String::isNotBlank)?.let(Uri::parse))
-                        .setIsPlayable(true).setIsBrowsable(false).setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                        .setExtras(Bundle().apply {
-                            putString("media_source", entry.optString("source")); putInt("bitrate", entry.optInt("bitrate"))
-                            putLong("duration", entry.optLong("duration")); putString("qualityBadge", entry.optString("qualityBadge"))
-                            listOf("singers", "writer", "language", "year", "isrc", "originalProviderTitle").forEach { key -> putString(key, entry.optString(key)) }
-                            val primary = entry.optJSONArray("primaryArtists")
-                            putStringArrayList("primaryArtists", ArrayList((0 until (primary?.length() ?: 0))
-                                .map { primary!!.getString(it) }.filter(String::isNotBlank)))
-                            putLong("playlist_entry_id", entry.optLong("playlistEntryId", 0L))
-                            putBoolean("isLiked", known[id]?.isLiked ?: entry.optBoolean("isLiked"))
-                            putBoolean("isLossless", entry.optBoolean("isLossless"))
-                            putBoolean("recommendation_only", entry.optBoolean("recommendationOnly"))
-                            putBoolean("queue_collection", entry.optBoolean("queueCollection"))
-                            entry.optJSONObject("enhancerOrigin")?.let { origin ->
-                                com.example.playback.SourceTransitionOrigin.keys.forEach { key -> when (val value = origin.opt(key)) {
-                                    is Boolean -> putBoolean(key, value)
-                                    is Number -> putInt(key, value.toInt())
-                                    is String -> putString(key, value)
-                                } }
-                            }
-                        }).build()
-                    MediaItem.Builder().setMediaId(id).setUri(url).setMediaMetadata(metadata).build()
-                } }
+                val items = withContext(AppDispatchers.CpuBounded) {
+                    val slice = com.example.performance.ProcessingSlice()
+                    (0 until queue.length()).map { index ->
+                        slice.checkpoint()
+                        currentCoroutineContext().ensureActive()
+                        val entry = queue.getJSONObject(index)
+                        val id = entry.getString("id")
+                        val url = YouTubeAudioStreamService.playbackUri(id, entry.getString("uri"))
+                        val metadata = MediaMetadata.Builder().setTitle(com.example.data.repository.CatalogNames.clean(entry.optString("originalProviderTitle").ifBlank { entry.getString("title") }))
+                            .setArtist(entry.getString("artist")).setAlbumTitle(entry.optString("album"))
+                            .setGenre(entry.optString("genre")).setArtworkUri(entry.optString("artwork")
+                                .takeIf(String::isNotBlank)?.let(Uri::parse))
+                            .setIsPlayable(true).setIsBrowsable(false).setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                            .setExtras(Bundle().apply {
+                                putString("media_source", entry.optString("source")); putInt("bitrate", entry.optInt("bitrate"))
+                                putLong("duration", entry.optLong("duration")); putString("qualityBadge", entry.optString("qualityBadge"))
+                                listOf("singers", "writer", "language", "year", "isrc", "originalProviderTitle").forEach { key -> putString(key, entry.optString(key)) }
+                                val primary = entry.optJSONArray("primaryArtists")
+                                putStringArrayList("primaryArtists", ArrayList((0 until (primary?.length() ?: 0))
+                                    .map { primary!!.getString(it) }.filter(String::isNotBlank)))
+                                putLong("playlist_entry_id", entry.optLong("playlistEntryId", 0L))
+                                putBoolean("isLiked", known[id]?.isLiked ?: entry.optBoolean("isLiked"))
+                                putBoolean("isLossless", entry.optBoolean("isLossless"))
+                                putBoolean("recommendation_only", entry.optBoolean("recommendationOnly"))
+                                putBoolean("queue_collection", entry.optBoolean("queueCollection"))
+                                entry.optJSONObject("enhancerOrigin")?.let { origin ->
+                                    com.example.playback.SourceTransitionOrigin.keys.forEach { key -> when (val value = origin.opt(key)) {
+                                        is Boolean -> putBoolean(key, value)
+                                        is Number -> putInt(key, value.toInt())
+                                        is String -> putString(key, value)
+                                    } }
+                                }
+                            }).build()
+                        MediaItem.Builder().setMediaId(id).setUri(url).setMediaMetadata(metadata).build()
+                    }
+                }
                 val index = root.getInt("index")
                 val position = root.getLong("position")
-                if (index !in items.indices || position < 0L || !items.all(::isReal)) return@withLock null
+                if (index !in items.indices || position < 0L || !items.all(::isReal)) return@localDataPreparation null
                 synchronized(publicationLock) { latest ?: Snapshot(items, index, position).also { latest = it } }
-            } catch (e: CancellationException) { throw e }
-            catch (_: java.io.FileNotFoundException) { null }
-            catch (e: Exception) { android.util.Log.w("PlaybackSession", "Saved session is unavailable: ${e.message}"); null }
-        }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: java.io.FileNotFoundException) { null }
+        catch (e: Exception) { android.util.Log.w("PlaybackSession", "Saved session is unavailable: ${e.message}"); null }
     }
 }

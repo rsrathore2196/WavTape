@@ -13,6 +13,9 @@ import com.example.data.repository.CatalogPlaylist
 import com.example.data.repository.CatalogProvider
 import com.example.performance.AppDispatchers
 import com.example.performance.BackgroundWorkCoordinator
+import com.example.performance.WorkClass
+import com.example.performance.WorkClassification
+import com.example.performance.WorkStages
 import com.example.ui.viewmodel.MostListenedArtist
 import com.example.ui.viewmodel.SectionState
 import java.io.File
@@ -38,7 +41,7 @@ internal fun readBoundedHomeCache(input: java.io.InputStream, limit: Int): Strin
 
 /** Retry each captured key once; a failed file must not starve unrelated checkpoints. */
 internal suspend fun <T : Any> persistHomeCheckpoints(pending: MutableMap<String, T>,
-    persist: (T) -> Unit, failed: (String, Exception) -> Unit = { _, _ -> }) {
+    persist: suspend (T) -> Unit, failed: (String, Exception) -> Unit = { _, _ -> }) {
     val keys = synchronized(pending) { pending.keys.toList() }
     for (key in keys) {
         for (attempt in 0..1) {
@@ -46,6 +49,7 @@ internal suspend fun <T : Any> persistHomeCheckpoints(pending: MutableMap<String
             try {
                 persist(checkpoint)
                 synchronized(pending) { if (pending[key] === checkpoint) pending.remove(key) }
+                yield()
                 break
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { if (attempt == 1) failed(key, error) }
@@ -86,8 +90,23 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
     companion object {
         private const val VERSION = 3
         private const val MAX_BYTES = 4 * 1024 * 1024
-        private data class Pending(val target: File, val bytes: ByteArray)
-        private data class CachedJson(val json: JSONObject, val checkpoint: Any? = null)
+        private data class Encoded(val json: JSONObject, val bytes: ByteArray)
+        private class Pending(val target: File, val key: String, val entry: CachedJson,
+            val previous: CachedJson?, val encode: () -> JSONObject) {
+            val encoding = Mutex()
+            val readers = java.util.concurrent.atomic.AtomicInteger()
+            fun requested() = readers.get() > 0
+            var encoded: Encoded? = null
+            suspend fun prepare(): Encoded = encoding.withLock {
+                encoded ?: withContext(AppDispatchers.CpuBounded) {
+                    BackgroundWorkCoordinator.traceWork("Home checkpoint encoding") {
+                        val json = encode().put("version", VERSION)
+                        Encoded(json, json.toString().toByteArray())
+                    }
+                }.also { encoded = it }
+            }
+        }
+        private class CachedJson(@Volatile var json: JSONObject?, val checkpoint: Any? = null)
         private val memory = android.util.LruCache<String, CachedJson>(12)
         private val pending = linkedMapOf<String, Pending>()
         private val fileMutex = Mutex()
@@ -99,23 +118,37 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
                 // Only a failed batch schedules backoff. No timer or disk work
                 // runs while idle, and unrelated/newer checkpoints keep priority.
                 for (retry in 0..2) {
-                    fileMutex.withLock {
-                        persistHomeCheckpoints(pending, persist = { write ->
+                    persistHomeCheckpoints(pending, persist = { write ->
+                        val value = withContext(WorkClassification(WorkClass.PERSISTENCE)) {
+                            BackgroundWorkCoordinator.optionalProcessing(urgent = write::requested) {
+                                BackgroundWorkCoordinator.awaitOptionalBatch()
+                                // Coalesce BEFORE encoding. A replaced proposal has no CPU cost.
+                                if (synchronized(pending) { pending[write.target.path] !== write }) null
+                                else write.prepare()
+                            }
+                        } ?: return@persistHomeCheckpoints
+                        if (value.bytes.size > MAX_BYTES) {
+                            discard(write)
+                            return@persistHomeCheckpoints
+                        }
+                        if (synchronized(pending) { pending[write.target.path] !== write }) return@persistHomeCheckpoints
+                        WorkStages.disk { fileMutex.withLock {
                             val file = AtomicFile(write.target)
                             var output: java.io.FileOutputStream? = null
                             try {
-                                output = file.startWrite(); output.write(write.bytes); file.finishWrite(output)
+                                output = file.startWrite(); output.write(value.bytes); file.finishWrite(output)
                                 // AtomicFile logs some rename failures instead of throwing.
                                 // Never acknowledge a checkpoint that did not replace its target.
-                                if (!write.target.isFile || write.target.length() != write.bytes.size.toLong() ||
+                                if (!write.target.isFile || write.target.length() != value.bytes.size.toLong() ||
                                     File(write.target.path + ".new").exists()) throw java.io.IOException("Home cache commit did not complete")
+                                publishEncoded(write, value)
                             } catch (cancelled: CancellationException) { file.failWrite(output); throw cancelled }
                             catch (error: Exception) {
                                 file.failWrite(output)
                                 throw error
                             }
-                        }, failed = { _, error -> android.util.Log.w("HomeCardCache", "Home cache write remains pending", error) })
-                    }
+                        } }
+                    }, failed = { _, error -> android.util.Log.w("HomeCardCache", "Home cache write remains pending", error) })
                     if (synchronized(pending) { pending.isEmpty() } || retry == 2) break
                     delay(250L shl retry)
                 }
@@ -123,6 +156,14 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
         } }
         internal fun retryPendingWrites() {
             if (synchronized(pending) { pending.isNotEmpty() }) signal.trySend(Unit)
+        }
+        private fun publishEncoded(write: Pending, value: Encoded) = synchronized(memory) {
+            if (memory.get(write.key) === write.entry) write.entry.json = value.json
+        }
+        private fun discard(write: Pending) = synchronized(memory) {
+            if (memory.get(write.key) === write.entry) {
+                if (write.previous == null) memory.remove(write.key) else memory.put(write.key, write.previous)
+            }
         }
     }
     private fun file(name: String) = File(directory, "home_${name}_v3.json")
@@ -132,37 +173,47 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
     private suspend fun readJson(name: String): JSONObject? = withContext(workerDispatcher) {
         retryPendingWrites()
         submission(name).withLock { peekJson(name) ?: try {
+            val proposal = synchronized(pending) { pending[file(name).path] }
+            if (proposal != null) {
+                // A requested cache read can materialize the latest memory snapshot
+                // without waiting for optional persistence or holding its disk permit.
+                proposal.readers.incrementAndGet()
+                BackgroundWorkCoordinator.admissionChanged()
+                val prepared = try { proposal.prepare() } finally {
+                    proposal.readers.decrementAndGet()
+                    BackgroundWorkCoordinator.admissionChanged()
+                }
+                if (prepared.bytes.size <= MAX_BYTES) {
+                    publishEncoded(proposal, prepared)
+                    return@withLock prepared.json
+                }
+                discard(proposal)
+            }
             val text = fileMutex.withLock {
                 val file = AtomicFile(file(name))
-                synchronized(pending) { pending[file.baseFile.path]?.bytes }?.let { return@withLock it.toString(Charsets.UTF_8) }
                 if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return@withLock null
                 file.openRead().use { readBoundedHomeCache(it, MAX_BYTES) }
             } ?: return@withContext null
-            BackgroundWorkCoordinator.finishBoundedBatch { withContext(AppDispatchers.CpuBounded) {
-                JSONObject(text).takeIf { it.optInt("version") == VERSION }
-            } }?.also { synchronized(memory) { memory.put(memoryKey(name), CachedJson(it)) } }
+            withContext(AppDispatchers.CpuBounded) {
+                BackgroundWorkCoordinator.traceWork("Home cache JSON decoding") { JSONObject(text) }.takeIf { it.optInt("version") == VERSION }
+            }?.also { synchronized(memory) { memory.put(memoryKey(name), CachedJson(it)) } }
         } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         }
     }
     private suspend fun write(name: String, checkpoint: Any, encode: () -> JSONObject) = submission(name).withLock {
-        val value = BackgroundWorkCoordinator.finishBoundedBatch { withContext(AppDispatchers.CpuBounded) {
-            if (synchronized(memory) { memory.get(memoryKey(name))?.checkpoint } == checkpoint) null
-            else encode().put("version", VERSION).let { it to it.toString().toByteArray() }
-        } }
-        withContext(workerDispatcher) {
-            if (value != null) {
-                val (json, encoded) = value
-                if (encoded.size > MAX_BYTES) return@withContext
-                synchronized(memory) { memory.put(memoryKey(name), CachedJson(json, checkpoint)) }
-                val target = file(name)
-                synchronized(pending) {
-                    pending.remove(target.path)
-                    pending[target.path] = Pending(target, encoded)
-                    while (pending.size > 12) pending.remove(pending.keys.first())
-                }
+        val key = memoryKey(name)
+        val previous = synchronized(memory) { memory.get(key) }
+        if (previous?.checkpoint != checkpoint) {
+            val entry = CachedJson(null, checkpoint)
+            val target = file(name)
+            synchronized(memory) { memory.put(key, entry) }
+            synchronized(pending) {
+                pending.remove(target.path)
+                pending[target.path] = Pending(target, key, entry, previous, encode)
+                while (pending.size > 12) pending.remove(pending.keys.first())
             }
-            signal.trySend(Unit)
         }
+        signal.trySend(Unit)
     }
     private fun tracks(rows: List<MusicTrack>) = JSONArray(RecommendationTrackCodec.encode(rows))
     private fun tracks(rows: JSONArray?) = rows?.let { RecommendationTrackCodec.decode(it.toString(), 250) }.orEmpty()
@@ -314,17 +365,19 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
         val sourceBrowseId: String, val completedBrowseIds: Set<String>, val sources: List<HomeBrowseSnapshot>)
     private data class ProfileCheckpoint(val key: String, val fetchedAt: Long, val success: Boolean, val shelf: ServerHomeShelf?)
     private data class LocalCheckpoint(val revision: String?, val artistVersion: Int, val recent: List<MusicTrack>, val artists: List<MostListenedArtist>)
-    suspend fun saveHome(cards: SavedHomeCards) {
+    suspend fun saveHome(cards: SavedHomeCards) = saveHome(cards, canonical = false)
+    internal suspend fun saveCanonicalHome(cards: SavedHomeCards) = saveHome(cards, canonical = true)
+    private suspend fun saveHome(cards: SavedHomeCards, canonical: Boolean) {
         write("server_${HomeCacheIdentity.fileKey(cards.profileKey)}",
             HomeCheckpoint(cards.profileKey, cards.refreshedAt, cards.serverFetchSucceeded, cards.serverShelves, cards.continuationToken, cards.consumedContinuations, cards.sourceBrowseId, cards.completedBrowseIds, cards.browseSources)) {
             JSONObject().put("key", cards.profileKey).put("accountIdentity", cards.profileKey.substringAfter('|')).put("refreshedAt", cards.refreshedAt)
             .put("success", cards.serverFetchSucceeded).put("contentVersion", SERVER_HOME_CONTENT_VERSION)
-            .put("serverShelves", JSONArray(HomeShelfIdentity.deduplicate(cards.serverShelves).map(::shelf)))
+            .put("serverShelves", JSONArray((if (canonical) cards.serverShelves else HomeShelfIdentity.deduplicate(cards.serverShelves)).map(::shelf)))
             .put("continuationToken", cards.continuationToken).put("consumedContinuations", JSONArray(cards.consumedContinuations.toList()))
             .put("sourceBrowseId", cards.sourceBrowseId).put("completedBrowseIds", JSONArray(cards.completedBrowseIds.toList()))
             .put("browseSources", JSONArray(cards.browseSources.map { source ->
                 JSONObject().put("browseId", source.browseId).put("account", source.accountIdentity)
-                    .put("shelves", JSONArray(HomeShelfIdentity.deduplicate(source.shelves).map(::shelf)))
+                    .put("shelves", JSONArray((if (canonical) source.shelves else HomeShelfIdentity.deduplicate(source.shelves)).map(::shelf)))
                     .put("continuation", source.continuation).put("consumed", JSONArray(source.consumed.toList()))
                     .put("fetchedAt", source.fetchedAt).put("success", source.succeeded).put("emptyPages", source.emptyPages)
             }))
@@ -332,11 +385,10 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
         saveInitialHome(cards)
     }
     suspend fun saveInitialHome(cards: SavedHomeCards) {
-        val selected = com.example.data.model.initialHomeShelves(cards.serverShelves)
         write("initial_${HomeCacheIdentity.fileKey(cards.profileKey)}",
-            HomeCheckpoint(cards.profileKey, cards.refreshedAt, cards.serverFetchSucceeded, selected, cards.continuationToken,
-                cards.consumedContinuations, cards.sourceBrowseId, cards.completedBrowseIds,
-                cards.browseSources.map { it.copy(shelves = com.example.data.model.initialHomeShelves(it.shelves)) })) {
+            HomeCheckpoint(cards.profileKey, cards.refreshedAt, cards.serverFetchSucceeded, cards.serverShelves, cards.continuationToken,
+                cards.consumedContinuations, cards.sourceBrowseId, cards.completedBrowseIds, cards.browseSources)) {
+            val selected = com.example.data.model.initialHomeShelves(cards.serverShelves)
             val root = JSONObject().put("key", cards.profileKey).put("accountIdentity", cards.profileKey.substringAfter('|'))
                 .put("refreshedAt", cards.refreshedAt).put("success", cards.serverFetchSucceeded).put("contentVersion", cards.serverContentVersion)
                 .put("serverShelves", JSONArray(selected.map(::shelf))).put("continuationToken", cards.continuationToken)

@@ -153,21 +153,32 @@ class PlayerViewModel(
     private val derivedStateScope = viewModelScope + derivedStateDispatcher
     val playerUiState: StateFlow<PlayerUiState> = playbackManager.uiState
     private val playerCover = com.example.ui.util.selectedPlayerCover
+    private val fullPlayerArtworkDemand = MutableStateFlow(false)
+    private val coverArtworkDemand = combine(fullPlayerArtworkDemand,
+        playerUiState.map { it.isLoading }.distinctUntilChanged()) { full, selecting -> full || selecting }
+        .stateIn(viewModelScope + AppDispatchers.Presentation, SharingStarted.Eagerly, false)
+    internal fun setFullPlayerArtworkDemand(visible: Boolean) {
+        if (fullPlayerArtworkDemand.value != visible) {
+            fullPlayerArtworkDemand.value = visible
+            com.example.performance.BackgroundWorkCoordinator.admissionChanged()
+        }
+    }
     private val playerArtworkPrefetch = com.example.ui.util.prepareCurrentPlayerArtwork(
         application, playerUiState.map { it.currentTrack },
-        com.example.performance.BackgroundWorkCoordinator.uiForeground, viewModelScope)
+        com.example.performance.BackgroundWorkCoordinator.uiForeground, viewModelScope,
+        fullPlayerVisible = fullPlayerArtworkDemand, coverUrgency = coverArtworkDemand)
     // Progress has dedicated flows/providers. It must not invalidate the entire navigation tree.
     // Paused positions remain observable so external seeks still update the stationary player.
     val playbackPresentationState = kotlinx.coroutines.flow.combine(playerUiState.map { state ->
         state.copy(currentPositionMs = if (state.isPlaying) 0L else state.currentPositionMs, bufferedPositionMs = 0L)
     }.distinctUntilChanged(), playerCover) { state, cover -> com.example.ui.util.playerCoverState(state, cover) }
-        .distinctUntilChanged().flowOn(derivedStateDispatcher)
-        .stateIn(derivedStateScope, SharingStarted.WhileSubscribed(5_000L), com.example.ui.util.playerCoverState(playerUiState.value, playerCover.value))
+        .distinctUntilChanged().flowOn(AppDispatchers.Presentation)
+        .stateIn(viewModelScope + AppDispatchers.Presentation, SharingStarted.WhileSubscribed(5_000L), com.example.ui.util.playerCoverState(playerUiState.value, playerCover.value))
     val navigationPlayerUiState = kotlinx.coroutines.flow.combine(
         playerUiState.map(::navigationPlayerSnapshot).distinctUntilChanged(), playerCover
     ) { state, cover -> com.example.ui.util.playerCoverState(state, cover) }
-        .distinctUntilChanged().flowOn(derivedStateDispatcher)
-        .stateIn(derivedStateScope, SharingStarted.WhileSubscribed(5_000L),
+        .distinctUntilChanged().flowOn(AppDispatchers.Presentation)
+        .stateIn(viewModelScope + AppDispatchers.Presentation, SharingStarted.WhileSubscribed(5_000L),
             com.example.ui.util.playerCoverState(navigationPlayerSnapshot(playerUiState.value), playerCover.value))
 
     val playbackPosition: StateFlow<Long> = playbackManager.playbackPosition
@@ -313,7 +324,8 @@ class PlayerViewModel(
         val pending = corePreparationMutex.withLock {
             corePreparation?.takeIf { it.first == key }?.second ?: run {
               corePreparation?.second?.cancel()
-              viewModelScope.async<Unit>(AppDispatchers.Io) {
+              viewModelScope.async<Unit>(AppDispatchers.Io + com.example.performance.WorkClassification(
+                  com.example.performance.WorkClass.VISIBLE_CONTENT)) {
                 com.example.performance.BackgroundWorkCoordinator.traceWork("Startup Search cache") {
                     try {
                         val categories = withTimeoutOrNull(3_000L) { repository.cachedExploreCategories(profile) }.orEmpty()

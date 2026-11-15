@@ -16,7 +16,9 @@ import kotlin.coroutines.CoroutineContext
  * Media3's audio renderer/loader threads deliberately do not use this CPU budget. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 object AppDispatchers {
-    val Main: CoroutineDispatcher = Dispatchers.Main.immediate
+    val Main: CoroutineDispatcher get() = Dispatchers.Main.immediate
+    // Only tiny immutable player-state joins. Parsing/list transforms stay on CpuBounded.
+    val Presentation: CoroutineDispatcher = Dispatchers.Default
     val CpuBounded: CoroutineDispatcher = BackgroundDispatcher(
         Dispatchers.Default.limitedParallelism(backgroundCpuParallelism(Runtime.getRuntime().availableProcessors())),
         preemptible = true
@@ -25,12 +27,17 @@ object AppDispatchers {
     val Database: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(4))
     val HomeBookkeeping: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(1))
     val Imports: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(2))
+    internal val Artwork: CoroutineDispatcher = object : CoroutineDispatcher() {
+        override fun dispatch(context: CoroutineContext, block: Runnable) = CpuBounded.dispatch(
+            context + (context[WorkClassification] ?: WorkClassification(WorkClass.VISIBLE_CONTENT)), block)
+    }
 }
 
 /** Cooperative UI/optional CPU work carries this element. Critical playback does not. */
 internal class NonEssentialWork(
     val owner: Job?,
     val canRun: () -> Boolean,
+    val urgent: () -> Boolean = { false },
     val awaitAdmission: suspend () -> Unit
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<NonEssentialWork>
@@ -42,19 +49,25 @@ internal class BackgroundDispatcher(
     private val preemptible: Boolean = false
 ) : CoroutineDispatcher() {
     override fun dispatch(context: CoroutineContext, block: Runnable) {
-        delegate.dispatch(context) {
-            val optional = context[NonEssentialWork]
-            if (preemptible && optional != null && optional.owner?.isActive != false &&
-                context[Job]?.isActive != false && !optional.canRun()) {
-                // Park a continuation, not a pool thread. Cancellation also releases the
-                // continuation immediately so its finally blocks/leases can be cleaned up.
-                val gateContext = context.minusKey(ContinuationInterceptor).minusKey(NonEssentialWork) + Dispatchers.IO
-                CoroutineScope(gateContext).launch(start = CoroutineStart.UNDISPATCHED) {
-                    try { optional.awaitAdmission() }
-                    finally { dispatch(context, block) }
-                }
-            } else atBackgroundPriority(block)
+        val ticket = if (preemptible) WorkStages.cpuTicket(context) else null
+        fun schedule() {
+            delegate.dispatch(context) {
+                val optional = if (context[CriticalWork] != null) null else context[NonEssentialWork]
+                val active = context[Job]?.isActive != false && optional?.owner?.isActive != false
+                if (preemptible && active && (optional != null && !optional.canRun() || ticket != null && !ticket.tryEnter())) {
+                    // Park a continuation, not a pool thread. Cancellation also releases the
+                    // continuation immediately so its finally blocks/leases can be cleaned up.
+                    val gateContext = context.minusKey(ContinuationInterceptor).minusKey(NonEssentialWork) + Dispatchers.IO
+                    CoroutineScope(gateContext).launch(start = CoroutineStart.UNDISPATCHED) {
+                        try {
+                            optional?.awaitAdmission?.invoke()
+                            ticket?.awaitTurn()
+                        } finally { schedule() }
+                    }
+                } else try { atBackgroundPriority(block) } finally { ticket?.close() }
+            }
         }
+        schedule()
     }
 
     private fun atBackgroundPriority(block: Runnable) {

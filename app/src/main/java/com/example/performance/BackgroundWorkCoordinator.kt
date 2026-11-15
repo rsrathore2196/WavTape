@@ -35,6 +35,27 @@ object BackgroundWorkCoordinator {
     /** State changes wake all eligible consumers; quiet periods use their actual deadline. */
     internal fun admissionChanged() { admissionRevision.update { it + 1L } }
 
+    internal suspend fun awaitStageChange(resources: kotlinx.coroutines.flow.StateFlow<Long>, ready: () -> Boolean) {
+        while (true) {
+            val observed = admissionRevision.value
+            val resourceRevision = resources.value
+            currentCoroutineContext().ensureActive()
+            if (ready()) return
+            suspend fun changed() {
+                kotlinx.coroutines.flow.combine(admissionRevision, resources) { global, resource ->
+                    global != observed || resource != resourceRevision
+                }.first { it }
+            }
+            val remaining = nextInteractionDeadline(awaitCore = true)?.let { (it - SystemClock.elapsedRealtime()).coerceAtLeast(1L) }
+            if (remaining == null) changed() else withTimeoutOrNull(remaining) { changed() }
+        }
+    }
+
+    internal fun stageMayRun(kind: WorkClass): Boolean = when (kind) {
+        WorkClass.VISIBLE_CONTENT -> true // The owner retains its interaction/visibility fence.
+        else -> optionalCanRun(false, noUrgency)
+    }
+
     private suspend fun awaitAdmissionChange(observed: Long, deadline: Long? = null, externalUrgency: Boolean = false) {
         val remaining = deadline?.let { (it - SystemClock.elapsedRealtime()).coerceAtLeast(1L) }
         // Some callers expose an ordinary Boolean callback rather than a Flow.
@@ -210,7 +231,7 @@ object BackgroundWorkCoordinator {
     internal fun optionalPlaybackWorkMayProceed(): Boolean = optionalCanRun(false, urgent = { false })
 
     private suspend fun optionalContext(requireForeground: Boolean, urgent: () -> Boolean = noUrgency, awaitFrameQuiet: Boolean = true) =
-        NonEssentialWork(currentCoroutineContext()[Job], { optionalCanRun(requireForeground, urgent, awaitFrameQuiet) }) {
+        NonEssentialWork(currentCoroutineContext()[Job], { optionalCanRun(requireForeground, urgent, awaitFrameQuiet) }, urgent) {
             while (true) {
                 val observed = admissionRevision.value
                 if (optionalCanRun(requireForeground, urgent, awaitFrameQuiet)) break
@@ -229,7 +250,7 @@ object BackgroundWorkCoordinator {
     private suspend fun uiContinuationContext(urgent: () -> Boolean, awaitFrameQuiet: Boolean = true): NonEssentialWork {
         fun canRun() = urgent() || !foreground.get() ||
             (isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet) && !com.example.recommendation.DiscoveryRequestCoordinator.playbackResolving)
-        return NonEssentialWork(currentCoroutineContext()[Job], ::canRun) {
+        return NonEssentialWork(currentCoroutineContext()[Job], ::canRun, urgent) {
             while (true) {
                 val observed = admissionRevision.value
                 if (canRun()) break
@@ -243,16 +264,22 @@ object BackgroundWorkCoordinator {
      * Visible loading content can ignore slow-frame signals to avoid waiting on its own shimmer;
      * input, navigation and playback admission still apply. Other callers keep frame gating. */
     internal suspend fun <T> localDataPreparation(urgent: () -> Boolean = noUrgency, awaitFrameQuiet: Boolean = true,
-        block: suspend () -> T): T = withContext(uiContinuationContext(urgent, awaitFrameQuiet)) { block() }
+        block: suspend () -> T): T = withContext(uiContinuationContext(urgent, awaitFrameQuiet) +
+            WorkClassification(WorkClass.VISIBLE_CONTENT)) { block() }
 
     /** WorkManager also participates in dock preemption, without requiring a headless Home. */
     internal suspend fun <T> maintenance(block: suspend () -> T): T =
-        optionalProcessing(block = block)
+        withContext(WorkClassification(WorkClass.MAINTENANCE)) { optionalProcessing(block = block) }
 
     /** Shared flights use their own live urgency, not a single consumer's cancellation. */
     internal suspend fun <T> optionalProcessing(urgent: () -> Boolean = noUrgency, awaitFrameQuiet: Boolean = true,
         block: suspend () -> T): T =
-        withContext(optionalContext(requireForeground = false, urgent = urgent, awaitFrameQuiet = awaitFrameQuiet)) { block() }
+        withContext(optionalContext(requireForeground = false, urgent = urgent, awaitFrameQuiet = awaitFrameQuiet) +
+            WorkClassification(when (currentCoroutineContext()[WorkClassification]?.kind) {
+                WorkClass.PERSISTENCE -> WorkClass.PERSISTENCE
+                WorkClass.MAINTENANCE -> WorkClass.MAINTENANCE
+                else -> WorkClass.ENRICHMENT
+            })) { block() }
 
     /** Use only between batches, after releasing cache/database/network resources. */
     internal suspend fun awaitOptionalBatch() {
@@ -263,7 +290,7 @@ object BackgroundWorkCoordinator {
     /** Finish a bounded response/transaction before yielding, never idle with its permit held. */
     internal suspend fun <T> finishBoundedBatch(block: suspend () -> T): T {
         val optional = currentCoroutineContext()[NonEssentialWork] ?: return block()
-        return withContext(NonEssentialWork(optional.owner, canRun = { true }, awaitAdmission = { })) { block() }
+        return withContext(NonEssentialWork(optional.owner, canRun = { true }, urgent = optional.urgent, awaitAdmission = { })) { block() }
     }
 
     /**
@@ -278,7 +305,7 @@ object BackgroundWorkCoordinator {
         block: suspend () -> T): T {
         if (currentCoroutineContext()[Admission] != null) return traceWork(label, block)
         if (!cardWork && (priority == StartupPriority.CRITICAL || urgent()))
-            return withContext(Admission(StartupPriority.CRITICAL)) { work { traceWork(label, block) } }
+            return withContext(Admission(StartupPriority.CRITICAL) + CriticalWork()) { work { traceWork(label, block) } }
         if (requireForeground || foreground.get()) awaitFirstFrame()
         val ticket = Ticket(priority, requireForeground, cardWork, urgent)
         synchronized(admissionLock) { waiting.add(ticket) }
@@ -291,7 +318,7 @@ object BackgroundWorkCoordinator {
                 currentCoroutineContext().ensureActive()
                 if (!cardWork && urgent()) {
                     synchronized(admissionLock) { waiting.remove(ticket) }
-                    return withContext(Admission(StartupPriority.CRITICAL)) { work { traceWork(label, block) } }
+                    return withContext(Admission(StartupPriority.CRITICAL) + CriticalWork()) { work { traceWork(label, block) } }
                 }
                 admitted = synchronized(admissionLock) {
                     val now = SystemClock.elapsedRealtime()
@@ -342,7 +369,8 @@ object BackgroundWorkCoordinator {
                 admittedEssential -> admission + uiContinuationContext(urgent)
                 else -> admission + optionalContext(requireForeground, urgent)
             }
-            return withContext(context) {
+            return withContext(context + WorkClassification(if (admittedEssential) WorkClass.VISIBLE_CONTENT else
+                if (priority == StartupPriority.MAINTENANCE) WorkClass.MAINTENANCE else WorkClass.ENRICHMENT)) {
                 work { traceWork(label, block) }
             }
         } finally {

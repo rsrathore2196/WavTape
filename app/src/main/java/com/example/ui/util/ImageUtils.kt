@@ -66,7 +66,7 @@ internal fun buildPlaylistCoverRequest(context: android.content.Context, url: St
         .size(dimension, dimension)
         .interceptorDispatcher(AppDispatchers.Io)
         .fetcherDispatcher(AppDispatchers.Io)
-        .decoderDispatcher(AppDispatchers.CpuBounded)
+        .decoderDispatcher(AppDispatchers.Artwork)
         .scale(Scale.FILL)
         .allowHardware(true)
         .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= 26) android.graphics.Bitmap.Config.HARDWARE else android.graphics.Bitmap.Config.ARGB_8888)
@@ -301,7 +301,7 @@ internal fun buildOptimizedImageRequest(
         .interceptorDispatcher(AppDispatchers.Io)
         .fetcherDispatcher(AppDispatchers.Io)
         // One process-wide CPU budget, including explicitly opened player covers.
-        .decoderDispatcher(AppDispatchers.CpuBounded)
+        .decoderDispatcher(AppDispatchers.Artwork)
         .scale(if (preserveAspectRatio) Scale.FIT else Scale.FILL)
         // Downsample to the destination, but never manufacture a larger bitmap
         // from a native thumbnail and mistake its dimensions for genuine detail.

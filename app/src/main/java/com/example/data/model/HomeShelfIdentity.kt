@@ -60,31 +60,83 @@ internal object HomeShelfIdentity {
             continuationToken = next.continuationToken ?: first.continuationToken)
         return if (merged == first) first else merged
     }
-    fun deduplicate(shelves: List<ServerHomeShelf>): List<ServerHomeShelf> {
+    private fun validated(raw: ServerHomeShelf): Signature? {
+        if (raw.title.isBlank() || isExcluded(raw.title)) return null
+        val seen = hashSetOf<String>()
+        val originalEntries = entries(raw)
+        val valid = originalEntries.filter { entry -> when (entry) {
+            is ServerHomeItem.Song -> entry.track.id.isNotBlank() && entry.track.title.isNotBlank()
+            is ServerHomeItem.Album -> entry.album.id.isNotBlank() && entry.album.title.isNotBlank()
+            is ServerHomeItem.Playlist -> entry.playlist.id.isNotBlank() && entry.playlist.title.isNotBlank()
+        } && seen.add(item(entry)) }
+        if (valid.isEmpty()) return null
+        val shelf = if (valid.size == originalEntries.size) raw else raw.copy(
+            tracks = valid.filterIsInstance<ServerHomeItem.Song>().map { it.track },
+            items = if (raw.items.isEmpty()) emptyList() else valid)
+        return Signature(shelf, title(shelf.title), seen)
+    }
+    private fun normalizedSteps(shelves: List<ServerHomeShelf>,
+        prepare: (ServerHomeShelf) -> Signature?): Sequence<List<ServerHomeShelf>?> = sequence {
         val result = mutableListOf<Signature>()
         for (raw in shelves) {
-            if (raw.title.isBlank() || isExcluded(raw.title)) continue
-            val seen = hashSetOf<String>()
-            val originalEntries = entries(raw)
-            val valid = originalEntries.filter { entry -> when (entry) {
-                is ServerHomeItem.Song -> entry.track.id.isNotBlank() && entry.track.title.isNotBlank()
-                is ServerHomeItem.Album -> entry.album.id.isNotBlank() && entry.album.title.isNotBlank()
-                is ServerHomeItem.Playlist -> entry.playlist.id.isNotBlank() && entry.playlist.title.isNotBlank()
-            } && seen.add(item(entry)) }
-            if (valid.isEmpty()) continue
-            val shelf = if (valid.size == originalEntries.size) raw else raw.copy(
-                tracks = valid.filterIsInstance<ServerHomeItem.Song>().map { it.track }, items = if (raw.items.isEmpty()) emptyList() else valid)
-            // Validation already built the canonical identity set; reuse it.
-            val descriptor = Signature(shelf, title(shelf.title), seen)
+            yield(null)
+            val descriptor = prepare(raw) ?: continue
             val index = result.indexOfFirst { same(it, descriptor) }
             if (index >= 0) {
                 val old = result[index]
-                val merged = merge(old.shelf, shelf)
+                val merged = merge(old.shelf, descriptor.shelf)
                 if (merged !== old.shelf) result[index] = Signature(merged, old.title, old.content + descriptor.content)
             } else result.add(descriptor)
         }
         val normalized = result.map { it.shelf }
-        return if (normalized == shelves) shelves else normalized
+        yield(if (normalized == shelves) shelves else normalized)
+    }
+    fun deduplicate(shelves: List<ServerHomeShelf>): List<ServerHomeShelf> =
+        normalizedSteps(shelves, ::validated).filterNotNull().single()
+
+    /** ViewModel-owned bounded signatures, shared by source and aggregate projections. */
+    class Index {
+        private val signatures = java.util.IdentityHashMap<ServerHomeShelf, Signature>()
+        private fun prepared(shelf: ServerHomeShelf): Signature? {
+            signatures[shelf]?.let { return it }
+            return validated(shelf)?.also { descriptor ->
+                if (signatures.size >= 512) signatures.clear()
+                signatures[shelf] = descriptor
+                signatures[descriptor.shelf] = descriptor
+            }
+        }
+        suspend fun deduplicate(shelves: List<ServerHomeShelf>): List<ServerHomeShelf> {
+            val slice = com.example.performance.ProcessingSlice()
+            var result = shelves
+            for (step in normalizedSteps(shelves, ::prepared)) {
+                if (step != null) result = step
+                slice.checkpoint()
+            }
+            return result
+        }
+        suspend fun refresh(previous: List<ServerHomeShelf>, incoming: List<ServerHomeShelf>): List<ServerHomeShelf> {
+            if (incoming.isEmpty()) return incoming
+            val slice = com.example.performance.ProcessingSlice()
+            val prior = ArrayList<Signature>(previous.size)
+            for (shelf in previous) {
+                prior.add(signatures[shelf] ?: signature(shelf)); slice.checkpoint()
+            }
+            val reused = hashSetOf<String>()
+            val fresh = ArrayList<ServerHomeShelf>()
+            for (shelf in deduplicate(incoming)) {
+                val next = checkNotNull(prepared(shelf))
+                val old = prior.firstOrNull { it.shelf.id !in reused && same(it, next) }
+                val retained = if (old == null) shelf else {
+                    reused.add(old.shelf.id)
+                    val candidate = if (shelf.id == old.shelf.id) shelf else shelf.copy(id = old.shelf.id)
+                    if (candidate == old.shelf) old.shelf else candidate
+                }
+                if (signatures.size >= 512) signatures.clear()
+                signatures[retained] = next.copy(shelf = retained)
+                fresh.add(retained); slice.checkpoint()
+            }
+            return deduplicate(fresh)
+        }
     }
     fun refresh(previous: List<ServerHomeShelf>, incoming: List<ServerHomeShelf>): List<ServerHomeShelf> {
         if (incoming.isEmpty()) return incoming

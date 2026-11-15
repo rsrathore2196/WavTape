@@ -19,19 +19,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DiscoveryRuntimeLifecycleTest {
-    @Test fun serviceTeardownCancelsItsAccountObserverAndClearsThePublishedSession() = runBlocking {
+    @Test fun playbackSessionCannotOverwriteDiscoveryAndTeardownClearsItsPublishedSession() = runBlocking {
         val service = YouTubeAudioStreamService
+        service.setDiscoveryConnection("SAPISID=discovery-fixture", "visitor", "account", "1")
+        val published = service.discoveryAccountChanges.value
+        assertNotNull(published)
         val runtime = service.javaClass.getDeclaredMethod("runtime").apply { isAccessible = true }.invoke(service)
         val engine = runtime.javaClass.getDeclaredMethod("engine", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(runtime, 320_000, false)
         val session = engine.javaClass.getDeclaredField("innerTube").apply { isAccessible = true }.get(engine) as InnerTube
-        session.replaceSession("SAPISID=fixture-session", "fixture-visitor", "fixture-account", "1", true)
-        withTimeout(5_000) { service.discoveryAccountChanges.first { it != null } }
-        val observer = runtime.javaClass.getDeclaredField("accountObserver").apply { isAccessible = true }.get(runtime) as Job
-        assertTrue(observer.isActive)
-        service.releaseResources()
-        withTimeout(5_000) { observer.join() }
-        assertTrue(observer.isCancelled); assertNull(service.discoveryAccountChanges.value)
+        try {
+            session.replaceSession("SAPISID=playback-fixture", "other-visitor", "other-account", "0", true)
+            assertSame("Playback and account browsing retain separate session owners", published, service.discoveryAccountChanges.value)
+            service.releaseResources()
+            assertNull(service.discoveryAccountChanges.value)
+            assertNull(service.javaClass.getDeclaredField("runtime").apply { isAccessible = true }.get(service))
+        } finally { service.setDiscoveryConnection(null, null, null, null); service.releaseResources() }
     }
     @Test fun sessionExclusionKeepsOnlyUniqueIdsAndTheExistingCount() {
         val app = ApplicationProvider.getApplicationContext<Application>()

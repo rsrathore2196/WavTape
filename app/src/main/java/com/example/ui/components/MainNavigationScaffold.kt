@@ -214,6 +214,8 @@ fun MainNavigationScaffold(
         androidx.compose.animation.core.MutableTransitionState(isPlayerExpanded && playerUiState.currentTrack != null)
     }
     playerVisibility.targetState = isPlayerExpanded && playerUiState.currentTrack != null
+    SideEffect { viewModel.setFullPlayerArtworkDemand(playerVisibility.targetState || playerVisibility.currentState) }
+    DisposableEffect(viewModel) { onDispose { viewModel.setFullPlayerArtworkDemand(false) } }
     val playerMotion = remember { PlayerExpansionMotion() }
     // Keep the visible recording coherent for the short handoff; playback/queue
     // state continues live and its newly prefetched artwork is used at the endpoint.

@@ -88,6 +88,9 @@ internal class ScrobbleOutbox private constructor(context: Context) {
         val store = ConnectionStore.get(context); store.load()
         while (true) {
             currentCoroutineContext().ensureActive()
+            // Finish a submitted scrobble, then yield before the next one. The
+            // event timestamp is durable; headless delivery never waits for Home.
+            com.example.performance.BackgroundWorkCoordinator.awaitMaintenanceIdle()
             val entry = lock.withLock { read().getJSONArray("pending").optJSONObject(0) } ?: return@withContext true
             val session = store.state.value.lastFm
             if (session.session.isBlank() || session.username != entry.getString("owner")) { acknowledge(entry.getString("id")); continue }

@@ -1430,7 +1430,7 @@ class MusicService : MediaLibraryService() {
             val resumingGeneration = queueGeneration
             return future {
                 currentQueueForResumption()?.let { return@future it }
-                val saved = PlaybackSessionStore.restore(this@MusicService)
+                val saved = PlaybackSessionStore.restore(this@MusicService, userRequested = true)
                 val ceiling = withContext(AppDispatchers.Io) { networkQuality.snapshot().effectiveCeiling.maxBitrateBps }
                 val restoredItems = withContext(AppDispatchers.CpuBounded) {
                     saved?.items.orEmpty().map { NetworkAudioQualityPolicy.constrain(it, ceiling) }

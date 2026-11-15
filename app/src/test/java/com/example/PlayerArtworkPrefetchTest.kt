@@ -39,8 +39,10 @@ import java.util.concurrent.atomic.AtomicInteger
 class PlayerArtworkPrefetchTest {
     @Before fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
+        BackgroundWorkCoordinator.resetForTesting()
         BackgroundWorkCoordinator.foreground(true)
         BackgroundWorkCoordinator.firstFrameRendered()
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1))
         (BackgroundWorkCoordinator::class.java.getDeclaredField("navigationUntil").apply { isAccessible = true }
             .get(null) as java.util.concurrent.atomic.AtomicLong).set(0L)
         TrackPaletteCache.clear()
@@ -49,6 +51,51 @@ class PlayerArtworkPrefetchTest {
 
     @Test fun selectedCoverAndColorsArePreparedBeforeOpeningAndReusedByVisibleRequests() = preparedCover(false)
     @Test fun selectedVideoUsesTheResolvedSongCoverForPrefetchPaletteAndPlayerWithoutChangingPlayback() = preparedCover(true)
+
+    @Test fun collapsedPlayerLoadsMiniArtThenPromotesTheSamePreparationWhenOpened() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val demand = MutableStateFlow(false)
+        val core = BackgroundWorkCoordinator.coreTabsPreparation()
+        val mini = CompletableDeferred<Unit>()
+        val full = CompletableDeferred<Unit>()
+        val lookups = AtomicInteger()
+        val loader = ImageLoader.Builder(context).components {
+            add(coil.intercept.Interceptor { chain ->
+                val result = chain.proceed(chain.request)
+                when (chain.request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)?.targetSize) {
+                    ImageConfig.MINI_PLAYER_SIZE -> mini.complete(Unit)
+                    ImageConfig.PLAYER_SCREEN_SIZE -> full.complete(Unit)
+                }
+                result
+            })
+            add(object : coil.fetch.Fetcher.Factory<Any> {
+                override fun create(data: Any, options: coil.request.Options, imageLoader: ImageLoader) = coil.fetch.Fetcher {
+                    val pixels = (options.size.width as? coil.size.Dimension.Pixels)?.px ?: 128
+                    val bitmap = Bitmap.createBitmap(pixels, pixels, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.GREEN)
+                    coil.fetch.DrawableResult(android.graphics.drawable.BitmapDrawable(context.resources, bitmap),
+                        false, DataSource.MEMORY_CACHE)
+                }
+            })
+        }.build()
+        val track = MusicTrack("yt_demand12345", "Demand recording", "Artist", "Album", 180000,
+            "https://lh3.googleusercontent.com/demand=w600-h600-l90-rj", "audio")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            prepareCurrentPlayerArtwork(context, MutableStateFlow(track), MutableStateFlow(true), scope,
+                fullPlayerVisible = demand, resolveCover = { lookups.incrementAndGet(); null }, loaderFor = { loader })
+            withTimeout(5_000) { mini.await() }
+            assertFalse("Core startup must not trigger a full-player decode", full.isCompleted)
+            demand.value = true
+            BackgroundWorkCoordinator.admissionChanged()
+            withTimeout(5_000) { full.await() }
+            assertEquals("Expansion must reuse the selected recording's lookup", 1, lookups.get())
+        } finally {
+            core.close()
+            scope.coroutineContext[Job]!!.cancelAndJoin()
+            loader.shutdown()
+        }
+    }
 
     private fun preparedCover(videoThumbnail: Boolean) = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()

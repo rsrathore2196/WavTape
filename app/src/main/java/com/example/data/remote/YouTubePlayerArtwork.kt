@@ -33,13 +33,15 @@ internal class YouTubePlayerArtworkResolver(
     fun peek(track: MusicTrack): String? = cache.get(key(track, contextIdentity()))
         ?.takeIf { android.os.SystemClock.elapsedRealtime() < it.first }?.second
 
-    suspend fun resolve(track: MusicTrack, nativeSongCover: String = "", essential: Boolean = false): String? = withContext(AppDispatchers.Io) {
+    suspend fun resolve(track: MusicTrack, nativeSongCover: String = "", essential: Boolean = false,
+        essentialUpdates: kotlinx.coroutines.flow.StateFlow<Boolean>? = null): String? = withContext(AppDispatchers.Io) {
         if (!needsSongCover(track)) return@withContext null
         val context = contextIdentity()
         val key = key(track, context)
         val result = com.example.recommendation.DiscoveryRequestCoordinator.shared(
             "song-cover:${System.identityHashCode(this@YouTubePlayerArtworkResolver)}:$key",
-            essential = essential, network = false, playbackMetadata = true, awaitFrameQuiet = false) {
+            essential = essential, network = false, playbackMetadata = true, awaitFrameQuiet = false,
+            essentialUpdates = essentialUpdates) {
           suspend fun find(): String? {
             // Native audio metadata is stronger than an earlier incomplete lookup's negative cache.
             val supplied = nativeSongCover.takeIf(::validSongImageUrl)
@@ -285,6 +287,9 @@ private val playerCoverResolver = YouTubePlayerArtworkResolver(
         .putBody(key, JSONObject().put("version", 4).put("url", url.orEmpty()).toString(), if (url == null) 60_000L else 86_400_000L) }
 )
 internal suspend fun resolveYouTubePlayerCover(track: MusicTrack): String? = playerCoverResolver.resolve(track, essential = true)
+internal suspend fun resolveYouTubePlayerCoverOnDemand(track: MusicTrack,
+    fullPlayer: kotlinx.coroutines.flow.StateFlow<Boolean>): String? =
+    playerCoverResolver.resolve(track, essentialUpdates = fullPlayer)
 internal suspend fun resolveNativeSongCover(track: MusicTrack, nativeCover: String): String? = playerCoverResolver.resolve(track, nativeCover)
 internal fun cachedNativeSongCover(track: MusicTrack): String? = playerCoverResolver.peek(track)
 internal suspend fun rejectSongCover(track: MusicTrack, url: String) = playerCoverResolver.reject(track, url)

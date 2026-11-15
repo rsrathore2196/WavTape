@@ -16,6 +16,20 @@ import org.robolectric.annotation.Config
 class ProfileDiscoveryBudgetTest {
     private fun song(id: String) = MusicTrack(id, id, "Singer", "Album", 180_000, "", "")
 
+    @Test fun transportTimeoutDoesNotDiscardAResponseWaitingForCpuAdmission() = runTest {
+        val result = YouTubeMusicApiService.profileShelfResult("IN", listOf("Hindi"), queryOwnsTimeout = true) { _, _, _ ->
+            val response = YouTubeMusicApiService.timedSearchTransport(4_000L) { song("received") }
+            delay(10_000L) // Processing is parked by a gesture, after the transport ended.
+            YouTubeMusicApiService.SongSearchPage(listOf(response), null)
+        }
+        assertEquals("received", result.shelf!!.tracks.single().id)
+        assertFalse(result.isError)
+        try {
+            YouTubeMusicApiService.timedSearchTransport(4_000L) { delay(10_000); "late" }
+            fail("An actual stalled transport must still time out")
+        } catch (_: java.io.IOException) { }
+    }
+
     @Test fun failedAndTimedOutLanguagesCannotDiscardSuccessfulResults() = runTest {
         val calls = mutableListOf<String>()
         val result = YouTubeMusicApiService.profileShelfResult("IN", listOf("Hindi", "Punjabi", "English")) { query, _, region ->

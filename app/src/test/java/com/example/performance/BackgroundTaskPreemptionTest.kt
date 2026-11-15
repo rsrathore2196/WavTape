@@ -181,22 +181,35 @@ class BackgroundTaskPreemptionTest {
         } finally { work.cancelAndJoin() }
     }
 
-    @Test fun anInFlightResponseFinishesParsingBeforeItsNetworkPermitIsReleased() = runBlocking {
+    @Test fun anInFlightResponseReleasesItsTransportBeforeParsingYieldsToInteraction() = runBlocking {
         val response = CompletableDeferred<Unit>()
-        val parse = CompletableDeferred<Unit>()
+        val download = CompletableDeferred<Unit>()
+        val released = CompletableDeferred<Unit>()
         val work = async(AppDispatchers.Io) {
             coordinator.optionalProcessing {
-                DiscoveryRequestCoordinator.network {
-                    response.complete(Unit)
-                    parse.await()
-                    withContext(AppDispatchers.CpuBounded) { "verified response" }
+                val body = DiscoveryRequestCoordinator.network {
+                    response.complete(Unit); download.await(); "verified response"
                 }
+                released.complete(Unit)
+                withContext(AppDispatchers.CpuBounded) { body }
             }
         }
         try {
             withTimeout(3_000) { response.await() }
             coordinator.cancelNonEssentialWork()
-            parse.complete(Unit)
+            download.complete(Unit)
+            withTimeout(2_000) { released.await() }
+            assertFalse("Only parsing waits for the gesture", work.isCompleted)
+            coroutineScope {
+                val allEntered = List(3) { CompletableDeferred<Unit>() }
+                val finish = CompletableDeferred<Unit>()
+                val callers = allEntered.map { entered -> async {
+                    DiscoveryRequestCoordinator.network(essential = true) { entered.complete(Unit); finish.await() }
+                } }
+                try { withTimeout(2_000) { allEntered.forEach { it.await() } } }
+                finally { finish.complete(Unit); callers.forEach { it.cancelAndJoin() } }
+            }
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(2))
             assertEquals("verified response", withTimeout(2_000) { work.await() })
         } finally { work.cancelAndJoin() }
     }

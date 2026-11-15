@@ -83,7 +83,9 @@ internal class RecommendationCache private constructor(context: Context) {
                     try {
                         BackgroundWorkCoordinator.startup(BackgroundWorkCoordinator.StartupPriority.DEFERRED,
                             requireForeground = false) {
-                            if (persistRecommendationBatch(pending, persistence) { database.entries().put(it) })
+                            if (com.example.performance.WorkStages.disk {
+                                persistRecommendationBatch(pending, persistence) { database.entries().put(it) }
+                            })
                                 lastWrite = android.os.SystemClock.elapsedRealtime()
                         }
                         break
@@ -116,7 +118,9 @@ internal class RecommendationCache private constructor(context: Context) {
         writes.trySend(Unit)
         if (checkpoint) withContext(AppDispatchers.Io) {
             try {
-                persistRecommendationCheckpoint(pending, entry, persistence) { database.entries().put(it) }
+                com.example.performance.WorkStages.disk(com.example.performance.WorkClass.VISIBLE_CONTENT) {
+                    persistRecommendationCheckpoint(pending, entry, persistence) { database.entries().put(it) }
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* The existing bounded writer retains this exact entry. */ }
         }

@@ -37,11 +37,15 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
     private val connectivityUpdates: Flow<Boolean> = flow {
         val monitor = withContext(AppDispatchers.Io) { com.example.playback.NetworkQualityMonitor.getInstance(application) }
         emitAll(monitor.connectionType.map { it != com.example.playback.NetworkConnectionType.OFFLINE }.distinctUntilChanged())
+    },
+    private val awaitAccountIdentity: suspend () -> Unit = {
+        (application as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
     }
 ) : AndroidViewModel(application) {
-    private val owner = viewModelScope + AppDispatchers.HomeBookkeeping
+    private val owner = viewModelScope + AppDispatchers.HomeBookkeeping + WorkClassification(WorkClass.VISIBLE_CONTENT)
     private var corePreparationLease: AutoCloseable? = BackgroundWorkCoordinator.coreTabsPreparation()
     private val cache = HomeCardCache(application)
+    private val shelfIndex = HomeShelfIdentity.Index()
     private val database by lazy { suppliedDatabase ?: MusicDatabase.getDatabase(application) }
     private val artistHistory by lazy { LocalArtistHistory.StatsReader(database) }
     private val _userProfile = MutableStateFlow(UserProfilePreferences.peekUserProfile()
@@ -263,7 +267,15 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                 }
         }
         owner.launch {
-            try { BackgroundWorkCoordinator.traceWork("Home native cache restore") { restoreCachedHome() } }
+            try {
+                awaitAccountIdentity()
+                // An unopened encrypted store is not an anonymous account. Settle the
+                // identity before either cache selection or the first browse flight.
+                homeKey = currentHomeKey(_userProfile.value)
+                serverCacheKey = homeKey
+                profileKey = currentProfileKey(_userProfile.value)
+                BackgroundWorkCoordinator.traceWork("Home native cache restore") { restoreCachedHome() }
+            }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A missing cache never blocks the native request. */ }
             finally { restored.complete(Unit) }
@@ -499,7 +511,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
             fullServerCheckpointPending = true
             cache.saveInitialHome(snapshot())
         } else {
-            cache.saveHome(snapshot())
+            cache.saveCanonicalHome(snapshot())
             if (key == homeKey && generation == serverGeneration) fullServerCheckpointPending = false
         }
     }
@@ -520,7 +532,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                 // this exact checkpoint. Restore its full source, not a refresh
                 // from the deliberately incomplete startup projection.
                 sources[cached.browseId] = if (retained == null || retained.fetchedAt <= cached.fetchedAt) cached else retained.copy(
-                    shelves = withContext(AppDispatchers.CpuBounded) { refreshServerShelves(cached.shelves, retained.shelves) })
+                    shelves = withContext(AppDispatchers.CpuBounded) { shelfIndex.refresh(cached.shelves, retained.shelves) })
             }
             projectedInputs = null
         }
@@ -537,7 +549,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         message: String = "", revealed: Int? = null) {
         val key = homeKey; val generation = serverGeneration
         val unique = if (shelves.isEmpty() || shelves === _serverShelves.value) shelves else withContext(AppDispatchers.CpuBounded) {
-            HomeShelfIdentity.deduplicate(shelves)
+            shelfIndex.deduplicate(shelves)
         }
         val presented = if (nativeStageReadyAt.value == null && !_additionalShelvesUnlocked.value) initialHomeShelves(unique)
             else initialHomeShelves(unique).let { first -> first + unique.filterNot { it.id in first.map(ServerHomeShelf::id) } }
@@ -655,7 +667,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                 if (sourceGenerations["FEmusic_home"] != sourceGeneration) return@async false
                 if (serverCacheKey != responseKey) sources.clear()
                 val previous = sources["FEmusic_home"]?.shelves.orEmpty()
-                val shelves = withContext(AppDispatchers.CpuBounded) { refreshServerShelves(previous, response.shelves) }
+                val shelves = withContext(AppDispatchers.CpuBounded) { shelfIndex.refresh(previous, response.shelves) }
                 if (generation != serverGeneration || key != homeKey || key != currentHomeKey(_userProfile.value)) return@async false
                 serverCacheKey = responseKey
                 serverFetchedAt = System.currentTimeMillis(); serverSuccess = true
@@ -730,7 +742,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         val allShelves = if (reuse) projectedShelves else BackgroundWorkCoordinator.localDataPreparation(
             urgent = { urgent || _isRefreshing.value || serverUrgent.value }, awaitFrameQuiet = false) {
             withContext(AppDispatchers.CpuBounded) { BackgroundWorkCoordinator.traceWork("Home shelf projection") {
-                HomeShelfIdentity.refresh(previous, inputs.flatten())
+                shelfIndex.refresh(previous, inputs.flatten())
             } }
         }
         if (key != homeKey || generation != serverGeneration) return
@@ -813,7 +825,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                         } else { sourceFailed(browse, "initial", "account_mismatch"); return@launch }
                     }
                     val previousSource = sources[browse]
-                    val shelves = withContext(AppDispatchers.CpuBounded) { refreshServerShelves(previousSource?.shelves.orEmpty(), result.shelves) }
+                    val shelves = withContext(AppDispatchers.CpuBounded) { shelfIndex.refresh(previousSource?.shelves.orEmpty(), result.shelves) }
                     if (key != homeKey || generation != serverGeneration || account != serverCacheKey.substringAfter('|')) return@launch
                     sources[browse] = HomeBrowseSnapshot(browse, account, shelves, result.continuationToken,
                         fetchedAt = System.currentTimeMillis(), succeeded = true)
@@ -916,7 +928,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                     sourceFailed(browse, token); _continuationStatus.value = ShelfLoadStatus.ERROR; return
                 }
                 val previousUniqueCount = _serverShelves.value.size
-                val appended = withContext(AppDispatchers.CpuBounded) { appendServerShelves(state.shelves, result.shelves) }
+                val appended = withContext(AppDispatchers.CpuBounded) { shelfIndex.deduplicate(state.shelves + result.shelves) }
                 if (generation != serverGeneration || key != homeKey || sourceGenerations[browse] != sourceGeneration) return
                 val consumed = state.consumed + token
                 val changed = appended != state.shelves

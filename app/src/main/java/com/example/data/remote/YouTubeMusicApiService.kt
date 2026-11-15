@@ -89,12 +89,14 @@ object YouTubeMusicApiService {
 
     /** Incremental songs-only fallback for artist pages; never loads an entire discography. */
     suspend fun searchSongsPage(query: String, continuation: String? = null,
-        useInnerTubeX: Boolean = false, forceRefresh: Boolean = false, countryCode: String? = null, languageCode: String? = null): SongSearchPage =
-        searchMusicPage(query, continuation, SearchFilter.SONGS, useInnerTubeX, forceRefresh, countryCode, languageCode)
+        useInnerTubeX: Boolean = false, forceRefresh: Boolean = false, countryCode: String? = null, languageCode: String? = null,
+        transportTimeoutMs: Long? = null): SongSearchPage =
+        searchMusicPage(query, continuation, SearchFilter.SONGS, useInnerTubeX, forceRefresh, countryCode, languageCode, transportTimeoutMs)
 
     /** Videos includes user-uploaded mixes and edits absent from the licensed Songs catalog. */
     suspend fun searchMusicPage(query: String, continuation: String? = null, filter: SearchFilter = SearchFilter.SONGS,
-        useInnerTubeX: Boolean = true, forceRefresh: Boolean = false, countryCode: String? = null, languageCode: String? = null): SongSearchPage = withContext(Dispatchers.IO) {
+        useInnerTubeX: Boolean = true, forceRefresh: Boolean = false, countryCode: String? = null, languageCode: String? = null,
+        transportTimeoutMs: Long? = null): SongSearchPage = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext SongSearchPage(emptyList(), null)
         val validLang = languageCode?.let { LanguageCodeMapper.toBcp47(it) } ?: "en"
         val key = "${filter.name}|${query.trim().lowercase(java.util.Locale.ROOT)}|${continuation.orEmpty()}|$useInnerTubeX|${countryCode.orEmpty()}|$validLang"
@@ -104,8 +106,13 @@ object YouTubeMusicApiService {
                 ?.let { return@withLock it.second }
             if (useInnerTubeX) {
                 val page = try {
-                    val body = YouTubeAudioStreamService.searchMusicResponse(query.trim(), continuation, filter.params,
-                        countryCode = countryCode, languageCode = validLang)
+                    val body = com.example.recommendation.DiscoveryRequestCoordinator.network(
+                        essential = com.example.recommendation.DiscoveryRequestCoordinator.requestUrgency() == null, timeoutMillis = null) {
+                        timedSearchTransport(transportTimeoutMs) {
+                            YouTubeAudioStreamService.searchMusicResponse(query.trim(), continuation, filter.params,
+                                countryCode = countryCode, languageCode = validLang)
+                        }
+                    }
                     withContext(AppDispatchers.CpuBounded) { parseSongSearchPage(body) }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { null }
@@ -133,13 +140,20 @@ object YouTubeMusicApiService {
                 .header("Origin", "https://music.youtube.com")
                 .header("X-YouTube-Client-Name", profile.clientId)
                 .header("X-YouTube-Client-Version", profile.clientVersion).build()
-            val body = artistSearchClient.catalogRequest(request)
+            val body = com.example.recommendation.DiscoveryRequestCoordinator.network(
+                essential = com.example.recommendation.DiscoveryRequestCoordinator.requestUrgency() == null, timeoutMillis = null) {
+                timedSearchTransport(transportTimeoutMs) { artistSearchClient.catalogRequest(request) }
+            }
             val page = withContext(AppDispatchers.CpuBounded) { parseSongSearchPage(body) }
             val result = page.copy(continuation = page.continuation?.takeUnless { it == continuation })
             artistSearchCache.put(key, System.currentTimeMillis() to result)
             result
         }
     }
+
+    internal suspend fun <T : Any> timedSearchTransport(timeoutMs: Long?, block: suspend () -> T): T =
+        if (timeoutMs == null) block() else kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { block() }
+            ?: throw java.io.IOException("Search transport timed out")
 
     internal fun parseSongSearchPage(body: String): SongSearchPage {
         val root = JSONObject(body)
@@ -421,35 +435,36 @@ object YouTubeMusicApiService {
         val region = countryCode.takeIf { it.matches(Regex("[A-Za-z]{2}")) }?.uppercase(java.util.Locale.ROOT) ?: "US"
         android.util.Log.d("NativeHome", "request browse=$browseId authRequested=$includeAccount region=$region language=$languageCode continuation=${continuation != null}")
         homeWithFallback(primary = {
-            com.example.recommendation.DiscoveryRequestCoordinator.network(essential = essential) {
-                val body = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+            val body = com.example.recommendation.DiscoveryRequestCoordinator.network(essential = essential) {
+                kotlinx.coroutines.withTimeoutOrNull(4_000L) {
                     YouTubeAudioStreamService.discoveryResponseWithIdentity("browse", browseId, region,
                         continuation = continuation, languageCode = languageCode, includeAccount = includeAccount)
                 } ?: throw java.io.IOException("Home request timed out")
-                withContext(AppDispatchers.CpuBounded) { val root = JSONObject(body.body)
-                    android.util.Log.d("NativeHome", "shape=" + listOf("contents", "continuationContents", "onResponseReceivedActions", "onResponseReceivedCommands", "onResponseReceivedEndpoints", "error").filter(root::has).joinToString(","))
-                    YouTubeHomeParser.parseHomeFeed(root, continuation, region, languageCode)
-                    .copy(accountIdentity = body.accountIdentity) }
             }
+            withContext(AppDispatchers.CpuBounded) { val root = com.example.performance.BackgroundWorkCoordinator.traceWork("Home JSON decoding") { JSONObject(body.body) }
+                android.util.Log.d("NativeHome", "shape=" + listOf("contents", "continuationContents", "onResponseReceivedActions", "onResponseReceivedCommands", "onResponseReceivedEndpoints", "error").filter(root::has).joinToString(","))
+                YouTubeHomeParser.parseHomeFeedCooperatively(root, continuation, region, languageCode)
+                .copy(accountIdentity = body.accountIdentity) }
         }, fallback = {
             // An account-scoped cursor cannot be appended to an anonymous feed.
             if (continuation != null && includeAccount) throw java.io.IOException("Home continuation requires its original session")
-            com.example.recommendation.DiscoveryRequestCoordinator.network(essential = essential) {
-                val client = YouTubeClient.WEB_REMIX
-                val payload = JSONObject().put("context", JSONObject().put("client", JSONObject()
-                    .put("clientName", client.clientName).put("clientVersion", client.clientVersion)
-                    .put("hl", languageCode).put("gl", region)))
-                if (continuation == null) payload.put("browseId", browseId) else payload.put("continuation", continuation)
-                val request = Request.Builder().url("https://music.youtube.com/youtubei/v1/browse")
-                    .post(payload.toString().toRequestBody(jsonMediaType))
-                    .header("User-Agent", client.userAgent).header("Referer", "https://music.youtube.com/")
-                    .header("Origin", "https://music.youtube.com").header("X-YouTube-Client-Name", client.clientId)
-                    .header("X-YouTube-Client-Version", client.clientVersion).build()
-                val body = kotlinx.coroutines.withTimeoutOrNull(4_000L) { httpClient.catalogRequest(request) }
+            val client = YouTubeClient.WEB_REMIX
+            val payload = JSONObject().put("context", JSONObject().put("client", JSONObject()
+                .put("clientName", client.clientName).put("clientVersion", client.clientVersion)
+                .put("hl", languageCode).put("gl", region)))
+            if (continuation == null) payload.put("browseId", browseId) else payload.put("continuation", continuation)
+            val request = Request.Builder().url("https://music.youtube.com/youtubei/v1/browse")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .header("User-Agent", client.userAgent).header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com").header("X-YouTube-Client-Name", client.clientId)
+                .header("X-YouTube-Client-Version", client.clientVersion).build()
+            val body = com.example.recommendation.DiscoveryRequestCoordinator.network(essential = essential) {
+                kotlinx.coroutines.withTimeoutOrNull(4_000L) { httpClient.catalogRequest(request) }
                     ?: throw java.io.IOException("Home fallback timed out")
-                withContext(AppDispatchers.CpuBounded) { YouTubeHomeParser.parseHomeFeed(JSONObject(body), continuation, region, languageCode)
-                    .copy(accountIdentity = "anonymous") }
             }
+            withContext(AppDispatchers.CpuBounded) { YouTubeHomeParser.parseHomeFeedCooperatively(
+                com.example.performance.BackgroundWorkCoordinator.traceWork("Home JSON decoding") { JSONObject(body) }, continuation, region, languageCode)
+                .copy(accountIdentity = "anonymous") }
         }).also { result ->
             android.util.Log.d("NativeHome", "response browse=$browseId auth=${result.accountIdentity != null && result.accountIdentity != "anonymous"} shelves=${result.shelves.size} cursor=${result.continuationToken != null} result=${if (result.isError) "failed" else if (result.shelves.isEmpty()) "empty" else "success"}")
         }
@@ -465,18 +480,16 @@ object YouTubeMusicApiService {
 
     suspend fun getProfileShelfResult(countryCode: String, languages: List<String>, rotationOffset: Int = 0,
         forceRefresh: Boolean = false): ProfileShelfResult = withContext(AppDispatchers.Io) {
-        profileShelfResult(countryCode, languages, rotationOffset) { query, language, region ->
+        profileShelfResult(countryCode, languages, rotationOffset, queryOwnsTimeout = true) { query, language, region ->
             // One transport per language. The general search helper's native+HTTP
             // fallback can otherwise multiply three optional queries into many requests.
-            com.example.recommendation.DiscoveryRequestCoordinator.network {
-                searchSongsPage(query, useInnerTubeX = false, countryCode = region, languageCode = language,
-                    forceRefresh = forceRefresh)
-            }
+            searchSongsPage(query, useInnerTubeX = false, countryCode = region, languageCode = language,
+                forceRefresh = forceRefresh, transportTimeoutMs = 4_000L)
         }
     }
 
     internal suspend fun profileShelfResult(countryCode: String, languages: List<String>, rotationOffset: Int = 0,
-        query: suspend (String, String, String) -> SongSearchPage): ProfileShelfResult {
+        queryOwnsTimeout: Boolean = false, query: suspend (String, String, String) -> SongSearchPage): ProfileShelfResult {
         val region = countryCode.takeIf { it.matches(Regex("[A-Za-z]{2}")) }?.uppercase(java.util.Locale.ROOT) ?: "US"
         val cleaned = languages.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(java.util.Locale.ROOT) }
         
@@ -494,7 +507,10 @@ object YouTubeMusicApiService {
         for ((q, langCode) in queries) {
             val page = try {
                 com.example.performance.BackgroundWorkCoordinator.awaitOptionalBatch()
-                kotlinx.coroutines.withTimeoutOrNull(4_000L) { query(q, langCode, region) }
+                // Production searches time only their transport. An admitted CPU
+                // continuation may wait through a gesture without losing its response.
+                if (queryOwnsTimeout) query(q, langCode, region)
+                else kotlinx.coroutines.withTimeoutOrNull(4_000L) { query(q, langCode, region) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) { null }

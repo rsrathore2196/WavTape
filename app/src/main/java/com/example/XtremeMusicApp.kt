@@ -38,6 +38,8 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
     private val _launchSettings = kotlinx.coroutines.flow.MutableStateFlow<com.example.data.local.StartupSettings?>(null)
     val launchSettings = _launchSettings.asStateFlow()
     private var launchSettingsJob: kotlinx.coroutines.Job? = null
+    private val discoveryIdentityReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+    internal suspend fun awaitDiscoveryIdentity() = discoveryIdentityReady.await()
 
     fun prepareLaunchSettings() {
         settingsCache.peek()?.let { _launchSettings.value = it; return }
@@ -86,8 +88,8 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
             }
             // Bound actual decode work, without putting instant memory-cache hits
             // behind slow network requests in the artwork interceptor.
-            .decoderDispatcher(AppDispatchers.CpuBounded)
-            .transformationDispatcher(AppDispatchers.CpuBounded)
+            .decoderDispatcher(AppDispatchers.Artwork)
+            .transformationDispatcher(AppDispatchers.Artwork)
             .okHttpClient(okhttp3.OkHttpClient.Builder()
                 .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 8; maxRequestsPerHost = 4 })
                 .eventListenerFactory { object : okhttp3.EventListener() {
@@ -127,10 +129,19 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
         coil.Coil.setImageLoader(asynchronousImageLoader)
         // Registration only: the client is initialized by an actual request.
         OnlineMusicApiService.initialize(this)
-        startupScope.launch { runCatching {
-            com.example.connections.ConnectionStore.get(this@XtremeMusicApp).load()
-            com.example.connections.ScrobbleOutbox.get(this@XtremeMusicApp).resumeIfPending()
-        } }
+        startupScope.launch {
+            try {
+                com.example.performance.BackgroundWorkCoordinator.traceWork("Account identity restore") {
+                    com.example.connections.ConnectionStore.get(this@XtremeMusicApp).load()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { android.util.Log.w("Connections", "Account restoration unavailable", error) }
+            finally { discoveryIdentityReady.complete(Unit) }
+            com.example.performance.BackgroundWorkCoordinator.maintenance {
+                com.example.performance.BackgroundWorkCoordinator.awaitMaintenanceIdle()
+                runCatching { com.example.connections.ScrobbleOutbox.get(this@XtremeMusicApp).resumeIfPending() }
+            }
+        }
 
     }
 

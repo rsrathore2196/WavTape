@@ -336,18 +336,24 @@ class MusicRepository private constructor(
         var previousRows = emptyList<TrackEntity>()
         var previousTracks = emptyList<MusicTrack>()
         val prepared = rows.flowOn(AppDispatchers.Database).distinctUntilChanged().map { list ->
-            if (list != previousRows) {
-                val previous = previousRows.indices.associate { index ->
-                    previousRows[index].id to (previousRows[index] to previousTracks[index])
+            BackgroundWorkCoordinator.localDataPreparation(awaitFrameQuiet = false) {
+                if (list != previousRows) {
+                    val slice = com.example.performance.ProcessingSlice()
+                    val previous = previousRows.indices.associate { index ->
+                        slice.checkpoint()
+                        previousRows[index].id to (previousRows[index] to previousTracks[index])
+                    }
+                    val tracks = list.map { row ->
+                        slice.checkpoint()
+                        previous[row.id]?.takeIf { it.first == row }?.second ?: row.toMusicTrack()
+                    }
+                    previousRows = list
+                    previousTracks = tracks
                 }
-                val tracks = list.map { row ->
-                    previous[row.id]?.takeIf { it.first == row }?.second ?: row.toMusicTrack()
-                }
-                previousRows = list
-                previousTracks = tracks
+                previousTracks
             }
-            previousTracks
-        }.distinctUntilChanged().flowOn(AppDispatchers.CpuBounded)
+        }.distinctUntilChanged().flowOn(AppDispatchers.CpuBounded + com.example.performance.WorkClassification(
+            com.example.performance.WorkClass.VISIBLE_CONTENT))
         return sharedLibrarySnapshots(name, prepared, retain)
     }
 

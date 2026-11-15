@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -86,7 +87,11 @@ private val neutralPlayerBackground = Brush.verticalGradient(listOf(Color(0xff10
 internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTrack?>, foreground: Flow<Boolean>,
     scope: CoroutineScope,
     onCoverResolved: (ResolvedPlayerCover) -> Unit = {},
-    resolveCover: suspend (MusicTrack) -> String? = ::resolveYouTubePlayerCover,
+    fullPlayerVisible: StateFlow<Boolean> = MutableStateFlow(false),
+    coverUrgency: StateFlow<Boolean> = fullPlayerVisible,
+    resolveCover: suspend (MusicTrack) -> String? = {
+        com.example.data.remote.resolveYouTubePlayerCoverOnDemand(it, coverUrgency)
+    },
     loaderFor: (Context) -> ImageLoader = { it.imageLoader }
 ): Job = scope.launch(AppDispatchers.Io) {
     combine(tracks.distinctUntilChanged { a, b -> a === b || a != null && b != null && playerCoverLookupIdentity(a) == playerCoverLookupIdentity(b) },
@@ -94,13 +99,27 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
         .collectLatest { (track, visible) ->
             if (track == null || !visible) return@collectLatest
             try {
-                val cover = resolveCover(track)
+                (context.applicationContext as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
+                val cover = BackgroundWorkCoordinator.traceWork("Player cover identity") { resolveCover(track) }
                 currentCoroutineContext().ensureActive()
                 val artworkTrack = cover?.let { track.copy(coverUrl = it) } ?: track
-                val request = buildOptimizedImageRequest(context, artworkTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE,
-                    artworkTrack, decodeSize = playerArtworkDecodeSize(context), currentTrack = true, requireSquareSongArtwork = cover != null)
+                fun request(full: Boolean): ImageRequest {
+                    val fullSize = playerArtworkDecodeSize(context)
+                    val pixels = (64 * context.resources.displayMetrics.density).toInt().coerceIn(64, 384)
+                    // Share the full player's source file, but decode only the small
+                    // visible target until full preparation is actually admitted.
+                    val built = buildOptimizedImageRequest(context, artworkTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE,
+                        artworkTrack, decodeSize = if (full) fullSize else IntSize(pixels, pixels),
+                        sourceSize = fullSize, currentTrack = true, requireSquareSongArtwork = cover != null)
+                    return if (full) built else built.newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
+                        checkNotNull(built.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER))
+                            .copy(targetSize = ImageConfig.MINI_PLAYER_SIZE), null).build()
+                }
                 val loader = loaderFor(context)
-                val result = loader.execute(request) as? SuccessResult
+                val fullInitially = fullPlayerVisible.value
+                val result = BackgroundWorkCoordinator.traceWork(if (fullInitially) "Player artwork FULL" else "Player artwork MINI") {
+                    loader.execute(request(fullInitially)) as? SuccessResult
+                }
                 if (result == null) {
                     if (cover != null) com.example.data.remote.rejectSongCover(track, cover)
                     return@collectLatest
@@ -118,20 +137,28 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
                     currentCoroutineContext().ensureActive()
                     onCoverResolved(publishPlayerCover(track, cover))
                 }
-                if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
-                    !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@collectLatest
-                val key = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, request.data.toString())
-                preparePlayerArtworkColors(key) {
-                    // Network and decoding started at selection; optional color analysis
-                    // shares the visible player's preparation and existing CPU budget.
-                    val sample = loader.execute(playerPaletteRequest(result.request)) as? SuccessResult
-                        ?: return@preparePlayerArtworkColors null
-                    val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-                    val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
-                        ?: return@preparePlayerArtworkColors null
-                    val resolvedKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, result.request.data.toString())
-                    if (resolvedKey != key) TrackPaletteCache.put(resolvedKey, colors)
-                    colors
+                // Optional prewarming waits for core preparation and gesture quiet.
+                // Expansion promotes this same job instead of restarting its lookup.
+                BackgroundWorkCoordinator.optionalProcessing(urgent = { fullPlayerVisible.value }, awaitFrameQuiet = false) {
+                    BackgroundWorkCoordinator.awaitOptionalBatch()
+                    val fullResult = if (fullInitially) result else BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
+                        loader.execute(request(true)) as? SuccessResult
+                    } ?: return@optionalProcessing
+                    if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
+                        !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@optionalProcessing
+                    val key = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
+                    preparePlayerArtworkColors(key) {
+                        // Network and decoding started at selection; optional color analysis
+                        // shares the visible player's preparation and existing CPU budget.
+                        val sample = loader.execute(playerPaletteRequest(fullResult.request)) as? SuccessResult
+                            ?: return@preparePlayerArtworkColors null
+                        val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
+                        val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
+                            ?: return@preparePlayerArtworkColors null
+                        val resolvedKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
+                        if (resolvedKey != key) TrackPaletteCache.put(resolvedKey, colors)
+                        colors
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A failed prefetch never prevents normal on-demand image loading. */ }
@@ -235,8 +262,8 @@ internal fun playerPaletteRequest(artwork: ImageRequest): ImageRequest = playerA
     .bitmapConfig(Bitmap.Config.ARGB_8888)
     // A small software derivative must not replace the player's full-size decoded cover.
     .memoryCachePolicy(CachePolicy.READ_ONLY)
-    .decoderDispatcher(AppDispatchers.CpuBounded)
-    .transformationDispatcher(AppDispatchers.CpuBounded)
+    .decoderDispatcher(AppDispatchers.Artwork)
+    .transformationDispatcher(AppDispatchers.Artwork)
     .crossfade(false)
     .build()
 

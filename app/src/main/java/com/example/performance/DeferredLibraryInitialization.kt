@@ -30,7 +30,9 @@ object DeferredLibraryInitialization {
                 BackgroundWorkCoordinator.localDataPreparation(awaitFrameQuiet = false) {
                     BackgroundWorkCoordinator.awaitOptionalBatch()
                     BackgroundWorkCoordinator.traceWork("Baseline profile install") {
-                        if (!install(context.applicationContext)) profileStarted.set(false)
+                        // This small app-owned write is independent of Home/network
+                        // readiness. Input/playback already gate it above.
+                        if (!WorkStages.disk(WorkClass.VISIBLE_CONTENT) { install(context.applicationContext) }) profileStarted.set(false)
                     }
                 }
             } catch (cancelled: CancellationException) { profileStarted.set(false); throw cancelled }

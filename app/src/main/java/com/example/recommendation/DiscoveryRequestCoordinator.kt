@@ -18,6 +18,9 @@ internal object DiscoveryRequestCoordinator {
     private class SharedPriority(val urgent: MutableStateFlow<Boolean>, val awaitFrameQuiet: Boolean = true) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<SharedPriority>
     }
+    private class NetworkAdmission : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<NetworkAdmission>
+    }
     private val flights = mutableMapOf<String, Flight>()
     private val lock = Any()
     private val changed = MutableStateFlow(0L)
@@ -42,18 +45,17 @@ internal object DiscoveryRequestCoordinator {
             BackgroundWorkCoordinator.optionalProcessing(urgent = { urgent.value }, awaitFrameQuiet = awaitFrameQuiet, block = block)
         }
 
-    suspend fun <T> network(essential: Boolean = false, block: suspend () -> T): T {
+    suspend fun <T> network(essential: Boolean = false, timeoutMillis: Long? = 12_000L, block: suspend () -> T): T {
+        if (currentCoroutineContext()[NetworkAdmission] != null) return block()
         val priority = currentCoroutineContext()[SharedPriority]
         val urgent = priority?.urgent ?: MutableStateFlow(essential)
         if (essential) { urgent.value = true; BackgroundWorkCoordinator.admissionChanged() }
         return permit(urgent, awaitFrameQuiet = priority?.awaitFrameQuiet != false) {
-            // Finish this bounded transport/parse batch and release its permit.
-            // Catalog processing after the response remains interaction-preemptible.
+            // Time only the admitted transport, then release its permit before
+            // catalog processing. A null deadline preserves a caller's HTTP policy.
             BackgroundWorkCoordinator.traceWork(if (urgent.value) "Discovery urgent network" else "Discovery optional network") {
-              BackgroundWorkCoordinator.finishBoundedBatch {
-                withTimeoutOrNull(12_000L) { Result.success(block()) }?.getOrThrow()
+                if (timeoutMillis == null) block() else withTimeoutOrNull(timeoutMillis) { Result.success(block()) }?.getOrThrow()
                     ?: throw java.io.IOException("Discovery request timed out")
-              }
             }
         }
     }
@@ -62,17 +64,19 @@ internal object DiscoveryRequestCoordinator {
         resolving.update { it + 1 }
         BackgroundWorkCoordinator.admissionChanged()
         try { return BackgroundWorkCoordinator.traceWork("Playback source resolution") {
-            BackgroundWorkCoordinator.finishBoundedBatch(block)
+            withContext(com.example.performance.CriticalWork()) { BackgroundWorkCoordinator.finishBoundedBatch(block) }
         } }
         finally { resolving.update { (it - 1).coerceAtLeast(0) }; BackgroundWorkCoordinator.admissionChanged() }
     }
 
     suspend fun shared(key: String, essential: Boolean, network: Boolean = true, playbackMetadata: Boolean = false,
         awaitFrameQuiet: Boolean = true,
+        essentialUpdates: StateFlow<Boolean>? = null,
         block: suspend () -> List<MusicTrack>): List<MusicTrack> {
+        var essentialReader = essential || essentialUpdates?.value == true
         val flight = synchronized(flights) {
             flights.getOrPut(key) {
-                val urgent = MutableStateFlow(essential)
+                val urgent = MutableStateFlow(essentialReader)
                 Flight(urgent, scope.async(SharedPriority(urgent, awaitFrameQuiet), start = CoroutineStart.LAZY) {
                     suspend fun work(): List<MusicTrack> {
                         return if (network) permit(urgent, awaitFrameQuiet) {
@@ -87,19 +91,30 @@ internal object DiscoveryRequestCoordinator {
                 })
             }.also {
                 it.readers++
-                if (essential) it.essentialReaders++
+                if (essentialReader) it.essentialReaders++
                 it.urgent.value = it.essentialReaders > 0
                 BackgroundWorkCoordinator.admissionChanged()
             }
         }
         try {
             return coroutineScope {
-                flight.result.start(); flight.result.await()
+                val promotion = essentialUpdates?.let { updates -> launch(start = CoroutineStart.UNDISPATCHED) {
+                    updates.collect { active -> synchronized(flights) {
+                        val next = essential || active
+                        if (next != essentialReader) {
+                            flight.essentialReaders += if (next) 1 else -1
+                            essentialReader = next
+                            flight.urgent.value = flight.essentialReaders > 0
+                            BackgroundWorkCoordinator.admissionChanged()
+                        }
+                    } }
+                } }
+                try { flight.result.start(); flight.result.await() } finally { promotion?.cancel() }
             }
         }
         finally {
             synchronized(flights) {
-                if (essential) flight.essentialReaders--
+                if (essentialReader) flight.essentialReaders--
                 flight.urgent.value = flight.essentialReaders > 0
                 BackgroundWorkCoordinator.admissionChanged()
                 if (--flight.readers == 0) {
@@ -148,7 +163,7 @@ internal object DiscoveryRequestCoordinator {
                 if (urgent.value || com.example.performance.BackgroundWorkCoordinator.isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet)) break
                 release()
             }
-            return block()
+            return withContext(NetworkAdmission()) { block() }
         } finally {
             release()
         }

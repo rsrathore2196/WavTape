@@ -163,7 +163,22 @@ object YouTubeHomeParser {
     private fun cleanTitle(raw: String): String = com.example.data.repository.CatalogNames.clean(raw)
 
     fun parseHomeFeed(rootJson: JSONObject, pageIdentity: String? = null,
+        countryCode: String = "US", languageCode: String = "en"): ParsedHomeFeed =
+        homeFeedSteps(rootJson, pageIdentity, countryCode, languageCode).filterNotNull().single()
+
+    internal suspend fun parseHomeFeedCooperatively(rootJson: JSONObject, pageIdentity: String? = null,
         countryCode: String = "US", languageCode: String = "en"): ParsedHomeFeed {
+        val slice = com.example.performance.ProcessingSlice()
+        var result: ParsedHomeFeed? = null
+        for (step in homeFeedSteps(rootJson, pageIdentity, countryCode, languageCode)) {
+            if (step != null) result = step
+            slice.checkpoint()
+        }
+        return checkNotNull(result)
+    }
+
+    private fun homeFeedSteps(rootJson: JSONObject, pageIdentity: String? = null,
+        countryCode: String = "US", languageCode: String = "en"): Sequence<ParsedHomeFeed?> = sequence {
         if (rootJson.has("error") || listOf("contents", "continuationContents", "onResponseReceivedActions",
                 "onResponseReceivedCommands", "onResponseReceivedEndpoints").none(rootJson::has))
             throw IOException("Invalid Home response")
@@ -223,6 +238,7 @@ object YouTubeHomeParser {
 
         if (rawSections != null) {
             for (i in 0 until rawSections.length()) {
+                yield(null)
                 val section = rawSections.optJSONObject(i) ?: continue
                 val shelfRenderer = section.optJSONObject("musicCarouselShelfRenderer")
                     ?: section.optJSONObject("musicShelfRenderer")
@@ -246,6 +262,7 @@ object YouTubeHomeParser {
                     val seen = hashSetOf<String>()
                     if (itemsArray != null) {
                         for (j in 0 until itemsArray.length()) {
+                            yield(null)
                             val itemObj = itemsArray.optJSONObject(j) ?: continue
                             val renderer = itemObj.optJSONObject("musicTwoRowItemRenderer")
                                 ?: itemObj.optJSONObject("musicResponsiveListItemRenderer")
@@ -300,6 +317,6 @@ object YouTubeHomeParser {
 
         val unique = HomeShelfIdentity.deduplicate(shelves)
         android.util.Log.d("NativeHome", "parse sections=${rawSections.length()} renderers=$nativeRenderers shelves=${shelves.size} omitted=${nativeRenderers - shelves.size} suppressed=${shelves.size - unique.size} cursor=${sectionContinuation != null} pageCursors=${pageCursors.size} nestedCursors=${nestedCursors.size} distinctCursors=${(pageCursors + nestedCursors).size} selectedScope=${if (sectionContinuation == null) "none" else if (sectionContinuation in pageCursors) "page" else "nested"}")
-        return ParsedHomeFeed(unique, sectionContinuation)
+        yield(ParsedHomeFeed(unique, sectionContinuation))
     }
 }
