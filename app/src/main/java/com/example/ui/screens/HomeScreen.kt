@@ -581,15 +581,15 @@ fun HomeScreenContent(
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             items(visibleArtists, key = { it.name }, contentType = { "artist_card" }) { artist ->
-                                Column(
-                                    Modifier.width(168.dp).clip(RoundedCornerShape(18.dp))
-                                        .background(cardBg)
-                                        .clickable {
-                                            onOpenArtist(com.example.data.repository.ArtistPhotoRepository.cachedArtist(artist.name))
-                                        }.padding(12.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    VisibleItemArtwork(artistListState, artist.name) {
+                                VisibleItemArtwork(artistListState, artist.name) {
+                                    Column(
+                                        Modifier.width(168.dp).clip(RoundedCornerShape(18.dp))
+                                            .background(cardBg)
+                                            .clickable {
+                                                onOpenArtist(com.example.data.repository.ArtistPhotoRepository.cachedArtist(artist.name))
+                                            }.padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
                                         com.example.ui.components.ArtistPortrait(
                                             artist = com.example.data.repository.ArtistPhotoRepository.cachedArtist(artist.name),
                                             deferEnrichment = true,
@@ -597,14 +597,14 @@ fun HomeScreenContent(
                                             targetSize = with(androidx.compose.ui.platform.LocalDensity.current) { 124.8.dp.roundToPx() },
                                             modifier = Modifier.size(124.8.dp).clip(CircleShape)
                                         )
+                                        val effectsActive = com.example.ui.components.LocalVisualEffectsActive.current
+                                        val marqueeMode = if (effectsActive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
+                                            else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(artist.name, color = textPrimaryColor, fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, animationMode = marqueeMode),
+                                            maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
                                     }
-                                    val effectsActive = com.example.ui.components.LocalVisualEffectsActive.current
-                                    val marqueeMode = if (effectsActive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
-                                        else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(artist.name, color = textPrimaryColor, fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, animationMode = marqueeMode),
-                                        maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
                                 }
                             }
                         }
@@ -729,21 +729,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.artworkItem(
     }
 }
 
-/** No layout node or data transformation; only this item's image consumers observe visibility. */
+/** No layout node: image work and effects share viewport bounds with independent parent gates. */
 @Composable
 internal fun VisibleItemArtwork(state: LazyListState, key: String, content: @Composable () -> Unit) {
     val parentActive = com.example.ui.util.LocalArtworkRequestsActive.current
-    val active by remember(state, key, parentActive) {
+    val parentEffectsActive = com.example.ui.components.LocalVisualEffectsActive.current
+    val inViewport by remember(state, key) {
         androidx.compose.runtime.derivedStateOf {
-            if (!parentActive) false else {
-                val layout = state.layoutInfo
-                layout.visibleItemsInfo.any { item -> item.key == key &&
-                    item.offset + item.size > layout.viewportStartOffset && item.offset < layout.viewportEndOffset }
-            }
+            val layout = state.layoutInfo
+            layout.visibleItemsInfo.any { item -> item.key == key &&
+                item.offset + item.size > layout.viewportStartOffset && item.offset < layout.viewportEndOffset }
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(
-        com.example.ui.util.LocalArtworkRequestsActive provides active, content = content)
+        com.example.ui.util.LocalArtworkRequestsActive provides (parentActive && inViewport),
+        com.example.ui.components.LocalVisualEffectsActive provides (parentEffectsActive && inViewport), content = content)
 }
 
 /**
