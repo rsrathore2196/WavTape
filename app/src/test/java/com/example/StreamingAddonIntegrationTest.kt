@@ -25,6 +25,42 @@ import java.util.concurrent.CopyOnWriteArrayList
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class StreamingAddonIntegrationTest {
+    @Test fun versionedFlacRelayUsesExplicitMimeAndNoDrm() {
+        val candidate = song.copy(id = StreamingAddons.catalogTrackId(base, "deezer-654"))
+        val body = JSONObject().put("codec", "flac").put("cipher", "NONE").put("format", "flac")
+            .put("playback", JSONObject().put("version", 1).put("type", "progressive").put("uri", "$base/_playback/test/media")
+                .put("mimeType", "audio/flac").put("codec", "flac")).toString()
+        val result = StreamingAddons.parseStream(body, base, song, candidate, maximum)!!
+        val item = StreamingAddons.prepareMediaItem(androidx.media3.common.MediaItem.fromUri(result.audioUrl))
+        assertEquals(MimeTypes.AUDIO_FLAC, item.localConfiguration!!.mimeType)
+        assertNull(item.localConfiguration!!.drmConfiguration)
+        assertTrue(result.isLossless)
+    }
+
+    @Test fun licensedWidevineDescriptorIsAppliedToTheActualMedia3Item() {
+        val candidate = song.copy(id = StreamingAddons.catalogTrackId(base, "tidal-123"))
+        val license = "https://backend.example/_playback/test/license"
+        val body = JSONObject().put("codec", "flac").put("format", "dash")
+            .put("playback", JSONObject().put("version", 1).put("type", "dash").put("uri", "https://cdn.example/full.mpd")
+                .put("mimeType", MimeTypes.APPLICATION_MPD).put("codec", "flac").put("requiresLicense", true)
+                .put("drm", JSONObject().put("scheme", "widevine").put("licenseUrl", license))).toString()
+        val result = StreamingAddons.parseStream(body, base, song, candidate, maximum)!!
+        val item = StreamingAddons.prepareMediaItem(androidx.media3.common.MediaItem.fromUri(result.audioUrl))
+        assertEquals(MimeTypes.APPLICATION_MPD, item.localConfiguration!!.mimeType)
+        val drm = item.localConfiguration!!.drmConfiguration!!
+        assertEquals(androidx.media3.common.C.WIDEVINE_UUID, drm.scheme)
+        assertEquals(license, drm.licenseUri.toString())
+        assertTrue(drm.forceDefaultLicenseUri)
+    }
+
+    @Test fun rawEncryptedDeezerAndUnlicensedDrmAreNotAcceptedAsPlainFlac() {
+        val candidate = song.copy(id = StreamingAddons.catalogTrackId(base, "123"))
+        assertNull(StreamingAddons.parseStream("""{"url":"https://cdn.example/raw","codec":"flac","cipher":"BF_CBC_STRIPE"}""", base, song, candidate, maximum))
+        val body = JSONObject().put("codec", "flac").put("playback", JSONObject().put("version", 1).put("uri", "https://cdn.example/full.mpd")
+            .put("mimeType", MimeTypes.APPLICATION_MPD).put("requiresLicense", true)).toString()
+        assertNull(StreamingAddons.parseStream(body, base, song, candidate, maximum))
+    }
+
     @Test fun atmosNegotiationAndStereoUseSeparateResolutionCaches() = runBlocking {
         enable()
         stream = {

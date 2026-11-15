@@ -40,7 +40,8 @@ object StreamingAddons {
     data class Manifest(val name: String, val baseUrl: String)
     private data class Transport(val headers: Map<String, String>, val mime: String?, val bitrate: Int,
         val expires: Long, val headerScope: String?, val sourceId: String, val baseUrl: String, val provider: String,
-        val atmos: Boolean = false, val codec: String = "")
+        val atmos: Boolean = false, val codec: String = "",
+        val drm: androidx.media3.common.MediaItem.DrmConfiguration? = null)
     private val transports = ConcurrentHashMap<String, Transport>()
     private data class Cached(val track: MusicTrack?, val expires: Long)
     private val resolutions = ConcurrentHashMap<String, Cached>()
@@ -350,7 +351,27 @@ object StreamingAddons {
         policy: PlaybackSourcePolicy, sourceId: String = PlaybackSource.addonId(base)): MusicTrack? {
         if (!policy.maximum) return null
         val root = JSONObject(body)
-        val value = root.optJSONObject("stream") ?: root.optJSONObject("data") ?: root
+        val original = root.optJSONObject("stream") ?: root.optJSONObject("data") ?: root
+        val playback = original.optJSONObject("playback")
+        if (playback != null && playback.optInt("version", 0) != 1) return null
+        if (playback?.optString("type") == "encrypted") return null
+        val value = if (playback == null) original else JSONObject(original.toString()).apply {
+            for ((source, target) in listOf("uri" to "url", "mimeType" to "mimeType", "codec" to "codec", "expiresAt" to "expiresAt", "headers" to "headers")) {
+                if (playback.has(source) && !playback.isNull(source)) put(target, playback.get(source))
+            }
+        }
+        val drmData = playback?.optJSONObject("drm")
+        val drm = if (drmData == null) null else {
+            if (!drmData.optString("scheme").equals("widevine", true)) return null
+            val license = drmData.optString("licenseUrl").toHttpUrlOrNull() ?: return null
+            val localTest = license.host in setOf("127.0.0.1", "localhost", "::1") && base.toHttpUrlOrNull()?.host == license.host
+            if ((!license.isHttps && !localTest) || license.username.isNotEmpty() || license.password.isNotEmpty()) return null
+            androidx.media3.common.MediaItem.DrmConfiguration.Builder(androidx.media3.common.C.WIDEVINE_UUID)
+                .setLicenseUri(license.toString()).setForceDefaultLicenseUri(true).setMultiSession(false).build()
+        }
+        if (value.optString("cipher").lowercase(Locale.ROOT) !in setOf("", "none")) return null
+        if ((playback?.optBoolean("requiresProviderPlayer", false) == true ||
+                playback?.optBoolean("requiresLicense", false) == true || value.optBoolean("requiresProviderPlayer", false)) && drm == null) return null
         val preview = value.opt("sample")?.toString()?.lowercase(Locale.ROOT) in setOf("true", "1") ||
             value.optBoolean("isPreview", false) || value.optBoolean("preview", false)
         if (preview) return null
@@ -358,7 +379,7 @@ object StreamingAddons {
         val fullDuration = value.optLong("trackDuration", value.optLong("fullDuration", 0L))
         if (duration > 0L && fullDuration > 0L && duration + 5L < fullDuration) return null
         val encrypted = value.opt("encrypted")
-        if (encrypted != null && encrypted != JSONObject.NULL && encrypted.toString().lowercase(Locale.ROOT) !in setOf("false", "0", "none", "")) return null
+        if (encrypted != null && encrypted != JSONObject.NULL && encrypted.toString().lowercase(Locale.ROOT) !in setOf("false", "0", "none", "") && drm == null) return null
         val format = value.optString("format").lowercase(Locale.ROOT)
         val codec = value.optString("codec").ifBlank { value.optString("fileCodec") }.ifBlank {
             format.takeIf { it in setOf("flac", "alac", "pcm", "wav") || com.example.playback.DolbyAtmosSupport.isAtmosCodec(it) }.orEmpty()
@@ -402,8 +423,10 @@ object StreamingAddons {
                 transport in setOf("dash", "mpd") || declaredMime == androidx.media3.common.MimeTypes.APPLICATION_MPD -> androidx.media3.common.MimeTypes.APPLICATION_MPD
             format in setOf("hls", "m3u8") || transport in setOf("hls", "m3u8") || declaredMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl") -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
             atmos -> androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC
+            declaredMime in setOf("audio/flac", "audio/x-flac") || (codec == "flac" && format == "flac") -> androidx.media3.common.MimeTypes.AUDIO_FLAC
             else -> null
         }
+        if (drm != null && mime != androidx.media3.common.MimeTypes.APPLICATION_MPD) return null
         val headers = value.optJSONObject("headers")?.let { obj -> obj.keys().asSequence().take(32).mapNotNull { key ->
             val v = obj.optString(key)
             (key to v).takeIf { key.lowercase() !in setOf("host", "content-length", "connection", "transfer-encoding") &&
@@ -417,7 +440,8 @@ object StreamingAddons {
             (uri.queryParameter("expire") ?: uri.queryParameter("expires") ?: uri.queryParameter("Expires"))?.toLongOrNull()
                 ?.let { if (it < 100_000_000_000L) it * 1000 else it }
         }
-        val declaredExpiry = epoch(value.optString("expiresAt").takeIf(String::isNotBlank))
+        val declaredExpiry = listOfNotNull(epoch(value.optString("expiresAt").takeIf(String::isNotBlank)),
+            epoch(original.optString("expiresAt").takeIf(String::isNotBlank))).minOrNull()
         val expires = listOfNotNull(urlExpiry, declaredExpiry).minOrNull() ?: (now + 180_000L)
         if (expires <= now + 5_000L) return null
         if (transports.size >= 128) transports.entries.minByOrNull { it.value.expires }?.let { transports.remove(it.key) }
@@ -425,7 +449,7 @@ object StreamingAddons {
             .find(inlineXml)?.groupValues?.get(1)?.trim()?.replace("&amp;", "&")?.toHttpUrlOrNull()?.toString()
         val provider = policy.configuredSources.firstOrNull { it.id == sourceId && it.kind == PlaybackSourceKind.ADDON }?.name
             ?.let { "Streaming Addon: $it" } ?: candidate.source
-        transports[stream] = Transport(headers, mime, bitrate, minOf(expires - 5_000L, now + 180_000L), scope, sourceId, base, provider, atmos, codec)
+        transports[stream] = Transport(headers, mime, bitrate, minOf(expires - 5_000L, now + 180_000L), scope, sourceId, base, provider, atmos, codec, drm)
         return requested.copy(audioUrl = stream, source = provider, bitrateKbps = bitrate,
             isLossless = !atmos && codec in setOf("flac", "alac", "pcm", "wav"), qualityBadge = "Custom stream")
     }
@@ -460,6 +484,13 @@ object StreamingAddons {
         return transportFor(url)?.headers.orEmpty()
     }
     fun mime(url: String): String? = transports[url]?.mime
+    /** Apply only the exact registered addon transport, including licensed Widevine.
+     * Segment URLs must not inherit a separate root's DRM configuration. */
+    fun prepareMediaItem(item: androidx.media3.common.MediaItem): androidx.media3.common.MediaItem {
+        val url = item.localConfiguration?.uri?.toString() ?: return item
+        val transport = transports[url] ?: return item
+        return item.buildUpon().setMimeType(transport.mime).setDrmConfiguration(transport.drm).build()
+    }
     fun providerName(url: String): String? = transports[url]?.provider
     /** Exact resolved representation only; segment URLs/catalog estimates are not bitrate evidence. */
     internal fun bitrateForStream(url: String, decodedCodec: String): Int = transports[url]?.let { transport ->
