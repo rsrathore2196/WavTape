@@ -850,7 +850,7 @@ class MusicService : MediaLibraryService() {
                     return com.example.downloads.OfflineDownloads.get(this@MusicService).source(item)
                 if (address?.scheme in setOf("file", "content", "xtreme-offline") ||
                     item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
-                    return transportSources.createMediaSource(item)
+                    return transportSources.createMediaSource(com.example.data.remote.StreamingAddons.prepareMediaItem(item))
                 return PolicyResolvingMediaSource(item, this, serviceScope,
                     resolvedIsCurrent = { it.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key }) { requested ->
                     resolveQueuedSource(requested)
