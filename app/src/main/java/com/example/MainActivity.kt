@@ -106,7 +106,6 @@ class MainActivity : ComponentActivity() {
                 displayListenerRegistered = true
             }
         }
-        startFrameMetricsObserver()
     }
 
     override fun onStop() {
@@ -120,7 +119,6 @@ class MainActivity : ComponentActivity() {
             displayManager?.unregisterDisplayListener(displayListener)
             displayListenerRegistered = false
         }
-        stopFrameMetricsObserver()
         super.onStop()
     }
 
@@ -175,6 +173,9 @@ class MainActivity : ComponentActivity() {
 
         val app = application as XtremeMusicApp
         app.prepareLaunchSettings()
+        lifecycleScope.launch(com.example.performance.AppDispatchers.Io) {
+            runCatching { app.awaitImageLoader() }
+        }
         // Keep the Android launch window until local settings are ready, avoiding
         // a frame of onboarding/default colours for a returning user.
         window.decorView.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {

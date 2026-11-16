@@ -203,7 +203,9 @@ internal class ArtworkResolutionInterceptor(
         while (true) {
             // Visible cache misses wait only for the current gesture to finish.
             // No offscreen preparation or global readiness milestone owns images.
-            if (!visibleThumbnail || !cacheOnly) coordinator.yieldToInteraction(awaitFrameQuiet = false)
+            if ((!visibleThumbnail || !cacheOnly) && !coordinator.isInteractionIdle(awaitFrameQuiet = false)) {
+                coordinator.yieldToInteraction(awaitFrameQuiet = false)
+            }
             // A saved visible image must not queue behind slow provider downloads.
             // Disk work stays bounded, and all decodes retain CpuBounded's budget.
             val permits = if (visibleThumbnail && cacheOnly) cachedArtworkRequests else coldArtworkRequests
@@ -371,7 +373,7 @@ internal class ArtworkResolutionInterceptor(
         val preferred = renditionKey?.let { renditionCache?.get(it) }?.takeIf { it in cacheUrls }
         val persisted = better(memory, best(listOfNotNull(preferred) + cacheUrls, cacheOnly = true))
         if (persisted != null && sufficient(persisted)) return remember(persisted)
-        present(persisted)
+        if (persisted !== memory) present(persisted)
         val loaded = better(persisted, best(urls))
         return loaded?.let { remember(it) } ?: lastError ?: ErrorResult(null, request, IOException("Provider artwork unavailable"))
     }

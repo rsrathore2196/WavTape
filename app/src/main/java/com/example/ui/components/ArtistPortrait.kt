@@ -49,8 +49,10 @@ fun ArtistPortrait(artist: CatalogArtist, modifier: Modifier = Modifier,
             } }
             // The repository serves saved portraits first, resolves visible misses
             // with bounded IO, and schedules stale-image upgrades independently.
-            ArtistPhotoRepository.restoreSaved(context, listOf(currentArtist))
-            photo = ArtistPhotoRepository.initialPhoto(currentArtist) ?: photo
+            if (photo == null) {
+                ArtistPhotoRepository.restoreSaved(context, listOf(currentArtist))
+                photo = ArtistPhotoRepository.initialPhoto(currentArtist) ?: photo
+            }
             snapshotFlow { mayEnrich }.first { it }
             val resolved = try { ArtistPhotoRepository.photo(context, currentArtist, refreshInBackground = !deferEnrichment) }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }

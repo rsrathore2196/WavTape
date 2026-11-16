@@ -5,8 +5,6 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.performance.AppDispatchers
-import com.example.performance.WorkClass
-import com.example.performance.WorkStages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +44,7 @@ internal class ConnectionStore internal constructor(context: Context) {
     val state = _state.asStateFlow()
     suspend fun load(): Unit = withContext(AppDispatchers.Io) {
         if (loaded) return@withContext
-        WorkStages.disk(WorkClass.VISIBLE_CONTENT) { lock.withLock {
+        lock.withLock {
             if (loaded) return@withLock
             val master = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
             val prefs = EncryptedSharedPreferences.create(context, PREFS, master,
@@ -67,7 +65,7 @@ internal class ConnectionStore internal constructor(context: Context) {
             _state.value = ConnectionState(sessions, root.optString("active"), spotify, lastFm)
             applyDiscoveryAccount()
             loaded = true
-        } }
+        }
     }
     suspend fun change(transform: (ConnectionState) -> ConnectionState) = withContext(Dispatchers.IO) {
         load()

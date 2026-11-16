@@ -163,7 +163,7 @@ fun MainNavigationScaffold(
     val previousTabIndex = remember { mutableIntStateOf(selectedTabIndex) }
     val selectTab: (Int) -> Unit = remember(viewModel) {
         { index ->
-            if (index == 2) viewModel.retryLocalLibrary()
+            if (index == 2 && viewModel.libraryFailures.value.isNotEmpty()) viewModel.retryLocalLibrary()
             if (selectedTabIndex != index) {
                 com.example.performance.BackgroundWorkCoordinator.navigationInteraction()
                 selectedTabIndex = index

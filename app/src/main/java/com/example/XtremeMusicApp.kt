@@ -73,7 +73,14 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
     internal suspend fun awaitImageLoader(): ImageLoader = asynchronousImageLoader.await()
 
     internal fun installRuntimeProfileAfterFirstDraw() {
-        com.example.performance.DeferredLibraryInitialization.installProfileAfterFirstDraw(this, startupScope)
+        com.example.performance.DeferredLibraryInitialization.installProfileAfterFirstDraw(
+            context = this,
+            scope = startupScope,
+            awaitDraw = {
+                com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame()
+                kotlinx.coroutines.delay(2_000L)
+            }
+        )
     }
 
     private fun createImageLoader(): ImageLoader {
@@ -86,18 +93,12 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
                 if (androidx.tracing.Trace.isEnabled()) com.example.ui.util.ArtworkTraceEventListener()
                 else coil.EventListener.NONE
             }
-            // Bound actual decode work, without putting instant memory-cache hits
-            // behind slow network requests in the artwork interceptor.
+            // Bound actual decode work independently of Home/Room CPU transformations.
             .decoderDispatcher(AppDispatchers.Artwork)
             .transformationDispatcher(AppDispatchers.Artwork)
             .okHttpClient(okhttp3.OkHttpClient.Builder()
                 .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 8; maxRequestsPerHost = 4 })
-                .eventListenerFactory { object : okhttp3.EventListener() {
-                    private var work: AutoCloseable? = null
-                    override fun callStart(call: okhttp3.Call) { work = com.example.performance.BackgroundWorkCoordinator.busy() }
-                    override fun callEnd(call: okhttp3.Call) { work?.close(); work = null }
-                    override fun callFailed(call: okhttp3.Call, ioe: java.io.IOException) { work?.close(); work = null }
-                } }.build())
+                .build())
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.20)

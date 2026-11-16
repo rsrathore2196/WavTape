@@ -77,7 +77,12 @@ internal fun MainTabPager(
             parent.addObserver(observer)
             onDispose { parent.removeObserver(observer); page.destroy() }
         }
-        SideEffect { page.visible = settled; page.update() }
+        SideEffect {
+            if (page.visible != settled) {
+                page.visible = settled
+                page.update()
+            }
+        }
         CompositionLocalProvider(LocalVisualEffectsActive provides (visible && parentEffectsActive),
             LocalArtworkRequestsActive provides settled, LocalLifecycleOwner provides page) {
             Box(Modifier.fillMaxSize().graphicsLayer { clip = false }

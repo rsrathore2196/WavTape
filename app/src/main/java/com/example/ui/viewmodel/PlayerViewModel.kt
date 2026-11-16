@@ -156,7 +156,7 @@ class PlayerViewModel(
     private val fullPlayerArtworkDemand = MutableStateFlow(false)
     private val coverArtworkDemand = combine(fullPlayerArtworkDemand,
         playerUiState.map { it.isLoading }.distinctUntilChanged()) { full, selecting -> full || selecting }
-        .stateIn(viewModelScope + AppDispatchers.Presentation, SharingStarted.Eagerly, false)
+        .stateIn(viewModelScope + AppDispatchers.Presentation, SharingStarted.WhileSubscribed(5_000L), false)
     internal fun setFullPlayerArtworkDemand(visible: Boolean) {
         if (fullPlayerArtworkDemand.value != visible) {
             fullPlayerArtworkDemand.value = visible
@@ -236,9 +236,7 @@ class PlayerViewModel(
                     names.filter { it.contains(state.query, ignoreCase = true) }.ifEmpty { names.take(6) }
                 })
     }.flowOn(derivedStateDispatcher)
-        // Only local transformations; keep the prepared state alive before the first
-        // Search composition. This starts no catalog or recommendation request.
-        .stateIn(derivedStateScope, SharingStarted.Eagerly, _searchState.value)
+        .stateIn(derivedStateScope, SharingStarted.WhileSubscribed(5_000L), _searchState.value)
 
     private val _selectedPlaylistTracks = MutableStateFlow<PlaylistWithTracks?>(null)
     val selectedPlaylistTracks: StateFlow<PlaylistWithTracks?> = _selectedPlaylistTracks.asStateFlow()
@@ -275,9 +273,8 @@ class PlayerViewModel(
                     android.util.Log.w("PlayerViewModel", "Local library snapshot unavailable", error)
                 }
             } else emptyFlow()
-        // The repository already owns the five-second stop grace. Do not stack
-        // another grace period on top while a retained tab is hidden.
-        }.stateIn(libraryDataScope, SharingStarted.WhileSubscribed(0), initial)
+        // Keep local library flows warm across short tab switches while still releasing immediately on background.
+        }.stateIn(libraryDataScope, SharingStarted.WhileSubscribed(30_000L), initial)
 
     private val _libraryMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 8)
     val libraryMessages = _libraryMessages.asSharedFlow()
@@ -326,21 +323,33 @@ class PlayerViewModel(
               corePreparation?.second?.cancel()
               viewModelScope.async<Unit>(AppDispatchers.Io + com.example.performance.WorkClassification(
                   com.example.performance.WorkClass.VISIBLE_CONTENT)) {
-                com.example.performance.BackgroundWorkCoordinator.traceWork("Startup Search cache") {
-                    try {
-                        val categories = withTimeoutOrNull(3_000L) { repository.cachedExploreCategories(profile) }.orEmpty()
-                        ensureActive()
-                        if (categories.isNotEmpty() && userProfile.value.countryCode == profile.countryCode &&
-                            !_searchState.value.exploreIndexReady) _searchState.update { it.copy(exploreCategories = categories) }
-                        restoreRecentSearches()
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* A missing category cache is a settled stage. */ }
+                com.example.performance.SequentialBackgroundConductor.enqueue(
+                    priority = com.example.performance.SequentialBackgroundConductor.Priority.TAB_WARMUP,
+                    yieldToScroll = false,
+                    label = "Startup Search cache"
+                ) {
+                    com.example.performance.BackgroundWorkCoordinator.traceWork("Startup Search cache") {
+                        try {
+                            val categories = withTimeoutOrNull(3_000L) { repository.cachedExploreCategories(profile) }.orEmpty()
+                            ensureActive()
+                            if (categories.isNotEmpty() && userProfile.value.countryCode == profile.countryCode &&
+                                !_searchState.value.exploreIndexReady) _searchState.update { it.copy(exploreCategories = categories) }
+                            restoreRecentSearches()
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* A missing category cache is a settled stage. */ }
+                    }
                 }
-                com.example.performance.BackgroundWorkCoordinator.traceWork("Startup Library playlists") {
-                    try {
-                        withTimeoutOrNull(3_000L) { repository.getAllPlaylists().first() }?.let { _preparedPlaylists.value = it }
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* Retain the last valid lightweight playlist snapshot. */ }
+                com.example.performance.SequentialBackgroundConductor.enqueue(
+                    priority = com.example.performance.SequentialBackgroundConductor.Priority.TAB_WARMUP,
+                    yieldToScroll = false,
+                    label = "Startup Library playlists"
+                ) {
+                    com.example.performance.BackgroundWorkCoordinator.traceWork("Startup Library playlists") {
+                        try {
+                            withTimeoutOrNull(3_000L) { repository.getAllPlaylists().first() }?.let { _preparedPlaylists.value = it }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* Retain the last valid lightweight playlist snapshot. */ }
+                    }
                 }
               }.also { corePreparation = key to it }
             }
@@ -653,7 +662,8 @@ class PlayerViewModel(
                 _isOnboardingCompleted.value = settings.profile.isOnboardingCompleted
             } finally { _settingsReady.value = true }
         }
-        viewModelScope.launch(AppDispatchers.CpuBounded) {
+        viewModelScope.launch(AppDispatchers.Presentation) {
+            withTimeoutOrNull(300L) { com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame() }
             com.example.updater.AppUpdateManager.updateStatus.map { status ->
                 status is com.example.updater.UpdateStatus.Checking ||
                     status is com.example.updater.UpdateStatus.Downloading &&
@@ -665,7 +675,7 @@ class PlayerViewModel(
                 }
             }
         }
-        viewModelScope.launch(AppDispatchers.CpuBounded) {
+        viewModelScope.launch(AppDispatchers.Presentation) {
             playbackManager.uiState.map { it.isLoading }.distinctUntilChanged().collectLatest { loading ->
                 if (loading) {
                     val work = com.example.performance.BackgroundWorkCoordinator.busy()
@@ -673,16 +683,19 @@ class PlayerViewModel(
                 }
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(AppDispatchers.Io) {
+            withTimeoutOrNull(300L) { com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame() }
             com.example.playback.NetworkQualityMonitor.getInstance(application).sourcePolicy
                 .collect(catalogBrowser::setSourcePolicy)
         }
-        viewModelScope.launch {
+        viewModelScope.launch(AppDispatchers.Io) {
+            withTimeoutOrNull(300L) { com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame() }
             com.example.data.local.OtherSettingsPreferences.observePlaybackIntegrations(application)
                 .collect(catalogBrowser::setStreamingAddon)
         }
         observeCurrentTrackForLyrics()
-        viewModelScope.launch {
+        viewModelScope.launch(AppDispatchers.Io) {
+            withTimeoutOrNull(300L) { com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame() }
             var previousProvider: String? = null
             com.example.data.local.OtherSettingsPreferences.observeLyricsSettings(application).collect { settings ->
                 if (!settings.ready) return@collect
@@ -704,9 +717,10 @@ class PlayerViewModel(
 
     private fun observeCurrentTrackForLyrics() {
         viewModelScope.launch {
+            withTimeoutOrNull(300L) { com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame() }
             combine(playbackManager.uiState, com.example.performance.BackgroundWorkCoordinator.uiForeground) { state, foreground ->
                 Triple(state.currentTrack, state.isPlaying && !state.isLoading, foreground)
-            }.distinctUntilChanged().flowOn(derivedStateDispatcher).collect { (track, ready, foreground) ->
+            }.distinctUntilChanged().flowOn(AppDispatchers.Presentation).collect { (track, ready, foreground) ->
                 val identity = track?.let(SongIdentity::from)
                 if (identity != lastObservedLyricsIdentity) {
                     lastObservedLyricsIdentity = identity

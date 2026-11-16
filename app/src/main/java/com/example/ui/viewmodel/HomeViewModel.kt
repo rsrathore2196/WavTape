@@ -250,10 +250,6 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                 }
         }
         owner.launch {
-            combine(homeVisible, homeDrawAt, BackgroundWorkCoordinator.uiForeground) { active, drawn, foreground -> active && drawn != null && foreground }
-                .distinctUntilChanged().collect { eligible -> if (eligible) scheduleSupplements(false) }
-        }
-        owner.launch {
             combine(homeVisible, profileRequests) { active, request -> request.takeIf { active } }
                 .collectLatest { request ->
                     if (request == null) return@collectLatest
@@ -463,7 +459,15 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         }
         restoreCachedPresentation(::current)
         if (!_coreTabsReady.value) {
-            try { BackgroundWorkCoordinator.traceWork("Startup core tabs") { prepareCoreTabs() } }
+            try {
+                BackgroundWorkCoordinator.traceWork("Startup core tabs") {
+                    SequentialBackgroundConductor.enqueue(
+                        priority = SequentialBackgroundConductor.Priority.TAB_WARMUP,
+                        yieldToScroll = false,
+                        label = "Startup core tabs"
+                    ) { prepareCoreTabs() }
+                }
+            }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { android.util.Log.w("HomeStartup", "Core caches settled: ${error.javaClass.simpleName}") }
             current(); coreSettledAt = elapsedTime(); _coreTabsReady.value = true
@@ -710,15 +714,32 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         val key = profileKey; val generation = profileGeneration; val profile = _userProfile.value; val rotation = profileRotation++
         val job = owner.async {
             try {
-                val result = com.example.recommendation.DiscoveryRequestCoordinator.withPriority(MutableStateFlow(false), awaitFrameQuiet = false) {
-                    BackgroundWorkCoordinator.awaitOptionalBatch()
-                    val response = BackgroundWorkCoordinator.traceWork("Home profile discovery") {
-                        withContext(AppDispatchers.Io) { profileLoader(profile, rotation, force) }
+                val result = if (force) {
+                    com.example.recommendation.DiscoveryRequestCoordinator.withPriority(MutableStateFlow(false), awaitFrameQuiet = false) {
+                        BackgroundWorkCoordinator.awaitOptionalBatch()
+                        val response = BackgroundWorkCoordinator.traceWork("Home profile discovery") {
+                            withContext(AppDispatchers.Io) { profileLoader(profile, rotation, force) }
+                        }
+                        BackgroundWorkCoordinator.awaitOptionalBatch()
+                        response
                     }
-                    // Finish transport without restarting it on input; publish after
-                    // the interaction fence, with no network/database permit held.
-                    BackgroundWorkCoordinator.awaitOptionalBatch()
-                    response
+                } else {
+                    SequentialBackgroundConductor.enqueue(
+                        priority = SequentialBackgroundConductor.Priority.ENRICHMENT,
+                        yieldToScroll = false,
+                        label = "Home profile shelf"
+                    ) {
+                        com.example.recommendation.DiscoveryRequestCoordinator.withPriority(MutableStateFlow(false), awaitFrameQuiet = false) {
+                            BackgroundWorkCoordinator.awaitOptionalBatch()
+                            val response = BackgroundWorkCoordinator.traceWork("Home profile discovery") {
+                                withContext(AppDispatchers.Io) { profileLoader(profile, rotation, force) }
+                            }
+                            // Finish transport without restarting it on input; publish after
+                            // the interaction fence, with no network/database permit held.
+                            BackgroundWorkCoordinator.awaitOptionalBatch()
+                            response
+                        }
+                    }
                 }
                 if (generation != profileGeneration || key != profileKey || key != currentProfileKey(_userProfile.value)) return@async false
                 if (result.isError) { if (_profileShelf.value == null) _profileStatus.value = ShelfLoadStatus.ERROR; return@async false }
@@ -1012,10 +1033,18 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
             restored.await()
             if (visible != active) return@launch
             if (active) {
-                applyUserProfile(_userProfile.value)
+                if (homeKey != currentHomeKey(_userProfile.value) || profileKey != currentProfileKey(_userProfile.value)) {
+                    applyUserProfile(_userProfile.value)
+                }
                 if (artistIdentityDirty) { artistIdentityDirty = false; artistRequests.update { it + 1 } }
-                refreshHome(false)
-                if (homeDrawAt.value != null) scheduleSupplements(false)
+                val primaryFresh = fresh(serverSuccess, serverFetchedAt, sources.values.none { it.shelves.isNotEmpty() })
+                val supplementsFresh = supplementalBrowseIds.all { browse ->
+                    val state = sources[browse]
+                    state != null && sourceFailures[browse]?.token != "initial" && fresh(state.succeeded, state.fetchedAt, state.shelves.isEmpty())
+                }
+                if (!primaryFresh || !supplementsFresh || historyUnavailable || artistFailed) {
+                    refreshHome(false)
+                }
             }
             else {
                 serverUrgent.value = false
@@ -1046,11 +1075,14 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
             try {
                 if (historyUnavailable) historyRetry.update { it + 1 }
                 if (artistFailed) artistRequests.update { it + 1 }
-                val supplements = scheduleSupplements(isExplicitPull)
-                val primaryLoaded = loadServerHome(isExplicitPull)
                 if (isExplicitPull) {
+                    val supplements = scheduleSupplements(true)
+                    val primaryLoaded = loadServerHome(true)
                     supplements.joinAll()
                     if (primaryLoaded) requestMoreHome()
+                } else {
+                    loadServerHome(false)
+                    scheduleSupplements(false)
                 }
             } finally { if (isExplicitPull) nativeRevealAt.value = elapsedTime(); _isRefreshing.value = false }
         }

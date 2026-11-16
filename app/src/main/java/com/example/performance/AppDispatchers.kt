@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.ContinuationInterceptor
@@ -27,10 +28,12 @@ object AppDispatchers {
     val Database: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(4))
     val HomeBookkeeping: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(1))
     val Imports: CoroutineDispatcher = BackgroundDispatcher(Dispatchers.IO.limitedParallelism(2))
-    internal val Artwork: CoroutineDispatcher = object : CoroutineDispatcher() {
-        override fun dispatch(context: CoroutineContext, block: Runnable) = CpuBounded.dispatch(
-            context + (context[WorkClassification] ?: WorkClassification(WorkClass.VISIBLE_CONTENT)), block)
-    }
+    // Dedicated bounded lane for Coil image decoding/transformations without global CPU ticket contention
+    // or interaction-gate stalling during smooth list flings.
+    internal val Artwork: CoroutineDispatcher = BackgroundDispatcher(
+        Dispatchers.Default.limitedParallelism(maxOf(2, backgroundCpuParallelism(Runtime.getRuntime().availableProcessors()))),
+        preemptible = false
+    )
 }
 
 /** Cooperative UI/optional CPU work carries this element. Critical playback does not. */
@@ -55,10 +58,9 @@ internal class BackgroundDispatcher(
                 val optional = if (context[CriticalWork] != null) null else context[NonEssentialWork]
                 val active = context[Job]?.isActive != false && optional?.owner?.isActive != false
                 if (preemptible && active && (optional != null && !optional.canRun() || ticket != null && !ticket.tryEnter())) {
-                    // Park a continuation, not a pool thread. Cancellation also releases the
-                    // continuation immediately so its finally blocks/leases can be cleaned up.
+                    // Park a continuation on the shared gate scope, not a pool thread or fresh scope object.
                     val gateContext = context.minusKey(ContinuationInterceptor).minusKey(NonEssentialWork) + Dispatchers.IO
-                    CoroutineScope(gateContext).launch(start = CoroutineStart.UNDISPATCHED) {
+                    gateScope.launch(gateContext, start = CoroutineStart.UNDISPATCHED) {
                         try {
                             optional?.awaitAdmission?.invoke()
                             ticket?.awaitTurn()
@@ -82,5 +84,9 @@ internal class BackgroundDispatcher(
             // and never change Main or Media3's decoder/renderer/loader priorities.
             if (lower) Process.setThreadPriority(tid, previous)
         }
+    }
+
+    private companion object {
+        val gateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }

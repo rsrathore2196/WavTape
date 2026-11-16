@@ -311,16 +311,6 @@ class PlaybackManager(
     private var collectionContinuation: CollectionPlaybackContinuation? = null
 
     init {
-        scope.launch {
-            val monitor = withContext(AppDispatchers.Io) { NetworkQualityMonitor.getInstance(context) }
-            networkQualityMonitor = monitor
-            monitor.sourcePolicy.collect { policy ->
-                if (policy.ready) updateLosslessPolicy(policy.ceiling)
-                if (policy.ready && !MusicService.liveSession.value)
-                    _uiState.value.currentTrack?.id?.let { repository?.cancelObsoleteLosslessDiscovery(it, policy.key) }
-                reconcileSourcePolicy(policy)
-            }
-        }
         // EQ remains renderer-side DSP. Provider resolution is selection/policy driven,
         // never an effect edit or automatic background Archive upgrade.
         SleepTimerManager.addExpirationListener(sleepExpirationListener)
@@ -329,7 +319,7 @@ class PlaybackManager(
                 val (saved, tracks) = withContext(AppDispatchers.Io) {
                     AudioEffectsManager.initializePreferences(context)
                     val snapshot = PlaybackSessionStore.restore(context)
-                    snapshot to withContext(AppDispatchers.CpuBounded) {
+                    snapshot to withContext(Dispatchers.Default) {
                         snapshot?.items?.map(::controllerTrack).orEmpty().toMutableStateList()
                     }
                 }
@@ -353,6 +343,14 @@ class PlaybackManager(
                 Log.w(TAG, "Saved player metadata unavailable", e)
             } finally {
                 sessionRestored.complete(Unit)
+            }
+            val monitor = withContext(AppDispatchers.Io) { NetworkQualityMonitor.getInstance(context) }
+            networkQualityMonitor = monitor
+            monitor.sourcePolicy.collect { policy ->
+                if (policy.ready) updateLosslessPolicy(policy.ceiling)
+                if (policy.ready && !MusicService.liveSession.value)
+                    _uiState.value.currentTrack?.id?.let { repository?.cancelObsoleteLosslessDiscovery(it, policy.key) }
+                reconcileSourcePolicy(policy)
             }
         }
         scope.launch {

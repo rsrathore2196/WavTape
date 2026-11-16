@@ -81,7 +81,7 @@ fun InfiniteRadioHeroCard(
                 Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.12f),
                 Color.Black.copy(alpha = if (isDark) 0.35f else 0.18f), Color.White.copy(alpha = 0.6f)
             )), shape)
-            .onSizeChanged { artworkSize = it }
+            .onSizeChanged { if (artworkSize != it) artworkSize = it }
             .testTag("infinite_radio_hero_card")
     ) {
         if (seedTrack != null && artworkSize.width > 0 && artworkSize.height > 0) {
