@@ -226,6 +226,18 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithTag("playlist_detail_screen").assertDoesNotExist()
     }
 
+    @Test fun downloadsPageExcludesMissingUpcomingAudioFromThePlaybackQueue() {
+        save("missing-upcoming", 1, audio = false)
+        save("available-first", 2)
+        showLibrary()
+        compose.onNodeWithTag("open_downloads").performClick()
+        awaitDownloads()
+        compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
+        compose.waitUntil(5_000) { play != null }
+        assertEquals(listOf("available-first"), play!!.second.map { it.id })
+        assertEquals(DownloadStatus.FAILED, store.records.value["missing-upcoming"]!!.status)
+    }
+
     @Test fun emptyDownloadsHaveNoDirectPlayAction() {
         showLibrary()
         compose.onNodeWithTag("play_downloads").assertDoesNotExist()

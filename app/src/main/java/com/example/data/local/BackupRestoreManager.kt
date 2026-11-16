@@ -215,10 +215,24 @@ object BackupRestoreManager {
         return dirs.distinctBy { it.absolutePath }
     }
 
-    /**
-     * Lists existing backup files across phone storage folders including /download/XtremeBackup
-     * and MediaStore.Downloads.
-     */
+    /** Read the same bounded preview for physical files, MediaStore and selected folders.
+     * Full row/schema validation still belongs to restore, before any mutation. */
+    private fun backupCounts(open: () -> java.io.InputStream?): Pair<Int, Int>? = try {
+        val root = open()?.let { JSONObject(readBackupText(it)) }
+        if (root == null || root.has("app") && !root.optString("app").equals("Xtreme Player", true)) null
+        else {
+            val arrays = listOf("playlists", "libraryTracks", "tracks", "favoriteTracks", "listeningStats")
+            val hasData = arrays.any { root.optJSONArray(it) != null } || root.optJSONObject("userProfile") != null
+            if (!hasData || arrays.any { root.has(it) && root.optJSONArray(it) == null }) null
+            else {
+                val tracks = root.optJSONArray("libraryTracks") ?: root.optJSONArray("tracks") ?: root.optJSONArray("favoriteTracks")
+                (tracks?.length() ?: 0) to (root.optJSONArray("playlists")?.length() ?: 0)
+            }
+        }
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
+
+    /** Lists readable backup documents, excluding theme exports and unrelated JSON. */
     fun getAvailableBackups(context: Context): List<BackupInfo> {
         val candidateFiles = mutableListOf<File>()
         for (dir in getPhoneStorageBackupDirectories(context)) {
@@ -245,17 +259,7 @@ object BackupRestoreManager {
 
         // 1. Process physical files
         for (file in candidateFiles.distinctBy { it.absolutePath }) {
-            var tCount = 0
-            var pCount = 0
-            try {
-                val content = file.readText()
-                val obj = JSONObject(content)
-                pCount = obj.optJSONArray("playlists")?.length() ?: 0
-                val tracks = obj.optJSONArray("libraryTracks")
-                    ?: obj.optJSONArray("tracks")
-                    ?: obj.optJSONArray("favoriteTracks")
-                tCount = tracks?.length() ?: 0
-            } catch (e: Exception) {}
+            val (tCount, pCount) = backupCounts { file.inputStream() } ?: continue
 
             val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(file.lastModified()))
             resultList.add(
@@ -294,26 +298,14 @@ object BackupRestoreManager {
                     val sizeCol = c.getColumnIndex(MediaStore.MediaColumns.SIZE)
                     val dateCol = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
                     while (c.moveToNext()) {
-                        val name = if (nameCol != -1) c.getString(nameCol) else null ?: continue
+                        val name = (if (nameCol != -1) c.getString(nameCol) else null) ?: continue
                         val id = if (idCol != -1) c.getLong(idCol) else continue
                         val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
                         val size = if (sizeCol != -1) c.getLong(sizeCol) else 0L
                         val dateModified = if (dateCol != -1) c.getLong(dateCol) * 1000L else System.currentTimeMillis()
 
                         if (resultList.none { it.fileName.equals(name, ignoreCase = true) }) {
-                            var tCount = 0
-                            var pCount = 0
-                            try {
-                                context.contentResolver.openInputStream(uri)?.use { stream ->
-                                    val text = stream.bufferedReader().readText()
-                                    val obj = JSONObject(text)
-                                    pCount = obj.optJSONArray("playlists")?.length() ?: 0
-                                    val tracks = obj.optJSONArray("libraryTracks")
-                                        ?: obj.optJSONArray("tracks")
-                                        ?: obj.optJSONArray("favoriteTracks")
-                                    tCount = tracks?.length() ?: 0
-                                }
-                            } catch (e: Exception) {}
+                            val (tCount, pCount) = backupCounts { context.contentResolver.openInputStream(uri) } ?: continue
 
                             val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(dateModified))
                             resultList.add(
@@ -345,10 +337,12 @@ object BackupRestoreManager {
                     while (cursor.moveToNext()) {
                         val name = cursor.getString(1).orEmpty()
                         if (!name.endsWith(".json", true)) continue
-                        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)).toString()
+                        val document = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0))
+                        val (tracks, playlists) = backupCounts { context.contentResolver.openInputStream(document) } ?: continue
+                        val uri = document.toString()
                         val modified = cursor.getLong(3)
                         resultList.add(BackupInfo(modified, SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(modified)),
-                            uri, name, OtherSettingsPreferences.formatBytes(cursor.getLong(2)), 0, 0, uri))
+                            uri, name, OtherSettingsPreferences.formatBytes(cursor.getLong(2)), tracks, playlists, uri))
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }

@@ -55,13 +55,15 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
                 val record = store.records.value[id] ?: return@withPermit Result.success()
                 if (record.status !in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)) return@withPermit Result.success()
                 try {
-                    setForeground(foreground(record.track.title, 0, true))
                     var claimed: DownloadRecord? = null
                     store.update(id) { current ->
                         if (current !== record || isStopped) current else current.copy(
                             status = DownloadStatus.DOWNLOADING, error = null).also { claimed = it }
                     }
                     val current = claimed ?: return@withPermit Result.success()
+                    // Claim before requesting foreground execution so a rejected start
+                    // follows the same durable failure/retry path as a transfer failure.
+                    setForeground(foreground(record.track.title, 0, true))
                     if (!store.retainCache(id, current)) return@withPermit Result.success()
                     try {
                         try { transfer(store, current) }

@@ -464,7 +464,16 @@ class MusicRepository private constructor(
         retainLosslessLookup: Boolean = true
     ): MusicTrack = withContext(AppDispatchers.Io) {
         if (android.net.Uri.parse(track.audioUrl).scheme == com.example.downloads.OfflineDownloads.SCHEME) return@withContext track
-        context?.let { com.example.downloads.OfflineDownloads.get(it).localTrack(track) }?.let { return@withContext it }
+        context?.let { ctx ->
+            try { com.example.downloads.OfflineDownloads.get(ctx).localTrack(track) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                // An unavailable download index must not prevent an unrelated file
+                // or normal source resolution. Explicit offline URIs stay offline above.
+                Log.w("MusicRepository", "Saved download lookup unavailable", error)
+                null
+            }
+        }?.let { return@withContext it }
         repeat(3) {
             context?.let { com.example.data.local.OtherSettingsPreferences.loadPlaybackSources(it) }
             val monitor = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it) }

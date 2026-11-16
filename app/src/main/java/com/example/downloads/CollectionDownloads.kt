@@ -17,7 +17,12 @@ internal fun savedDownloadRecords(records: Map<String, DownloadRecord>): List<Do
 /** Direct playback validates every saved file and retains the Downloads page's order. */
 internal suspend fun OfflineDownloads.playableSavedTracks(): List<MusicTrack> = withContext(Dispatchers.IO) {
     load()
-    savedDownloadRecords(records.value).mapNotNull { localTrack(it.track) }
+    playableQueue(savedDownloadRecords(records.value).map { it.track })
+}
+
+/** Validate only on a playback action, keeping page presentation free of file scans. */
+internal suspend fun OfflineDownloads.playableQueue(tracks: List<MusicTrack>): List<MusicTrack> = withContext(Dispatchers.IO) {
+    tracks.mapNotNull { localTrack(it) }
 }
 
 /** A collection download includes the server's later pages, not just rows already displayed. */

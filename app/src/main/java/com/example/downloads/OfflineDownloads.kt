@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -304,13 +305,31 @@ class OfflineDownloads internal constructor(
         val saved = records.value[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE && it.plan != null } ?: return@withContext null
         // Check the cache on disk as well as the ledger. Clearing app data/files must never leave phantom downloads.
         if (!retainCache(track.id, saved)) return@withContext null
-        val missing = try { cache(track.id).keys.isEmpty() } finally { releaseOwner(track.id) }
+        val missing = try { !savedAudioIntact(saved) } finally { releaseOwner(track.id) }
         if (missing) {
             update(track.id) { if (it != saved) it else it.copy(status = DownloadStatus.FAILED, error = "Saved audio is missing. Download again.") }
             return@withContext null
         }
         if (records.value[track.id] != saved) return@withContext null
         asOfflineTrack(track, saved)
+    }
+
+    private fun savedAudioIntact(record: DownloadRecord): Boolean {
+        val cache = cache(record.track.id)
+        val spans = cache.keys.flatMap { cache.getCachedSpans(it) }
+        // Content metadata can survive deleted spans. An open index can also retain
+        // a span's old length after its file is truncated, so check the actual files.
+        if (spans.isEmpty() || spans.any { span ->
+                span.file?.let { it.isFile && it.length() == span.length } != true
+            }) return false
+        if (record.bytes > 0L && spans.sumOf { it.length } < record.bytes) return false
+        if (record.plan?.progressive == true) {
+            val length = ContentMetadata.getContentLength(cache.getContentMetadata("audio"))
+            return length > 0L && cache.isCached("audio", 0L, length)
+        }
+        // Adaptive downloads may deliberately contain byte ranges rather than whole
+        // resources. Their completed ledger records the total committed span bytes.
+        return true
     }
     internal suspend fun localQueue(tracks: List<MusicTrack>): List<MusicTrack> = withContext(Dispatchers.IO) {
         load()

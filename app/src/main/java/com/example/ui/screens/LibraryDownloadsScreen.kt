@@ -31,6 +31,7 @@ import com.example.data.model.MusicTrack
 import com.example.downloads.DownloadStatus
 import com.example.downloads.OfflineDownloads
 import com.example.downloads.observeSavedRecords
+import com.example.downloads.playableQueue
 import com.example.performance.AppDispatchers
 import com.example.ui.theme.LocalAppColors
 import kotlinx.coroutines.CancellationException
@@ -85,14 +86,12 @@ fun LibraryDownloadsScreen(
     fun playSaved(selected: MusicTrack, queue: List<MusicTrack>) {
         scope.launch {
             try {
-                if (store.localTrack(selected) == null) {
-                    error = "Saved audio is missing. Download this track again."
-                    return@launch
-                }
                 // Preserve play/shuffle order and offline URIs. Missing downloads
                 // are excluded; playback never falls back to an online stream.
-                val offline = store.localQueue(queue)
-                offline.firstOrNull { it.id == selected.id }?.let { onPlayTrack(it, offline) }
+                val offline = store.playableQueue(queue)
+                val playable = offline.firstOrNull { it.id == selected.id }
+                if (playable == null) error = "Saved audio is missing. Download this track again."
+                else onPlayTrack(playable, offline)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { error = "Saved audio could not be opened. Try downloading it again." }
         }
