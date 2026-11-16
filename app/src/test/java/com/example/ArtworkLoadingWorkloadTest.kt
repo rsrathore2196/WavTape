@@ -164,15 +164,15 @@ class ArtworkLoadingWorkloadTest {
             assertFalse(chain.calls.any { it.second })
         } finally { coordinator.touch(false); coordinator.foreground(false) }
     }
-    @Test fun visibleHomeCoverMissDoesNotWaitForTheWholeScrollToFinish() = runBlocking {
+    @Test fun visibleHomeCoverDiskHitDoesNotWaitForTheWholeScrollToFinish() = runBlocking {
         val coordinator = com.example.performance.BackgroundWorkCoordinator
         coordinator.foreground(true); coordinator.scrolling(true)
         val req = request().newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
             ArtworkRequestMetadata(provider, 300, visibleThumbnail = true), null).build()
-        val chain = Chain(req)
+        val chain = Chain(req, cached = setOf(provider), diskOnly = true)
         try {
             assertTrue(withTimeout(1_000) { ArtworkResolutionInterceptor().intercept(chain) } is SuccessResult)
-            assertEquals(listOf(provider), chain.calls.filter { it.second }.map { it.first })
+            assertTrue(chain.calls.none { it.second })
         } finally { coordinator.scrolling(false); coordinator.foreground(false) }
     }
     @Test fun smallHomeThumbnailDoesNotDownloadMaximumResolutionBeforeItsNativeTier() = runBlocking {
@@ -396,6 +396,25 @@ class ArtworkLoadingWorkloadTest {
         coordinator.scrolling(scrollOwner, true)
         val networkStarted = CompletableDeferred<Unit>()
         val chain = Chain(request(), onNetwork = { networkStarted.complete(Unit) })
+        val result = async { ArtworkResolutionInterceptor().intercept(chain) }
+        try {
+            assertNull("A fling must not admit cold artwork", withTimeoutOrNull(2_000) { networkStarted.await() })
+            assertFalse(result.isCompleted)
+            assertTrue(chain.calls.none { it.second })
+            coordinator.scrolling(scrollOwner, false)
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(300))
+            assertTrue(withTimeout(3_000) { result.await() } is SuccessResult)
+        } finally { coordinator.scrolling(scrollOwner, false); result.cancelAndJoin() }
+    }
+
+    @Test fun visibleThumbnailMissWaitsForScrollButResumesAfterTheGesture() = runBlocking {
+        val coordinator = com.example.performance.BackgroundWorkCoordinator
+        val scrollOwner = Any()
+        coordinator.scrolling(scrollOwner, true)
+        val networkStarted = CompletableDeferred<Unit>()
+        val thumbnail = request().newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
+            ArtworkRequestMetadata(provider, 600, visibleThumbnail = true), null).build()
+        val chain = Chain(thumbnail, onNetwork = { networkStarted.complete(Unit) })
         val result = async { ArtworkResolutionInterceptor().intercept(chain) }
         try {
             assertNull("A fling must not admit cold artwork", withTimeoutOrNull(2_000) { networkStarted.await() })

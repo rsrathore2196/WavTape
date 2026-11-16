@@ -203,7 +203,7 @@ internal class ArtworkResolutionInterceptor(
         while (true) {
             // Visible cache misses wait only for the current gesture to finish.
             // No offscreen preparation or global readiness milestone owns images.
-            if (!visibleThumbnail) coordinator.yieldToInteraction(awaitFrameQuiet = false)
+            if (!visibleThumbnail || !cacheOnly) coordinator.yieldToInteraction(awaitFrameQuiet = false)
             // A saved visible image must not queue behind slow provider downloads.
             // Disk work stays bounded, and all decodes retain CpuBounded's budget.
             val permits = if (visibleThumbnail && cacheOnly) cachedArtworkRequests else coldArtworkRequests
@@ -216,7 +216,7 @@ internal class ArtworkResolutionInterceptor(
                 try {
                     flight.executing.lock()
                     try {
-                        if (visibleThumbnail || coordinator.isInteractionIdle(awaitFrameQuiet = false))
+                        if (visibleThumbnail && cacheOnly || coordinator.isInteractionIdle(awaitFrameQuiet = false))
                             return coordinator.finishBoundedBatch { coordinator.traceWork("Artwork decode or fetch", block) }
                     } finally { flight.executing.unlock() }
                 } finally { permits.release() }

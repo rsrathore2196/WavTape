@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.PowerManager
-import android.os.SystemClock
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -44,7 +43,6 @@ class MainActivity : ComponentActivity() {
     private var performanceSettingsJob: Job? = null
     private var initialContentReady = false
     private var firstDrawListener: android.view.ViewTreeObserver.OnDrawListener? = null
-    private var lastInteractionMs = 0L
     private var frameThread: HandlerThread? = null
     private var frameListener: Window.OnFrameMetricsAvailableListener? = null
     @Volatile private var frameBudgetNanos = 16_666_667L
@@ -71,15 +69,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // Touch edges already notify admission. Moving a held finger cannot make
+        // work eligible; avoid waking every parked startup task again on each move.
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> com.example.performance.BackgroundWorkCoordinator.touch(true)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> com.example.performance.BackgroundWorkCoordinator.touch(false)
-        }
-        val now = SystemClock.uptimeMillis()
-        if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_UP ||
-            now - lastInteractionMs >= 200L) {
-            lastInteractionMs = now
-            com.example.performance.BackgroundWorkCoordinator.interaction()
         }
         return super.dispatchTouchEvent(event)
     }

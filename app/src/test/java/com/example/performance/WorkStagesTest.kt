@@ -17,6 +17,45 @@ import java.util.concurrent.atomic.AtomicInteger
 class WorkStagesTest {
     @Before fun headless() { BackgroundWorkCoordinator.resetForTesting() }
 
+    @Test fun pendingFirstDrawParksCacheCpuAndMaintenanceBeforeForegroundCallback() = runBlocking {
+        BackgroundWorkCoordinator.expectForegroundDraw()
+        val cache = async(AppDispatchers.Io) {
+            BackgroundWorkCoordinator.localDataPreparation(awaitFrameQuiet = false) {
+                withContext(AppDispatchers.CpuBounded) { "restored" }
+            }
+        }
+        val maintenance = async(AppDispatchers.Io) {
+            BackgroundWorkCoordinator.awaitMaintenanceIdle()
+            "maintained"
+        }
+        val startup = async(AppDispatchers.Io) {
+            BackgroundWorkCoordinator.startup(BackgroundWorkCoordinator.StartupPriority.MAINTENANCE,
+                requireForeground = false) { "scheduled" }
+        }
+        try {
+            delay(150)
+            assertFalse("A starting Activity is not a headless process", cache.isCompleted)
+            assertFalse(maintenance.isCompleted)
+            assertFalse(startup.isCompleted)
+            BackgroundWorkCoordinator.firstFrameRendered()
+            assertEquals("restored", withTimeout(2_000) { cache.await() })
+            assertEquals("maintained", withTimeout(2_000) { maintenance.await() })
+            assertEquals("scheduled", withTimeout(2_000) { startup.await() })
+        } finally {
+            BackgroundWorkCoordinator.firstFrameRendered()
+            cache.cancelAndJoin(); maintenance.cancelAndJoin(); startup.cancelAndJoin()
+        }
+    }
+
+    @Test fun actualHeadlessMaintenanceStillRunsWithoutAnActivity() = runBlocking {
+        withTimeout(2_000) { BackgroundWorkCoordinator.awaitMaintenanceIdle() }
+        assertEquals("ready", withTimeout(2_000) {
+            BackgroundWorkCoordinator.localDataPreparation {
+                withContext(AppDispatchers.CpuBounded) { "ready" }
+            }
+        })
+    }
+
     @Test fun visibleContentGetsTheNextStageBeforeAnOlderPersistenceTicket() = runBlocking {
         val job = Job()
         fun ticket(kind: WorkClass) = checkNotNull(WorkStages.cpuTicket(job + WorkClassification(kind)))

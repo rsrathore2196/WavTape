@@ -194,7 +194,7 @@ object BackgroundWorkCoordinator {
             currentCoroutineContext().ensureActive()
             // A paused Activity may retain a navigation/optional-work lease.
             // Headless workers must not wait for a UI that will not draw.
-            if (!foreground.get()) return
+            if (!foreground.get() && !foregroundDrawPending.get()) return
             val now = SystemClock.elapsedRealtime()
             val uiReady = firstFrame.isCompleted && corePreparations.get() == 0 && optionalInteractionIdle(now)
             if (uiReady && jobs.get() == 0 && isInteractionIdle()) return
@@ -221,6 +221,7 @@ object BackgroundWorkCoordinator {
 
     private fun optionalCanRun(requireForeground: Boolean, urgent: () -> Boolean, awaitFrameQuiet: Boolean = true): Boolean {
         if (urgent()) return true
+        if (foregroundDrawPending.get()) return false
         if (com.example.recommendation.DiscoveryRequestCoordinator.playbackResolving) return false
         if (foreground.get() && corePreparations.get() > 0) return false
         if (requireForeground && !foreground.get()) return false
@@ -248,8 +249,8 @@ object BackgroundWorkCoordinator {
      * behind the very restoration that owns the essential lane.
      */
     private suspend fun uiContinuationContext(urgent: () -> Boolean, awaitFrameQuiet: Boolean = true): NonEssentialWork {
-        fun canRun() = urgent() || !foreground.get() ||
-            (isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet) && !com.example.recommendation.DiscoveryRequestCoordinator.playbackResolving)
+        fun canRun() = urgent() || !foregroundDrawPending.get() && (!foreground.get() ||
+            (isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet) && !com.example.recommendation.DiscoveryRequestCoordinator.playbackResolving))
         return NonEssentialWork(currentCoroutineContext()[Job], ::canRun, urgent) {
             while (true) {
                 val observed = admissionRevision.value
@@ -340,7 +341,7 @@ object BackgroundWorkCoordinator {
                     val interactionQuiet = !foreground.get() || optionalInteractionIdle(now)
                     val breathingGapMet = lastOptionalCompleted.get() == 0L ||
                         now - lastOptionalCompleted.get() >= BETWEEN_JOBS_MS
-                    val quiet = (!foreground.get() || corePreparations.get() == 0) && jobs.get() == 0 && (!foreground.get() ||
+                    val quiet = !foregroundDrawPending.get() && (!foreground.get() || corePreparations.get() == 0) && jobs.get() == 0 && (!foreground.get() ||
                         !interacting && now - lastSlowFrame.get() >= 250L) && interactionQuiet && breathingGapMet
                     if (next === ticket && (if (essential) !essentialActive && !interacting
                         else !optionalActive && !essentialActive && quiet)) {

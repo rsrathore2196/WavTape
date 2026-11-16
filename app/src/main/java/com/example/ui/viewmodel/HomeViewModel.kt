@@ -274,7 +274,9 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
                 homeKey = currentHomeKey(_userProfile.value)
                 serverCacheKey = homeKey
                 profileKey = currentProfileKey(_userProfile.value)
-                BackgroundWorkCoordinator.traceWork("Home native cache restore") { restoreCachedHome() }
+                BackgroundWorkCoordinator.localDataPreparation(awaitFrameQuiet = false) {
+                    BackgroundWorkCoordinator.traceWork("Home native cache restore") { restoreCachedHome() }
+                }
             }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A missing cache never blocks the native request. */ }
