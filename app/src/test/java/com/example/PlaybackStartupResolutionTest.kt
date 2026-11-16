@@ -34,6 +34,24 @@ class PlaybackStartupResolutionTest {
     private fun youtube(track: MusicTrack, cap: Int) = track.copy(
         audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=$cap&itag=251", bitrateKbps = 80)
 
+    @Test fun successfulProviderCompletingBetweenPollingAndWaitingIsNotLost() = runTest {
+        val result = resolveProviderCandidates(listOf(PlaybackSource.youtube), defer = {
+            // Complete the queued child after isCompleted was checked, but
+            // before the resolver takes its list of still-pending requests.
+            testScheduler.runCurrent()
+            false
+        }) { "ready" }
+        assertEquals("ready", result)
+    }
+
+    @Test fun fallbackCompletingInTheSameWindowStillWinsAfterThePrimaryFails() = runTest {
+        val result = resolveProviderCandidates(native, defer = {
+            testScheduler.runCurrent()
+            false
+        }) { source -> if (source.kind == PlaybackSourceKind.YOUTUBE) null else "jio" }
+        assertEquals("jio", result)
+    }
+
     @Test fun fastPrimaryAvoidsEverySpeculativeFallback() = runTest {
         val calls = mutableListOf<String>()
         val result = resolveProviderCandidates(native) { source ->

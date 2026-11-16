@@ -68,23 +68,23 @@ class ProgressiveHomeRevealUiTest {
     fun tallLandscapeDoesNotRevealCachedLowerCardsMerelyBecauseTheyWouldFit() {
         content()
         compose.onNodeWithText("Native 1").assertIsDisplayed()
-        compose.onNodeWithText("Native 4").assertIsDisplayed()
-        compose.onNodeWithText("Native 5").assertDoesNotExist()
+        compose.onNodeWithText("Native 3").assertIsDisplayed()
+        compose.onNodeWithText("Native 4").assertDoesNotExist()
         compose.onNodeWithText("Native 7").assertDoesNotExist()
-        // A real attempted scroll must work even if the initial four shelves fit.
+        // A real attempted scroll must work even if the initial three shelves fit.
         compose.onNodeWithTag("home_screen").performTouchInput { swipeUp(durationMillis = 350) }
-        compose.onNodeWithText("Native 5").assertExists()
-        compose.onNodeWithText("Native 7").assertDoesNotExist()
+        compose.onNodeWithText("Native 4").assertExists()
+        compose.onNodeWithText("Native 5").assertDoesNotExist()
     }
 
     @Test fun programmaticScrollAndRecompositionDoNotRevealButUserGestureDoes() {
         content()
         scrollToLoadedTail()
-        compose.onNodeWithText("Native 5").assertDoesNotExist()
+        compose.onNodeWithText("Native 4").assertDoesNotExist()
         compose.onNodeWithTag("home_screen").performTouchInput { swipeUp(durationMillis = 350) }
         scrollToLoadedTail()
-        compose.onNodeWithText("Native 5").assertExists()
-        compose.onNodeWithText("Native 7").assertDoesNotExist()
+        compose.onNodeWithText("Native 4").assertExists()
+        compose.onNodeWithText("Native 5").assertDoesNotExist()
     }
 
     @Test fun recreatedHomeRetainsRevealedSectionsInsteadOfRevealingTheEntireCache() {
@@ -93,10 +93,10 @@ class ProgressiveHomeRevealUiTest {
         scrollToLoadedTail()
         compose.onNodeWithTag("home_screen").performTouchInput { swipeUp(durationMillis = 350) }
         scrollToLoadedTail()
-        compose.onNodeWithText("Native 5").assertExists()
+        compose.onNodeWithText("Native 4").assertExists()
         restoration.emulateSavedInstanceStateRestore()
         scrollToLoadedTail()
-        compose.onNodeWithText("Native 5").assertExists()
-        compose.onNodeWithText("Native 7").assertDoesNotExist()
+        compose.onNodeWithText("Native 4").assertExists()
+        compose.onNodeWithText("Native 5").assertDoesNotExist()
     }
 }

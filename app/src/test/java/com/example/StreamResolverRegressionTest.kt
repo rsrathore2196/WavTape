@@ -192,6 +192,7 @@ class StreamResolverRegressionTest {
             elapsedRealtime = { testScheduler.currentTime },
             resolveAddon = { _, _, _, _ -> awaitCancellation() },
             resolveYouTube = { _, _, _, _ -> awaitCancellation() },
+            fetchById = { _, _ -> awaitCancellation() }, searchYouTube = { awaitCancellation() },
             searchStandard = { _, _ -> awaitCancellation() }, searchLossless = { awaitCancellation() })
         val sources = listOf(PlaybackSource("addon", PlaybackSourceKind.ADDON, "Server", baseUrl = "https://server.example")) + PlaybackSource.builtIns
         try {

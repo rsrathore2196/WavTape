@@ -135,7 +135,8 @@ internal class RecommendationCache private constructor(context: Context) {
 
 /** Metadata only: no YouTube audio URLs are requested or persisted for discovery. */
 internal object RecommendationTrackCodec {
-    fun encode(tracks: List<MusicTrack>): String = JSONArray(tracks.map { t -> JSONObject()
+    fun encode(tracks: List<MusicTrack>): String = encodeArray(tracks).toString()
+    fun encodeArray(tracks: List<MusicTrack>): JSONArray = JSONArray(tracks.map { t -> JSONObject()
         .put("id", t.id).put("title", t.title).put("artist", t.artist).put("album", t.album)
         .put("originalProviderTitle", t.originalProviderTitle)
         .put("duration", t.durationMs).put("cover", t.coverUrl).put("audio", if (t.id.startsWith("yt_")) "" else t.audioUrl)
@@ -143,10 +144,12 @@ internal object RecommendationTrackCodec {
         .put("singers", t.singers).put("primaryArtists", JSONArray(t.primaryArtists)).put("language", t.language).put("year", t.year)
         .put("source", t.source).put("isrc", t.isrc).put("writer", t.writer)
         .put("liked", t.isLiked).put("cached", t.isCached).put("lossless", t.isLossless)
-        .put("motion", t.motionArtworkUrl).put("recommendationOnly", t.recommendationOnly) }).toString()
+        .put("motion", t.motionArtworkUrl).put("recommendationOnly", t.recommendationOnly) })
     fun decode(body: String, maxTracks: Int = 80): List<MusicTrack> = try {
-        val rows = JSONArray(body)
-        (0 until minOf(rows.length(), maxTracks)).mapNotNull { i -> rows.optJSONObject(i)?.let { t ->
+        decode(JSONArray(body), maxTracks)
+    } catch (_: Exception) { emptyList() }
+    fun decode(rows: JSONArray, maxTracks: Int = 80): List<MusicTrack> =
+        (0 until minOf(rows.length(), maxTracks.coerceAtLeast(0))).mapNotNull { i -> try { rows.optJSONObject(i)?.let { t ->
             MusicTrack(id = t.getString("id"), title = com.example.data.repository.CatalogNames.clean(t.optString("originalProviderTitle").ifBlank { t.getString("title") }), artist = t.getString("artist"),
                 originalProviderTitle = t.optString("originalProviderTitle"),
                 album = t.optString("album"), durationMs = t.optLong("duration"), coverUrl = t.optString("cover"),
@@ -159,6 +162,5 @@ internal object RecommendationTrackCodec {
                 recommendationOnly = t.optBoolean("recommendationOnly"), primaryArtists = t.optJSONArray("primaryArtists")?.let { names ->
                     (0 until names.length()).map { names.optString(it) }.filter(String::isNotBlank)
                 }.orEmpty())
-        } }
-    } catch (_: Exception) { emptyList() }
+        } } catch (_: org.json.JSONException) { null } }
 }

@@ -22,33 +22,69 @@ internal class LastFmScrobbler(private val context: Context,
     private var startedAt = 0L
     private var submitted = false
     private var nowPlaying = false
-    private val snapshots = kotlinx.coroutines.channels.Channel<ListeningSnapshot>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    private var accountSession = ""
+    private var accountName = ""
+    private var nowPlayingGeneration = 0L
+    private var retryNowPlayingAt = 0L
+    private var nowPlayingRequest: Job? = null
+    private sealed interface Event {
+        data class Snapshot(val value: ListeningSnapshot) : Event
+        data class NowPlayingResult(val generation: Long, val succeeded: Boolean) : Event
+    }
+    private val snapshots = kotlinx.coroutines.channels.Channel<Event>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     init { scope.launch {
-        try { for (snapshot in snapshots) {
-            try { record(snapshot) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Retry on the next measured checkpoint. */ }
+        try { for (event in snapshots) {
+            try { when (event) {
+                is Event.Snapshot -> record(event.value)
+                is Event.NowPlayingResult -> if (event.generation == nowPlayingGeneration) {
+                    nowPlayingRequest = null
+                    nowPlaying = event.succeeded
+                    retryNowPlayingAt = if (event.succeeded) 0L else android.os.SystemClock.elapsedRealtime() + 30_000L
+                }
+            } } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Retry on the next measured checkpoint. */ }
         } } finally { scope.cancel() }
     } }
-    fun accept(snapshot: ListeningSnapshot) { snapshots.trySend(snapshot) }
+    fun accept(snapshot: ListeningSnapshot) { snapshots.trySend(Event.Snapshot(snapshot)) }
+    private fun resetNowPlaying() {
+        nowPlayingGeneration++
+        nowPlayingRequest?.cancel()
+        nowPlayingRequest = null
+        nowPlaying = false
+        retryNowPlayingAt = 0L
+    }
     private suspend fun record(snapshot: ListeningSnapshot) {
         val store = ConnectionStore.get(context)
         store.load()
         val config = store.state.value.lastFm
-        if (!config.enabled || config.session.isBlank()) { nowPlaying = false; return }
+        if (accountSession != config.session || accountName != config.username) {
+            resetNowPlaying()
+            if (accountName != config.username) submitted = false
+            accountSession = config.session
+            accountName = config.username
+        }
+        if (!config.enabled || config.session.isBlank()) { resetNowPlaying(); return }
         if (snapshot.occurrence != occurrence) {
             occurrence = snapshot.occurrence
             startedAt = (System.currentTimeMillis() - snapshot.listenedMs) / 1000L
-            submitted = false; nowPlaying = false
+            submitted = false; resetNowPlaying()
         }
         val artist = if (config.primaryArtistOnly) snapshot.track.primaryArtists.firstOrNull()
             ?: snapshot.track.artist.substringBefore(",").trim() else snapshot.track.artist
         if (artist.isBlank() || snapshot.track.title.isBlank()) return
         val params = mutableMapOf("artist" to artist, "track" to snapshot.track.title,
             "album" to snapshot.track.album, "duration" to (snapshot.track.durationMs / 1000L).toString())
-        if (!snapshot.playing) nowPlaying = false
-        if (config.nowPlaying && snapshot.playing && !nowPlaying) {
-            nowPlaying = true
+        if (!snapshot.playing || !config.nowPlaying) resetNowPlaying()
+        if (config.nowPlaying && snapshot.playing && !nowPlaying && nowPlayingRequest == null &&
+            android.os.SystemClock.elapsedRealtime() >= retryNowPlayingAt) {
+            val generation = ++nowPlayingGeneration
             val nowPlayingParameters = params.toMap()
-            scope.launch { runCatching { sendNowPlaying(config, nowPlayingParameters) } }
+            nowPlayingRequest = scope.launch {
+                var succeeded = false
+                try { sendNowPlaying(config, nowPlayingParameters); succeeded = true }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Retry at a later checkpoint, without blocking listening measurements. */ }
+                finally { snapshots.trySend(Event.NowPlayingResult(generation, succeeded)) }
+            }
         }
         if (!submitted && shouldScrobble(snapshot.track.durationMs, snapshot.listenedMs,
                 config.minDurationSeconds, config.thresholdPercent, config.thresholdSeconds)) {
@@ -64,8 +100,12 @@ internal class ScrobbleOutbox private constructor(context: Context) {
     private val context = context.applicationContext
     private val lock = Mutex()
     private val file get() = AtomicFile(File(context.noBackupFilesDir, "scrobble_outbox.json"))
-    private fun read(): JSONObject = if (file.baseFile.exists()) JSONObject(file.openRead().bufferedReader().use { it.readText() })
-        else JSONObject().put("pending", JSONArray()).put("sent", JSONArray())
+    private fun read(): JSONObject = try {
+        JSONObject(file.openRead().bufferedReader().use { it.readText() })
+    } catch (missing: java.io.FileNotFoundException) {
+        if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) throw missing
+        JSONObject().put("pending", JSONArray()).put("sent", JSONArray())
+    }
     private fun write(root: JSONObject) {
         val output = file.startWrite()
         try { output.write(root.toString().toByteArray()); file.finishWrite(output) }
@@ -115,7 +155,7 @@ internal class ScrobbleOutbox private constructor(context: Context) {
     }
     suspend fun clear() = withContext(Dispatchers.IO) { lock.withLock { file.delete() }; WorkManager.getInstance(context).cancelUniqueWork(WORK) }
     suspend fun resumeIfPending() = withContext(Dispatchers.IO) {
-        if (lock.withLock { file.baseFile.exists() && read().getJSONArray("pending").length() > 0 }) schedule()
+        if (lock.withLock { read().getJSONArray("pending").length() > 0 }) schedule()
     }
     fun schedule() {
         WorkManager.getInstance(context).enqueueUniqueWork(WORK, ExistingWorkPolicy.APPEND_OR_REPLACE,

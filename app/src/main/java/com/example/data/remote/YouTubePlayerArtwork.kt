@@ -68,8 +68,8 @@ internal class YouTubePlayerArtworkResolver(
             val watchTrack = native?.let { withContext(AppDispatchers.CpuBounded) { selectedVideoMetadata(it, videoId, track) } }
             // A watch byline can be the uploading label, even when Home supplied
             // the correct singer. Keep that singer as well as same-video credits.
-            val identities = listOfNotNull(track, watchTrack).distinctBy { RecordingIdentity.artistNames(it.copy(title = "")) }
-                .sortedBy { RecordingIdentity.artistNames(it.copy(title = "")).isEmpty() }
+            val identities = listOfNotNull(track, watchTrack).distinctBy { RecordingIdentity.artistNames(it.copy(title = "", originalProviderTitle = "")) }
+                .sortedBy { RecordingIdentity.artistNames(it.copy(title = "", originalProviderTitle = "")).isEmpty() }
             val queries = identities.flatMap(::songArtworkQueries).distinct().take(3)
             var cover = linked
             if (cover == null) for (query in queries) {
@@ -231,11 +231,13 @@ internal class YouTubePlayerArtworkResolver(
 /** Artwork-only evidence. Provider/audio matching elsewhere keeps its existing rules. */
 internal fun artworkIdentityVariants(track: MusicTrack, pairedCredits: List<String> = emptyList()): List<MusicTrack> {
     val fullTitle = track.originalProviderTitle.ifBlank { track.title }
-    val credits = if (RecordingIdentity.artistNames(track.copy(title = "")).isEmpty()) pairedCredits
+    val credits = if (RecordingIdentity.artistNames(track.copy(title = "", originalProviderTitle = "")).isEmpty()) pairedCredits
         else RecordingIdentity.artistNames(track.copy(title = fullTitle))
+    // These are temporary artwork comparisons. Their normalized titles must not
+    // be overridden by the raw upload caption through MusicTrack.fullTitle.
     val full = track.copy(title = StreamResolver.extractCleanTitle(fullTitle, credits.joinToString(", ")),
-        primaryArtists = credits)
-    if (track.originalProviderTitle.isBlank()) return (listOf(full) + videoArtworkTitleVariants(full)).distinctBy { it.title }
+        originalProviderTitle = "", primaryArtists = credits)
+    if (track.originalProviderTitle.isBlank()) return (listOf(full) + videoArtworkTitleVariants(full, fullTitle)).distinctBy { it.title }
     val display = full.copy(title = StreamResolver.extractCleanTitle(track.title, credits.joinToString(", ")))
     val original = RecordingIdentity.signature(full)
     val formatted = RecordingIdentity.signature(display)
@@ -244,7 +246,7 @@ internal fun artworkIdentityVariants(track: MusicTrack, pairedCredits: List<Stri
     val normalizedFull = CatalogNames.normalize(full.title)
     val variants = if (formatted.title.isNotBlank() && (normalizedFull == formatted.title || normalizedFull.startsWith("${formatted.title} ")) &&
         formatted.versions == original.versions) listOf(full, display) else listOf(full)
-    return (variants + videoArtworkTitleVariants(full)).distinctBy { it.title }
+    return (variants + videoArtworkTitleVariants(full, fullTitle)).distinctBy { it.title }
 }
 
 internal fun playerCoverIdentity(track: MusicTrack): String {

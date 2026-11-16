@@ -12,25 +12,25 @@ private val numberedPart = Regex("(?i)\\b(?:part|pt|chapter|vol(?:ume)?)\\.?\\s*
 private val videoPackaging = Regex("(?i)\\s*[\\[(](?:(?:official|full|hd|4k)\\s+)*(?:(?:music|lyric)\\s+)?(?:video|audio|visualizer|lyrics)(?:\\s+(?:hd|4k))?[\\])]")
 
 /** Upload captions may contain cast/release credits; recording versions remain mandatory. */
-internal fun videoArtworkTitleVariants(track: MusicTrack): List<MusicTrack> {
-    val cleaned = StreamResolver.extractCleanTitle(track.title, track.artist).replace(videoPackaging, " ").trim()
+internal fun videoArtworkTitleVariants(track: MusicTrack, presentationTitle: String = track.fullTitle): List<MusicTrack> {
+    val cleaned = StreamResolver.extractCleanTitle(track.fullTitle, track.artist).replace(videoPackaging, " ").trim()
     val parts = videoSeparators.split(cleaned)
     var head = parts.firstOrNull().orEmpty().trim()
     if (parts.drop(1).any { numberedPart.containsMatchIn(it) }) return emptyList()
-    if (videoPresentation.containsMatchIn(track.originalProviderTitle.ifBlank { track.title }) && ':' in head)
+    if (videoPresentation.containsMatchIn(presentationTitle) && ':' in head)
         head = head.substringBefore(':').trim()
     if (head.isBlank() || head == track.title) return emptyList()
     val versions = RecordingIdentity.signature(track).versions
-    val headVersions = RecordingIdentity.signature(track.copy(title = head)).versions
+    val headVersions = RecordingIdentity.signature(track.copy(title = head, originalProviderTitle = "")).versions
     val missing = versions - headVersions
     if (missing.isNotEmpty()) head += " (${missing.sorted().joinToString(" ")})"
-    return listOf(track.copy(title = head))
+    return listOf(track.copy(title = head, originalProviderTitle = ""))
 }
 
 internal fun songArtworkQueries(track: MusicTrack): List<String> {
     val full = artworkIdentityVariants(track).first()
-    val artist = RecordingIdentity.artistNames(track.copy(title = "")).firstOrNull().orEmpty()
-    val core = videoArtworkTitleVariants(full).firstOrNull()?.title ?: full.title
+    val artist = RecordingIdentity.artistNames(track.copy(title = "", originalProviderTitle = "")).firstOrNull().orEmpty()
+    val core = videoArtworkTitleVariants(full, track.fullTitle).firstOrNull()?.title ?: full.title
     // With absent credits keep an Artist - Title prefix searchable rather than
     // interpreting the artist's name alone as the song's title.
     val title = if (artist.isBlank() && " - " in full.title) full.title else core
@@ -42,9 +42,9 @@ internal fun songArtworkMatchScore(requested: MusicTrack, candidate: MusicTrack)
     val wanted = RecordingIdentity.signature(requested)
     val found = RecordingIdentity.signature(candidate)
     if (wanted.isrc != null && found.isrc != null && wanted.isrc != found.isrc) return null
-    val credits = RecordingIdentity.artistNames(candidate.copy(title = ""))
+    val credits = RecordingIdentity.artistNames(candidate.copy(title = "", originalProviderTitle = ""))
     if (credits.isEmpty()) return null
-    val requestedCredits = RecordingIdentity.artistNames(requested.copy(title = ""))
+    val requestedCredits = RecordingIdentity.artistNames(requested.copy(title = "", originalProviderTitle = ""))
     val primaryMatches = requestedCredits.firstOrNull()?.let { CatalogNames.spellingEquivalent(it, credits.first()) } == true
     val raw = requested.originalProviderTitle.ifBlank { requested.title }
     val clauses = videoSeparators.split(raw)

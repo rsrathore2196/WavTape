@@ -215,8 +215,8 @@ class HomeCardCache(context: Context, private val workerDispatcher: CoroutineDis
         }
         signal.trySend(Unit)
     }
-    private fun tracks(rows: List<MusicTrack>) = JSONArray(RecommendationTrackCodec.encode(rows))
-    private fun tracks(rows: JSONArray?) = rows?.let { RecommendationTrackCodec.decode(it.toString(), 250) }.orEmpty()
+    private fun tracks(rows: List<MusicTrack>) = RecommendationTrackCodec.encodeArray(rows)
+    private fun tracks(rows: JSONArray?) = rows?.let { RecommendationTrackCodec.decode(it, 250) }.orEmpty()
     private fun nullable(row: JSONObject, key: String) = row.optString(key).takeIf { it.isNotBlank() && it != "null" }
     private fun validHome(row: JSONObject, key: String) = row.optString("key") == key &&
         (key.substringAfter('|') == "anonymous" || row.optString("accountIdentity") == key.substringAfter('|'))

@@ -42,6 +42,10 @@ object MusicCache {
             cache.getCachedSpans(key).all { span -> span.file?.let { it.isFile && it.length() == span.length } == true }
     }.getOrDefault(false)
 
+    /** Match the streaming loader's key, including bound addon representations. */
+    internal fun fullyCachedResource(context: Context, uri: android.net.Uri): Boolean =
+        fullyCached(context, StreamedAudioRepresentations.keyFor(uri) ?: safeTransportKey(uri))
+
     internal fun offlineAudio(context: Context, video: String, cap: Int, sabr: Boolean,
         opusOnly: Boolean = false): YouTubeAudioStreamService.AudioStream? {
         val cached = (YouTubeAudioStreamService.cachedStreams(video) + persistedRepresentations(context, video)).distinctBy { it.cacheKey }.filter {

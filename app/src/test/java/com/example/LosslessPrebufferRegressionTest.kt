@@ -130,7 +130,7 @@ class LosslessPrebufferRegressionTest {
         assertEquals("FLAC", prepared.audio.codec)
         assertEquals(44100, prepared.audio.sampleRate)
         assertEquals(16, prepared.audio.bitDepth)
-        assertTrue(withContext(Dispatchers.IO) { MusicCache.fullyCached(app, item.localConfiguration!!.uri.toString()) })
+        assertTrue(withContext(Dispatchers.IO) { MusicCache.fullyCachedResource(app, item.localConfiguration!!.uri) })
         // The cache now supplies a real length. Exercise Media3's ordinary FLAC
         // binary seeker again at the target, rather than assuming cache fill suffices.
         val indexed = withTimeout(10_000) { LosslessStreamPrebuffer.prepare(app, item,
@@ -163,7 +163,7 @@ class LosslessPrebufferRegressionTest {
     @Test fun disabledSourceRejectsEvenAnAlreadyRegisteredAndCachedTransport() = runBlocking {
         val candidate = item("song.flac")
         assertNotNull("${LosslessDiagnostics.last(candidate.mediaId)}", LosslessStreamPrebuffer.prepare(app, candidate, 24_000, { 6_000 }, { true }))
-        assertTrue(withContext(Dispatchers.IO) { MusicCache.fullyCached(app, candidate.localConfiguration!!.uri.toString()) })
+        assertTrue(withContext(Dispatchers.IO) { MusicCache.fullyCachedResource(app, candidate.localConfiguration!!.uri) })
         val sources = listOf(source.copy(enabled = false)) + PlaybackSource.builtIns
         PlaybackSourcesPreferences.save(app, sources)
         withTimeout(3_000) { while (PlaybackSourcesPreferences.load(app) != sources) delay(10) }

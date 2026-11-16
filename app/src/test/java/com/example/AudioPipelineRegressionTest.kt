@@ -112,7 +112,7 @@ class AudioPipelineRegressionTest {
             .setChannelCount(2).setPcmEncoding(C.ENCODING_PCM_16BIT).build(), 0, null)
         val first = ByteBuffer.allocateDirect(4096).order(ByteOrder.LITTLE_ENDIAN)
         assertFalse(sink.handleBuffer(first, 0L, 1))
-        PsychoacousticAudioProcessor.settings.set(AudioEffectsState(isEnabled = true))
+        PsychoacousticAudioProcessor.settings.set(AudioEffectsState(isEnabled = true, crystalClarityEnabled = true))
         assertTrue(sink.handleBuffer(first, 0L, 1))
         assertSame(first, lastBuffer)
         val second = ByteBuffer.allocateDirect(4096).order(ByteOrder.LITTLE_ENDIAN)

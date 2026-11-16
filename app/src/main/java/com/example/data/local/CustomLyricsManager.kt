@@ -20,6 +20,7 @@ object CustomLyricsManager {
     private const val DIRECTORY_NAME = "custom_lyrics"
     private const val PREFS_NAME = "custom_lyrics_preferences"
     private const val KEY_ACTIVE_PREFIX = "active_"
+    private val storageLock = Any()
 
     private fun getStorageDir(context: Context): File {
         val dir = File(context.filesDir, DIRECTORY_NAME)
@@ -51,11 +52,11 @@ object CustomLyricsManager {
     private fun getFileForTrack(context: Context, track: MusicTrack): File {
         val dir = getStorageDir(context)
         val primaryFile = File(dir, "${primaryKey(track.id, track.title, track.artist)}.lrc")
-        if (primaryFile.exists() && primaryFile.length() > 0) {
+        if (hasSavedContent(primaryFile)) {
             return primaryFile
         }
         val fallbackFile = File(dir, "${titleArtistKey(track.title, track.artist)}.lrc")
-        if (fallbackFile.exists() && fallbackFile.length() > 0) {
+        if (hasSavedContent(fallbackFile)) {
             return fallbackFile
         }
         return primaryFile
@@ -63,13 +64,18 @@ object CustomLyricsManager {
 
     fun hasCustomLyrics(context: Context, track: MusicTrack): Boolean {
         val file = getFileForTrack(context, track)
-        return file.exists() && file.length() > 0
+        return hasSavedContent(file)
     }
+
+    private fun hasSavedContent(file: File): Boolean =
+        file.isFile && file.length() > 0 || File(file.path + ".bak").let { it.isFile && it.length() > 0 }
 
     fun isCustomLyricsActive(context: Context, track: MusicTrack): Boolean {
         if (!hasCustomLyrics(context, track)) return false
         val key = primaryKey(track.id, track.title, track.artist)
-        return getPrefs(context).getBoolean(KEY_ACTIVE_PREFIX + key, true)
+        val metaKey = titleArtistKey(track.title, track.artist)
+        val prefs = getPrefs(context)
+        return prefs.getBoolean(KEY_ACTIVE_PREFIX + key, prefs.getBoolean(KEY_ACTIVE_PREFIX + metaKey, true))
     }
 
     fun setCustomLyricsActive(context: Context, track: MusicTrack, active: Boolean) {
@@ -92,14 +98,15 @@ object CustomLyricsManager {
             val fallbackFile = File(dir, "$mKey.lrc")
 
             val bytes = lrcText.toByteArray(Charsets.UTF_8)
-            listOf(primaryFile, fallbackFile).forEach { destination ->
-                val file = android.util.AtomicFile(destination)
-                val stream = file.startWrite()
-                try { stream.write(bytes); file.finishWrite(stream) }
-                catch (error: Exception) { file.failWrite(stream); throw error }
+            synchronized(storageLock) {
+                listOf(primaryFile, fallbackFile).forEach { destination ->
+                    val file = android.util.AtomicFile(destination)
+                    val stream = file.startWrite()
+                    try { stream.write(bytes); file.finishWrite(stream) }
+                    catch (error: Exception) { file.failWrite(stream); throw error }
+                }
+                setCustomLyricsActive(context, track, true)
             }
-
-            setCustomLyricsActive(context, track, true)
             true
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (_: Exception) {
@@ -109,9 +116,13 @@ object CustomLyricsManager {
 
     suspend fun getCustomLyrics(context: Context, track: MusicTrack): TrackLyrics? = withContext(AppDispatchers.Io) {
         val file = getFileForTrack(context, track)
-        if (!file.exists() || file.length() == 0L) return@withContext null
+        if (!hasSavedContent(file)) return@withContext null
         try {
-            val text = file.inputStream().use { readImport(it) }
+            val work = kotlinx.coroutines.currentCoroutineContext()
+            val bytes = synchronized(storageLock) {
+                android.util.AtomicFile(file).openRead().use { it.readBytesBounded { work.ensureActive() } }
+            }
+            val text = decodeImport(bytes)
             withContext(AppDispatchers.CpuBounded) { parseImported(track, text) }
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (_: Exception) { null }
@@ -129,24 +140,26 @@ object CustomLyricsManager {
 
     /** SAF files commonly use UTF-16. Decode before parsing and bound imported allocations. */
     suspend fun readImport(input: InputStream): String = withContext(AppDispatchers.Io) {
-        val bytes = input.readBytesBounded()
-        withContext(AppDispatchers.CpuBounded) {
-            val (charset, offset) = when {
-                bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() -> Charsets.UTF_16LE to 2
-                bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() -> Charsets.UTF_16BE to 2
-                bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte() -> Charsets.UTF_8 to 3
-                else -> Charsets.UTF_8 to 0
-            }
-            charset.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset)).toString()
-        }
+        val work = kotlinx.coroutines.currentCoroutineContext()
+        decodeImport(input.readBytesBounded { work.ensureActive() })
     }
 
-    private suspend fun InputStream.readBytesBounded(): ByteArray {
+    private suspend fun decodeImport(bytes: ByteArray): String = withContext(AppDispatchers.CpuBounded) {
+        val (charset, offset) = when {
+            bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() -> Charsets.UTF_16LE to 2
+            bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() -> Charsets.UTF_16BE to 2
+            bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte() -> Charsets.UTF_8 to 3
+            else -> Charsets.UTF_8 to 0
+        }
+        charset.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset)).toString()
+    }
+
+    private fun InputStream.readBytesBounded(checkCancellation: () -> Unit): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         val buffer = ByteArray(8192)
         while (true) {
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            checkCancellation()
             val count = read(buffer)
             if (count < 0) break
             if (output.size() + count > 2_000_000) throw IOException("Lyrics files must be smaller than 2 MB")
@@ -155,7 +168,7 @@ object CustomLyricsManager {
         return output.toByteArray()
     }
 
-    fun deleteCustomLyrics(context: Context, track: MusicTrack): Boolean {
+    fun deleteCustomLyrics(context: Context, track: MusicTrack): Boolean = synchronized(storageLock) {
         val dir = getStorageDir(context)
         val pKey = primaryKey(track.id, track.title, track.artist)
         val mKey = titleArtistKey(track.title, track.artist)
@@ -163,8 +176,10 @@ object CustomLyricsManager {
         val f1 = File(dir, "$pKey.lrc")
         val f2 = File(dir, "$mKey.lrc")
         var ok = true
-        if (f1.exists()) ok = f1.delete() && ok
-        if (f2.exists()) ok = f2.delete() && ok
-        return ok
+        for (file in listOf(f1, f2)) {
+            android.util.AtomicFile(file).delete()
+            ok = !file.exists() && !File(file.path + ".bak").exists() && !File(file.path + ".new").exists() && ok
+        }
+        ok
     }
 }

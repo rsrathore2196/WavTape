@@ -30,7 +30,7 @@ class QualityTierResolutionTest {
 
     @Test fun maximumUsesVerifiedArchiveBeforeOtherProvidersAndPreservesIdentity() = runBlocking {
         val calls = mutableListOf<String>()
-        val resolver = StreamResolver(searchLossless = { query -> calls += "archive"; assertEquals("Song artist", query); listOf(archive) },
+        val resolver = StreamResolver(searchLossless = { query -> calls += "archive"; assertEquals("${song.fullTitle} artist", query); listOf(archive) },
             searchStandard = { _, _ -> calls += "jio"; listOf(jio) }, resolveYouTube = { _, _, _, _ -> calls += "youtube"; null }, supportsLossless = { true },
         searchYouTube = { emptyList() })
         val result = resolver.resolve(song, AudioQuality.HI_RES_LOSSLESS, sourcePolicy = archiveFirst)

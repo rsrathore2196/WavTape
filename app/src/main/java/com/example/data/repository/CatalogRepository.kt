@@ -252,22 +252,20 @@ class CatalogRepository(context: Context? = null,
         return parsed.copy(
             artist = artists.joinToString(", ") { it.name }, singers = artists.joinToString(", ") { it.name })
     }
-    private val recordingIsrc = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
-    private fun recordingCode(track: MusicTrack) = track.isrc.uppercase().replace("-", "")
-        .takeIf { it.matches(recordingIsrc) }
-    private fun recordingName(track: MusicTrack) = CatalogNames.normalize(track.title) + "|" +
+    private fun recordingCode(track: MusicTrack) = RecordingIdentity.isrc(track.isrc)?.let { code ->
+        code + "|" + RecordingVersions.markers(track.fullTitle).sorted().joinToString("|")
+    }
+    private fun recordingName(track: MusicTrack) = CatalogNames.normalize(track.fullTitle) + "|" +
         track.artist.split(',').map(CatalogNames::normalize).sorted().joinToString(",")
 
     fun uniqueTracks(tracks: List<MusicTrack>): List<MusicTrack> {
         val ids = mutableSetOf<String>()
         val recordings = mutableSetOf<String>()
         val metadata = mutableSetOf<String>()
-        val names = tracks.associateWith(::recordingName)
-        val codes = tracks.associateWith(::recordingCode)
         return tracks.filter { track ->
-            val isrc = codes[track]
+            val isrc = recordingCode(track)
             // Keep version text and non-Latin vowel marks; neither is disposable punctuation.
-            val key = names.getValue(track)
+            val key = recordingName(track)
             val fresh = track.id !in ids && key !in metadata && (isrc == null || isrc !in recordings)
             ids.add(track.id); metadata.add(key); isrc?.let(recordings::add)
             fresh

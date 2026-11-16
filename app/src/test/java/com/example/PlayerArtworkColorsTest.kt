@@ -93,7 +93,7 @@ class PlayerArtworkColorsTest {
         assertEquals(Size(120, 120), sample.sizeResolver.size())
         assertFalse(sample.allowHardware)
         assertEquals(Bitmap.Config.ARGB_8888, sample.bitmapConfig)
-        assertSame(AppDispatchers.CpuBounded, sample.decoderDispatcher)
+        assertSame(AppDispatchers.Artwork, sample.decoderDispatcher)
         assertEquals(CachePolicy.READ_ONLY, sample.memoryCachePolicy)
         val header = playerHeaderArtworkRequest(cover)
         assertEquals(cover.data, header.data)

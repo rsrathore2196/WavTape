@@ -243,13 +243,15 @@ class LandscapeScreensUiTest {
     }
 
     private fun checkFullWidthSearch() {
-        content { SearchScreen(SearchUiState(exploreIndexReady = true), onQueryChange = {}, onSelectGenre = {},
+        val category = com.example.data.repository.ExploreCategory("Pop", "pop", null,
+            com.example.data.repository.ExploreCategoryKind.GENRE)
+        content { SearchScreen(SearchUiState(exploreIndexReady = true, exploreCategories = listOf(category)), onQueryChange = {}, onSelectGenre = {},
             onTrackClick = { _, _ -> }, onToggleFavorite = {}) }
         val screen = rect("search_screen")
         assertEquals(px(widthDp.toFloat()), screen.width, 1f)
         assertEquals(0f, screen.left, 1f)
-        compose.onNodeWithTag("search_screen").performScrollToNode(hasTestTag("genre_chip_pop"))
-        compose.onNodeWithTag("genre_chip_pop").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithTag("search_screen").performScrollToNode(hasTestTag("explore_chip_${category.key}"))
+        compose.onNodeWithTag("explore_chip_${category.key}").assertIsDisplayed().assertHasClickAction()
     }
 
     @Test @Config(qualifiers = "w1920dp-h1080dp-land")

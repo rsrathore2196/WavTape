@@ -66,6 +66,25 @@ class OfflineCacheAndCheckpointTest {
         assertNull(MusicCache.offlineAudio(context, video, 32_000, sabr = false))
     }
 
+    @Test fun resourceCoverageUsesTheLoadersPrivateKeyAndStillRejectsPartialOrTruncatedAudio() = runBlocking(Dispatchers.IO) {
+        val uri = android.net.Uri.parse("https://audio.example/song.flac?token=private")
+        val key = MusicCache.safeTransportKey(uri)
+        assertFalse(key.contains("private"))
+        val cache = MusicCache.getSimpleCache(context)
+        val hole = cache.startReadWrite(key, 0L, 128L)
+        val file = cache.startFile(key, 0L, 128L)
+        try {
+            file.writeBytes(ByteArray(128) { 42 })
+            cache.commitFile(file, 128L)
+            cache.applyContentMetadataMutations(key, ContentMetadataMutations().set("exo_len", 256L))
+            assertFalse(MusicCache.fullyCachedResource(context, uri))
+            cache.applyContentMetadataMutations(key, ContentMetadataMutations().set("exo_len", 128L))
+            assertTrue(MusicCache.fullyCachedResource(context, uri))
+            java.io.RandomAccessFile(file, "rw").use { it.setLength(64L) }
+            assertFalse(MusicCache.fullyCachedResource(context, uri))
+        } finally { cache.releaseHoleSpan(hole) }
+    }
+
     @Test fun incompleteBytesAndWrongTransportNeverBecomeOfflinePlayable() = runBlocking(Dispatchers.IO) {
         save(249, 48, complete = false)
         save(251, 160, sabr = true)

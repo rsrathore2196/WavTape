@@ -178,16 +178,21 @@ fun SyncedLyricsView(
     // Always read the latest callback: the default callback captures currentPositionMs.
     // Do not take max(flow, player): a delayed flow emission must not undo a backward seek.
     val latestPositionProvider by rememberUpdatedState(currentPositionProvider)
-    var currentPlayheadMs by remember(lyrics?.trackId) { mutableLongStateOf(latestPositionProvider()) }
+    val latestActive by rememberUpdatedState(active)
+    var currentPlayheadMs by remember(lyrics?.trackId) {
+        mutableLongStateOf(if (active) latestPositionProvider() else currentPositionMs)
+    }
     // One display-frame clock feeds both centering and the draw phase. Never tween the playhead:
     // easing a timestamp introduces vocal lag and can keep highlighting after a pause or seek.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(isSynced, isPlaying, lyrics?.trackId, lifecycle, active) {
         if (!isSynced || !active) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            currentPlayheadMs = latestPositionProvider()
+            if (latestActive) currentPlayheadMs = latestPositionProvider()
             if (isPlaying) while (isActive) {
-                withFrameMillis { currentPlayheadMs = latestPositionProvider() }
+                // A queued frame can arrive before LaunchedEffect's old job is
+                // cancelled. Hidden retained panels must not read the clock then.
+                withFrameMillis { if (latestActive) currentPlayheadMs = latestPositionProvider() }
             }
         }
     }
@@ -196,7 +201,7 @@ fun SyncedLyricsView(
     }
     LaunchedEffect(playbackPositionFlow, isPlaying, lyrics?.trackId, lifecycle, active) {
         if (!isPlaying && active) lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            playbackPositionFlow?.collect { currentPlayheadMs = latestPositionProvider() }
+            playbackPositionFlow?.collect { if (latestActive) currentPlayheadMs = latestPositionProvider() }
         }
     }
 

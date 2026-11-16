@@ -60,7 +60,8 @@ class PlayerPopupThemeUiTest {
     private var captureSuffix = ""
 
     @Before fun prepare() {
-        shadowOf(context.applicationContext as Application).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT)
+        shadowOf(context.applicationContext as Application).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT,
+            "${context.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
         context.getSharedPreferences("lyrics_offset_preferences", 0).edit().clear().commit()
         LyricsOffsetManager.resetOffset(context, track.id, applyToAll = true)
     }

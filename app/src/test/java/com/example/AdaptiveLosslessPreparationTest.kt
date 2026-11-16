@@ -39,6 +39,7 @@ class AdaptiveLosslessPreparationTest {
     private val requests = CopyOnWriteArrayList<String>()
 
     @Before fun setup() = runBlocking {
+        resetNetworkMonitor()
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
         val manager = shadowOf(app.getSystemService(ConnectivityManager::class.java))
         manager.clearAllNetworks()
@@ -81,6 +82,9 @@ class AdaptiveLosslessPreparationTest {
                 (it.get(null) as? SimpleCache)?.release(); it.set(null, null)
             }
         }
+        resetNetworkMonitor()
+    }
+    private fun resetNetworkMonitor() {
         val field = NetworkQualityMonitor::class.java.getDeclaredField("instance").apply { isAccessible = true }
         (field.get(null) as? NetworkQualityMonitor)?.let {
             (NetworkQualityMonitor::class.java.getDeclaredField("scope").apply { isAccessible = true }.get(it) as CoroutineScope).cancel()

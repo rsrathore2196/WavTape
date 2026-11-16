@@ -41,6 +41,7 @@ internal object OfflineJson {
         put("bitrate", track.bitrateKbps); put("quality", track.qualityBadge); put("source", track.source)
         put("isrc", track.isrc); put("lossless", track.isLossless); put("year", track.year)
         put("genre", track.genre); put("language", track.language); put("singers", track.singers)
+        put("writer", track.writer); put("motion", track.motionArtworkUrl)
         put("primary", JSONArray(track.primaryArtists)); put("originalTitle", track.originalProviderTitle)
     }
     fun track(value: JSONObject) = MusicTrack(value.getString("id"), value.getString("title"),
@@ -49,6 +50,7 @@ internal object OfflineJson {
         value.optString("quality"), source = value.optString("source"), isrc = value.optString("isrc"),
         isLossless = value.optBoolean("lossless"), year = value.optString("year"),
         genre = value.optString("genre"), language = value.optString("language"), singers = value.optString("singers"),
+        writer = value.optString("writer"), motionArtworkUrl = value.optString("motion").takeIf { it.isNotBlank() && it != "null" },
         primaryArtists = value.optJSONArray("primary")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         originalProviderTitle = value.optString("originalTitle"))
     fun record(record: DownloadRecord) = JSONObject().apply {

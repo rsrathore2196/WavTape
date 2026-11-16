@@ -105,7 +105,7 @@ class AuditDataRecoveryTest {
         assertTrue(file.isFile && file.length() > 0)
         assertEquals(dir.canonicalFile, file.parentFile!!.canonicalFile)
         val json = JSONObject(file.readText())
-        assertEquals(4, json.getInt("schemaVersion"))
+        assertEquals(6, json.getInt("schemaVersion"))
         assertTrue(json.has("listeningStats"))
         assertEquals(3, json.getJSONArray("playlistTrackRefs").length())
         assertEquals(0, json.getJSONArray("favoriteTracks").length())

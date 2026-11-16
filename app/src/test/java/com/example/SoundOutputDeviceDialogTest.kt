@@ -48,7 +48,8 @@ class SoundOutputDeviceDialogTest {
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
 
     @Before fun permissions() {
-        shadowOf(context).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT)
+        shadowOf(context).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT,
+            "${context.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audio.setStreamVolume(AudioManager.STREAM_MUSIC,
             (audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.6f).roundToInt(), 0)

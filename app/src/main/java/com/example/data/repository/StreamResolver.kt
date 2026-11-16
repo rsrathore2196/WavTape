@@ -925,7 +925,12 @@ internal suspend fun <T : Any> resolveProviderCandidates(sources: List<PlaybackS
                 else if (!defer(sources[index]) && priorityWindows[index]?.isCompleted != true) break
             }
             val pending = requests.filterNot { it.isCompleted }
-            if (pending.isEmpty()) break
+            if (pending.isEmpty()) {
+                // A child may finish after the selection check above. Inspect
+                // those final results in source order before declaring failure.
+                for (request in requests) request.await()?.let { return@coroutineScope it }
+                break
+            }
             select<Unit> {
                 pending.forEach { request -> request.onAwait { } }
                 priorityWindows.filterNotNull().filterNot { it.isCompleted }.forEach { it.onAwait { } }

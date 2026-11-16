@@ -24,6 +24,8 @@ import org.robolectric.annotation.Config
 class ListeningCalendarRolloverTest {
     @Test fun existingObserversRollCalendarPeriodsWithoutNewListeningOrPolling() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        Shadows.shadowOf(context.applicationContext as Application).grantPermissions(
+            "${context.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
         val cases = listOf(ListeningPeriod.WEEKLY to "2026-11-01", ListeningPeriod.MONTHLY to "2026-10-31", ListeningPeriod.YEARLY to "2026-12-31")
         for ((period, lastDay) in cases) {
             var date = LocalDate.parse(lastDay)

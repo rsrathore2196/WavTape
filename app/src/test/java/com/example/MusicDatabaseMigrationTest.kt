@@ -188,12 +188,12 @@ class MusicDatabaseMigrationTest {
 
     @Test
     fun everySupportedVersionPreservesAllExistingRecordsAndOrder() = runBlocking {
-        for (version in 1..14) {
+        for (version in 1..15) {
             context.deleteDatabase(testDbName)
             val before = createOldDatabase(version)
             openCurrentDatabase().withClose { db ->
                 val sqlite = db.openHelper.writableDatabase // Force the real Room migration and validation.
-                assertEquals(15, sqlite.version)
+                assertEquals(16, sqlite.version)
                 sqlite.query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'artwork_cache'").use {
                     assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0))
                 }
@@ -263,7 +263,7 @@ class MusicDatabaseMigrationTest {
 
     @Test
     fun unsupportedFutureDowngradeFailsWithoutDeletingAnyRecords() {
-        val before = createOldDatabase(version = 16, schemaVersion = 12)
+        val before = createOldDatabase(version = 17, schemaVersion = 12)
         val room = openCurrentDatabase()
         try {
             room.openHelper.writableDatabase
@@ -273,8 +273,8 @@ class MusicDatabaseMigrationTest {
         } finally {
             room.close()
         }
-        helper(16).use { original ->
-            assertEquals(16, original.writableDatabase.version)
+        helper(17).use { original ->
+            assertEquals(17, original.writableDatabase.version)
             assertPreserved(before, snapshot(original.writableDatabase))
         }
     }

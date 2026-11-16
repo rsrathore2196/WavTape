@@ -39,6 +39,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 class NativeSongArtworkUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @org.junit.Before fun prepareAdmission() {
+        com.example.performance.BackgroundWorkCoordinator.resetForTesting()
+        com.example.performance.BackgroundWorkCoordinator.foreground(true)
+        com.example.performance.BackgroundWorkCoordinator.firstFrameRendered()
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(16))
+    }
+
+    @org.junit.After fun resetAdmission() { com.example.performance.BackgroundWorkCoordinator.resetForTesting() }
+
     private fun waitForCover(condition: () -> Boolean) = compose.waitUntil(10_000) {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         compose.mainClock.advanceTimeBy(16)

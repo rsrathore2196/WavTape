@@ -32,7 +32,9 @@ class ArtistPortraitLifecycleUiTest {
     @Before fun prepare() {
         ApplicationProvider.getApplicationContext<Application>().getSharedPreferences("artist_images_v2", 0).edit().clear().commit()
         (ArtistPhotoRepository::class.java.getDeclaredField("memory").apply { isAccessible = true }.get(null) as LruCache<*, *>).evictAll()
+        BackgroundWorkCoordinator.resetForTesting()
         BackgroundWorkCoordinator.foreground(true); BackgroundWorkCoordinator.firstFrameRendered(); BackgroundWorkCoordinator.scrolling(false)
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(16))
     }
     @After fun reset() { ArtistPhotoRepository.identityRequest = YouTubeMusicApiService::artistIdentity; BackgroundWorkCoordinator.foreground(false) }
     @Test fun interactionDoesNotRestartAVisibleLookupButLeavingTheViewportCancelsIt() {

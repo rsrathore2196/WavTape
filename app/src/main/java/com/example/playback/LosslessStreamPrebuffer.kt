@@ -406,7 +406,7 @@ internal object LosslessStreamPrebuffer {
                         // an unseekable replacement audibly at the beginning.
                         while (step()) Unit
                         source.close(); opened = false
-                        if (!MusicCache.fullyCached(context, uri.toString())) throw PreparationFailure(
+                        if (!MusicCache.fullyCachedResource(context, uri)) throw PreparationFailure(
                             LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Cannot guarantee position-preserving activation")
                     }
                     val warmed = Prepared(info.copy(bitrateKbps = bitrate), firstSampleUs / 1000, lastSampleUs / 1000)

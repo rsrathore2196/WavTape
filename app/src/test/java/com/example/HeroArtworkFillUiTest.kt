@@ -269,6 +269,7 @@ class HeroArtworkFillUiTest {
         val release = CompletableDeferred<Unit>()
         val resolving = AtomicBoolean()
         val requested = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val nativeFailureDelivered = AtomicBoolean()
         val square = Bitmap.createBitmap(900, 900, Bitmap.Config.ARGB_8888).also {
             Canvas(it).apply {
                 drawColor(android.graphics.Color.GREEN)
@@ -284,7 +285,11 @@ class HeroArtworkFillUiTest {
                     DrawableResult(BitmapDrawable(context.resources, square), false, DataSource.MEMORY_CACHE)
                 }
             })
-        }.build()
+        }.eventListener(object : coil.EventListener {
+            override fun onError(request: ImageRequest, result: ErrorResult) {
+                if (request.data.toString().contains("native-video")) nativeFailureDelivered.set(true)
+            }
+        }).build()
         Coil.setImageLoader(loader)
         val cover = "https://lh3.googleusercontent.com/square-cover=w900-h900-l90-rj"
         val video = "https://lh3.googleusercontent.com/native-video=w1280-h720-l90-rj"
@@ -304,8 +309,10 @@ class HeroArtworkFillUiTest {
             release.complete(Unit)
             compose.waitUntil(5_000) {
                 org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-                requested.any { it.contains("native-video") }
+                requested.any { it.contains("native-video") } && nativeFailureDelivered.get()
             }
+            compose.waitForIdle()
+            compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeBy(500); compose.waitForIdle()
             val file = File("/tmp/hero-square-fallback.png")
             node.captureRoboImage(file.absolutePath, RoborazziOptions(taskType = RoborazziTaskType.Record))

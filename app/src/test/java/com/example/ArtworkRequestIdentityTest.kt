@@ -39,7 +39,7 @@ class ArtworkRequestIdentityTest {
         }
         compose.waitForIdle()
         val first = request
-        assertSame(BackgroundWorkCoordinator.optionalCpuDispatcher, first.decoderDispatcher)
+        assertSame(com.example.performance.AppDispatchers.Artwork, first.decoderDispatcher)
         assertEquals(Size(420, 320), runBlocking { first.sizeResolver.size() })
         assertSame(Transition.Factory.NONE, first.transitionFactory)
         assertEquals(CachePolicy.ENABLED, first.diskCachePolicy)
@@ -75,7 +75,7 @@ class ArtworkRequestIdentityTest {
             SideEffect { request = prepared }
         }
         compose.waitForIdle()
-        assertSame(com.example.performance.AppDispatchers.CpuBounded, request.decoderDispatcher)
+        assertSame(com.example.performance.AppDispatchers.Artwork, request.decoderDispatcher)
         assertEquals(Size(1080, 1080), runBlocking { request.sizeResolver.size() })
         assertEquals(Precision.INEXACT, request.precision)
     }

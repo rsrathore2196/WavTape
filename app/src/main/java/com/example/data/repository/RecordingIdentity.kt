@@ -19,13 +19,13 @@ internal object RecordingIdentity {
         .takeIf { isrcPattern.matches(it) }
 
     fun title(track: MusicTrack): String = CatalogNames.normalize(
-        RecordingVersions.normalize(StreamResolver.extractCleanTitle(track.title, track.artist).replace(featured, "")))
+        RecordingVersions.normalize(StreamResolver.extractCleanTitle(track.fullTitle, track.artist).replace(featured, "")))
 
     fun artistNames(track: MusicTrack): List<String> {
         val credits = track.primaryArtists.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: track.artist.takeUnless {
             CatalogNames.normalize(StreamResolver.extractCleanArtist(it)) in unknown
         }.orEmpty()
-        val feature = featured.find(track.title)?.groupValues?.get(1).orEmpty()
+        val feature = featured.find(track.fullTitle)?.groupValues?.get(1).orEmpty()
         return (artistSeparators.split(credits) + artistSeparators.split(feature))
             .map { CatalogNames.normalize(StreamResolver.extractCleanArtist(it)) }
             .filter { it !in unknown }.distinct()
@@ -40,7 +40,7 @@ internal object RecordingIdentity {
         return guestsA.isEmpty() || guestsB.isEmpty() || guestsA == guestsB
     }
 
-    private fun version(track: MusicTrack): Set<String> = RecordingVersions.markers(track.title)
+    private fun version(track: MusicTrack): Set<String> = RecordingVersions.markers(track.fullTitle)
 
     private fun album(track: MusicTrack): String? = CatalogNames.normalize(track.album.replace(albumEdition, ""))
         .takeUnless { it in unknownAlbums }
@@ -118,7 +118,7 @@ internal object RecordingIdentity {
     private object IndicRomanizer {
         private val converter = android.icu.text.Transliterator.getInstance("Any-Latin; NFD; [:Nonspacing Mark:] Remove; NFC")
         fun convert(track: MusicTrack): MusicTrack = synchronized(converter) {
-            track.copy(title = converter.transliterate(track.title), artist = converter.transliterate(track.artist),
+            track.copy(title = converter.transliterate(track.fullTitle), originalProviderTitle = "", artist = converter.transliterate(track.artist),
                 primaryArtists = track.primaryArtists.map { converter.transliterate(it) })
         }
     }
@@ -127,8 +127,8 @@ internal object RecordingIdentity {
     fun providerConfidence(requested: MusicTrack, candidate: MusicTrack, durationToleranceMs: Long? = null): Int? {
         fallbackConfidence(requested, candidate, durationToleranceMs)?.let { return it }
         if (android.os.Build.VERSION.SDK_INT < 29 ||
-            !indic.containsMatchIn(requested.title + requested.artist + requested.primaryArtists.joinToString() +
-                candidate.title + candidate.artist + candidate.primaryArtists.joinToString())) return null
+            !indic.containsMatchIn(requested.fullTitle + requested.artist + requested.primaryArtists.joinToString() +
+                candidate.fullTitle + candidate.artist + candidate.primaryArtists.joinToString())) return null
         val first = IndicRomanizer.convert(requested)
         val second = IndicRomanizer.convert(candidate)
         return fallbackConfidence(first, second, durationToleranceMs = minOf(durationToleranceMs ?: 3_000L, 3_000L), requireDuration = true)
