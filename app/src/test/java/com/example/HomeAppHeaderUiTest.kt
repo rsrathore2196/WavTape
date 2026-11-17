@@ -44,10 +44,12 @@ class HomeAppHeaderUiTest {
     private lateinit var list: LazyListState
     private lateinit var scope: CoroutineScope
     private var settingsOpened = 0
+    private lateinit var renderedPalette: AppThemeColors
     private var refreshes = 0
     private var refreshing by mutableStateOf(false)
 
     private fun show(colors: AppThemeColors = DarkAppColors, fontScale: Float = 1f) {
+        renderedPalette = colors
         compose.setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides false,
@@ -172,9 +174,12 @@ class HomeAppHeaderUiTest {
             compose.onNodeWithTag("home_fixed_header").captureRoboImage(headerFile.absolutePath,
                 roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
             val pixels = javax.imageio.ImageIO.read(headerFile)
-            val hsv = FloatArray(3)
-            android.graphics.Color.colorToHSV(pixels.getRGB(pixels.width / 2, pixels.height * 3 / 4), hsv)
-            assertTrue("Header should have a saturated accent surface", hsv[1] >= .65f)
+            val actual = androidx.compose.ui.graphics.Color(pixels.getRGB(pixels.width / 2, pixels.height * 3 / 4))
+            val expected = androidx.compose.ui.graphics.lerp(renderedPalette.primaryAccent, renderedPalette.secondaryAccent, .5f)
+            // The material sheen may add a little light, but cannot invent other hues.
+            assertEquals(expected.red, actual.red, .12f)
+            assertEquals(expected.green, actual.green, .12f)
+            assertEquals(expected.blue, actual.blue, .12f)
         }
     }
 }

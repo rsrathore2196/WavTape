@@ -50,7 +50,6 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -79,6 +78,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.example.ui.theme.liquidGlassPill
+import com.example.ui.theme.onAccentGradient
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -566,7 +566,7 @@ internal fun ImportSetupContent(
         Spacer(modifier = Modifier.height(14.dp))
 
         // Bottom Start Button
-        Button(
+        com.example.ui.theme.AccentButton(
             onClick = onStartImport,
             enabled = state.inputUrlOrText.isNotBlank(),
             shape = RoundedCornerShape(12.dp),
@@ -749,14 +749,14 @@ private fun ImportSummaryContent(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(appColors.primaryAccent)
+                                    .background(appColors.heroGradient)
                                     .clickable { isEditingTitle = false },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Save title",
-                                    tint = if (isDark) Color.Black else Color.White,
+                                    tint = appColors.onAccentGradient,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -945,7 +945,7 @@ private fun ImportSummaryContent(
                 Text("Back", fontSize = 14.sp)
             }
 
-            Button(
+            com.example.ui.theme.AccentButton(
                 onClick = onSave,
                 enabled = summary.matchedItems.isNotEmpty() && retryingRows.isEmpty(),
                 shape = RoundedCornerShape(12.dp),
@@ -1155,7 +1155,7 @@ private fun ImportSuccessContent(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        Button(
+        com.example.ui.theme.AccentButton(
             onClick = onOpenPlaylist,
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(
@@ -1239,7 +1239,7 @@ private fun ImportErrorContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
+        com.example.ui.theme.AccentButton(
             onClick = onRetry,
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(

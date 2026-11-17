@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +40,7 @@ import com.example.data.model.MusicTrack
 import com.example.data.repository.*
 import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.AppDynamicLogo
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.util.rememberOptimizedImageRequest
@@ -114,10 +116,11 @@ internal fun ListeningStatsContent(summary: ListeningSummary?, period: Listening
         item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             ListeningPeriod.entries.forEach { choice ->
                 val fill by animateColorAsState(if (choice == period) colors.primaryAccent else colors.cardBackground, label = "stats_period")
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(fill)
+                val end by animateColorAsState(if (choice == period) colors.secondaryAccent else colors.cardBackground, label = "stats_period_end")
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(Brush.horizontalGradient(listOf(fill, end)))
                     .selectable(choice == period, role = Role.Tab, onClick = { onPeriod(choice) }).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                     Text(choice.label, style = MaterialTheme.typography.labelMedium, maxLines = 1,
-                        color = if (choice == period) colors.onPrimaryAccent else colors.textPrimary)
+                        color = if (choice == period) colors.onAccentGradient else colors.textPrimary)
                 }
             }
         } }

@@ -10,7 +10,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,9 +20,6 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalDensity
@@ -32,25 +28,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.theme.onAccentGradient
+import com.example.ui.theme.accentBrush
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 
 /** A fixed accent canopy. Cached shapes/shaders never observe feed scroll. */
 @Composable
 internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier, headerTag: String = "home_fixed_header") {
     val colors = LocalAppColors.current
-    val surfaces = remember(colors.primaryAccent, colors.secondaryAccent) {
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(colors.primaryAccent.toArgb(), hsv)
-        if (hsv[1] < .10f) android.graphics.Color.colorToHSV(colors.secondaryAccent.toArgb(), hsv)
-        val hue = if (hsv[1] < .10f) 200f else hsv[0]
-        listOf(16f, 38f, 60f).map { shift ->
-            val vivid = Color.hsv((hue + shift) % 360f, .88f, .94f)
-            // Preserve saturation while keeping white branding readable for any accent hue.
-            var surface = vivid
-            while (1.05f / (surface.luminance() + .05f) < 5.5f) surface = lerp(surface, Color.Black, .04f)
-            surface
-        }
+    val text = colors.onAccentGradient
+    AccentHeaderSurface(modifier, headerTag) {
+        HomeHeaderContent(text, onOpenSettings)
     }
-    val text = Color.White
+}
+
+/** Shared background only; each tab supplies its own heading and actions. */
+@Composable
+internal fun AccentHeaderSurface(modifier: Modifier = Modifier, headerTag: String,
+    content: @Composable () -> Unit) {
+    val colors = LocalAppColors.current
     Box(
         modifier.fillMaxWidth().testTag(headerTag).drawWithCache {
             val surface = Path().apply {
@@ -58,7 +56,7 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
                     bottomLeftCornerRadius = CornerRadius(32.dp.toPx()),
                     bottomRightCornerRadius = CornerRadius(48.dp.toPx())))
             }
-            val fill = Brush.linearGradient(surfaces, Offset.Zero, Offset(size.width, size.height))
+            val fill = colors.accentBrush()
             val sheen = Brush.radialGradient(
                 listOf(Color.White.copy(alpha = .08f), Color.Transparent),
                 center = Offset(size.width * .12f, -size.height * .4f), radius = size.width * .75f
@@ -84,6 +82,13 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
         },
         contentAlignment = Alignment.TopCenter
     ) {
+        CompositionLocalProvider(LocalContentColor provides colors.onAccentGradient, content = content)
+    }
+}
+
+@Composable
+private fun HomeHeaderContent(text: Color, onOpenSettings: (() -> Unit)?) {
+    val colors = LocalAppColors.current
         Row(
             Modifier.widthIn(max = 640.dp).fillMaxWidth()
                 .statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
@@ -91,7 +96,7 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             AppDynamicLogo(Modifier.size(38.dp), primaryAccent = text, secondaryAccent = text.copy(alpha = .78f),
-                cutoutColor = surfaces.first(), showGlow = false)
+                cutoutColor = colors.primaryAccent, showGlow = false)
             BoxWithConstraints(Modifier.weight(1f)) {
                 // Keep the complete brand on compact screens and with larger system text.
                 val fontScale = LocalDensity.current.fontScale
@@ -106,13 +111,30 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
             }
             Box(
                 Modifier.size(48.dp).clip(CircleShape)
-                    .background(Color.White.copy(alpha = .14f), CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = .30f), CircleShape)
+                    .background(text.copy(alpha = .12f), CircleShape)
+                    .border(1.dp, text.copy(alpha = .25f), CircleShape)
                     .clickable { onOpenSettings?.invoke() }.testTag("top_settings_button"),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = text, modifier = Modifier.size(22.dp))
             }
+        }
+    }
+
+@Composable
+internal fun AccentPageHeader(title: String, subtitle: String, headerTag: String,
+    actions: @Composable RowScope.() -> Unit = {}) {
+    AccentHeaderSurface(headerTag = headerTag) {
+        Row(Modifier.widthIn(max = 640.dp).fillMaxWidth().statusBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = LocalContentColor.current, style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black, letterSpacing = (-.6).sp, maxLines = 2)
+                Text(subtitle, color = LocalContentColor.current.copy(alpha = .85f),
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            actions()
         }
     }
 }

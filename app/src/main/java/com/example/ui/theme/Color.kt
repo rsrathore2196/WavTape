@@ -38,7 +38,7 @@ data class AppThemeColors(
     val settingsSurface: Boolean = false
 ) {
     val heroGradient: Brush
-        get() = Brush.linearGradient(listOf(primaryAccent, secondaryAccent))
+        get() = accentBrush()
 
     val onPrimaryAccent: Color
         get() = contrastingContentColor(primaryAccent)

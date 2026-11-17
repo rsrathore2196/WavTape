@@ -385,7 +385,6 @@ fun MainNavigationScaffold(
                                 val catalogSearch by viewModel.catalogBrowser.search.collectAsStateWithLifecycle()
                                 SearchScreen(
                                     searchState = searchState,
-                                    onOpenSettings = onHomeOpenSettings,
                                     isScreenActive = selectedTabIndex == 1 && !isPlayerExpanded && catalogDetail == null,
                                     listState = searchListState,
                                     catalogState = catalogSearch,
@@ -414,7 +413,6 @@ fun MainNavigationScaffold(
                                 val playlists by viewModel.playlists.collectAsStateWithLifecycle()
                                 LibraryScreen(
                                     favoriteTracks = emptyList(),
-                                    onOpenSettings = onHomeOpenSettings,
                                     favoriteTracksState = viewModel.favoriteTracks,
                                     favoriteCount = favoriteCount,
                                     onPlayLikedSongs = { viewModel.playLikedSongs() },

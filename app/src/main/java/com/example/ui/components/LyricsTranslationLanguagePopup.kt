@@ -107,7 +107,7 @@ internal fun LyricsTranslationLanguagePopup(
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = if (compact) 8.dp else 12.dp), color = appColors.dividerColor)
-                    Button(onClick = { onSelectLanguage(selected); onDismissRequest() },
+                    com.example.ui.theme.AccentButton(onClick = { onSelectLanguage(selected); onDismissRequest() },
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = appColors.primaryAccent, contentColor = appColors.onPrimaryAccent),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("lyrics_language_submit")) {

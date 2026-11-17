@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AppThemeColors
+import com.example.ui.theme.accentBrush
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import com.example.performance.BackgroundWorkCoordinator
 import kotlin.math.max
@@ -125,8 +127,7 @@ fun AnimatedBottomBar(
         }
     }
     val selectionTransition = updateTransition(selectedTabIndex, label = "bottom_bar_selection")
-    val selectedContent = if (appColors.isDark) appColors.onPrimaryAccent else com.example.ui.theme.LiquidGlass.contrastColor(
-        appColors.onPrimaryAccent, listOf(appColors.primaryAccent), 4.5f)
+    val selectedContent = appColors.onAccentGradient
     val unselectedContent = if (appColors.isDark) Color.White.copy(alpha = .65f) else Color.Black
     val motions = items.map { item ->
         val expansion = selectionTransition.animateFloat(
@@ -178,8 +179,8 @@ fun AnimatedBottomBar(
         val work = if (selectionTransition.isRunning) BackgroundWorkCoordinator.navigationBusy() else null
         onDispose { work?.close() }
     }
-    val activePillBrush = remember(appColors.primaryAccent) {
-        Brush.verticalGradient(listOf(appColors.primaryAccent.copy(alpha = 1f), appColors.primaryAccent.copy(alpha = 1f)))
+    val activePillBrush = remember(appColors.primaryAccent, appColors.secondaryAccent) {
+        appColors.accentBrush()
     }
     val activeBorder = if (!appColors.dynamicGlassEnabled) appColors.cardBorder
         else Color.White.copy(alpha = if (appColors.isDark) 0.10f else 0.40f)

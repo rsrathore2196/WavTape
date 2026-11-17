@@ -718,7 +718,7 @@ private fun OnboardingContent(
                                 .padding(bottom = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Button(
+                            com.example.ui.theme.AccentButton(
                                 onClick = {
                                     if (isFormValid) {
                                         AppHaptics.performStrong(context)
@@ -1017,7 +1017,7 @@ fun OnboardingStartupPage(
         Spacer(modifier = Modifier.height(24.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
+            com.example.ui.theme.AccentButton(
                 onClick = {
                     AppHaptics.performTap(context)
                     onStartListening()

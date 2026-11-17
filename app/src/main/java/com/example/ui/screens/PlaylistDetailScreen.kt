@@ -157,7 +157,7 @@ fun PlaylistDetailScreen(
                 )
             },
             confirmButton = {
-                Button(
+                com.example.ui.theme.AccentButton(
                     onClick = {
                         if (onRemoveEntry != null) onRemoveEntry(pendingTrack) else onRemoveTrack(pendingTrack.id)
                         trackPendingRemoval = null
@@ -263,7 +263,7 @@ fun PlaylistDetailScreen(
                 }
             },
             confirmButton = {
-                Button(
+                com.example.ui.theme.AccentButton(
                     onClick = {
                         val trimmed = newTitleInput.trim()
                         if (trimmed.isNotBlank()) {
@@ -381,7 +381,7 @@ fun PlaylistDetailScreen(
                         if (!pinPlaybackActions) {
                             Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Button(onClick = { tracks.firstOrNull()?.let { playback.play(it, tracks) } },
+                                com.example.ui.theme.AccentButton(onClick = { tracks.firstOrNull()?.let { playback.play(it, tracks) } },
                                     enabled = tracks.isNotEmpty(), shape = CircleShape,
                                     colors = ButtonDefaults.buttonColors(containerColor = appColors.primaryAccent,
                                         contentColor = appColors.onPrimaryAccent), modifier = Modifier.height(46.dp)) {
@@ -494,7 +494,7 @@ fun PlaylistDetailScreen(
                                 .padding(horizontal = 24.dp, vertical = 14.dp),
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Button(
+                            com.example.ui.theme.AccentButton(
                                 onClick = {
                                     if (tracks.isNotEmpty()) {
                                         playback.play(tracks.first(), tracks)
@@ -593,7 +593,7 @@ internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicT
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var preparation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Button(onClick = {
+        com.example.ui.theme.AccentButton(onClick = {
             preparation?.cancel()
             tracks.firstOrNull()?.let { onPlay(it, tracks) }
         }, enabled = tracks.isNotEmpty(), shape = CircleShape,

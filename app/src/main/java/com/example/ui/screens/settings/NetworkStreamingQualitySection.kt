@@ -29,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -104,7 +103,7 @@ internal fun NetworkStreamingQualitySection() {
                 Text("Apply Mobile Data quality limit when connected to metered Wi-Fi",
                     color = colors.textMuted, fontSize = 11.5.sp, lineHeight = 16.sp)
             }
-            Switch(checked = prefs.treatMeteredWifiAsCellular, onCheckedChange = protectHotspots,
+            com.example.ui.theme.AccentSwitch(checked = prefs.treatMeteredWifiAsCellular, onCheckedChange = protectHotspots,
                 colors = liquidGlassSwitchColors(colors))
         }
         Text("These profiles control streaming quality. Maximum / Lossless enables verified background lossless upgrades. " +

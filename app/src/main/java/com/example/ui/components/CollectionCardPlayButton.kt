@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.data.model.CollectionPlaybackTarget
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 
 internal data class CollectionPlaybackActions(
@@ -34,10 +35,10 @@ internal fun CollectionCardPlayButton(
         modifier = modifier.size(if (small) 32.dp else 48.dp).testTag(tag).semantics {
             contentDescription = if (loading) "Preparing $title" else "Play $title"
         }) {
-        Box(Modifier.size(if (small) 20.dp else 32.dp).clip(CircleShape).background(colors.primaryAccent)
+        Box(Modifier.size(if (small) 20.dp else 32.dp).clip(CircleShape).background(colors.heroGradient)
             .testTag("${tag}_circle"), contentAlignment = Alignment.Center) {
-            if (loading) VisibleCircularProgressIndicator(Modifier.size(if (small) 12.dp else 16.dp), colors.onPrimaryAccent, 2.dp)
-            else Icon(Icons.Default.PlayArrow, null, Modifier.size(if (small) 14.dp else 20.dp), tint = colors.onPrimaryAccent)
+            if (loading) VisibleCircularProgressIndicator(Modifier.size(if (small) 12.dp else 16.dp), colors.onAccentGradient, 2.dp)
+            else Icon(Icons.Default.PlayArrow, null, Modifier.size(if (small) 14.dp else 20.dp), tint = colors.onAccentGradient)
         }
     }
 }

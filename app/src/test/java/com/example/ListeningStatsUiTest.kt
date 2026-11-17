@@ -108,7 +108,7 @@ class ListeningStatsUiTest {
     }
 
     @Test @OptIn(ExperimentalRoborazziApi::class)
-    fun libraryTabsUseASolidAccentAndKeepTheIndicatorMovingAcrossContentChanges() {
+    fun libraryTabsUseTheAccentGradientAndKeepTheIndicatorMovingAcrossContentChanges() {
         var colors by mutableStateOf(DarkAppColors.copy(primaryAccent = Color(0xFF7651D0)))
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -129,13 +129,20 @@ class ListeningStatsUiTest {
                 var left = image.width; var right = -1; var count = 0
                 for (y in 0 until image.height) for (x in 0 until image.width) {
                     val pixel = java.awt.Color(image.getRGB(x, y), true)
-                    if (pixel.alpha > 240 && kotlin.math.abs(pixel.red - colors.primaryAccent.red * 255) < 3 &&
-                        kotlin.math.abs(pixel.green - colors.primaryAccent.green * 255) < 3 &&
-                        kotlin.math.abs(pixel.blue - colors.primaryAccent.blue * 255) < 3) {
+                    val start = listOf(colors.primaryAccent.red, colors.primaryAccent.green, colors.primaryAccent.blue).map { it * 255 }
+                    val end = listOf(colors.secondaryAccent.red, colors.secondaryAccent.green, colors.secondaryAccent.blue).map { it * 255 }
+                    val sample = listOf(pixel.red.toFloat(), pixel.green.toFloat(), pixel.blue.toFloat())
+                    val delta = start.indices.map { end[it] - start[it] }
+                    val amount = start.indices.sumOf { ((sample[it] - start[it]) * delta[it]).toDouble() } /
+                        delta.sumOf { (it * it).toDouble() }.coerceAtLeast(1.0)
+                    val matchesGradient = amount in -.02..1.02 && start.indices.all {
+                        kotlin.math.abs(sample[it] - (start[it] + amount * delta[it])) < 4
+                    }
+                    if (pixel.alpha > 240 && matchesGradient) {
                         left = minOf(left, x); right = maxOf(right, x); count++
                     }
                 }
-                assertTrue("The active tab has an opaque accent fill, including when glass is enabled", count > image.width * image.height / 4)
+                assertTrue("The active tab has an opaque accent gradient, including when glass is enabled", count > image.width * image.height / 4)
                 return (left + right) / 2f
             } finally { file.delete() }
         }

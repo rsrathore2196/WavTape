@@ -84,7 +84,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
+import com.example.ui.theme.onAccentGradient
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -364,7 +364,7 @@ fun SoundOutputDeviceDialog(
                                     },
                                     valueRange = 0f..maxVolume.toFloat(),
                                     thumb = {
-                                        Box(Modifier.size(12.dp).background(appColors.primaryAccent, CircleShape)
+                                        Box(Modifier.size(12.dp).background(appColors.heroGradient, CircleShape)
                                             .testTag("device_output_volume_thumb"))
                                     },
                                     track = { state ->
@@ -433,11 +433,11 @@ private fun ModernDeviceItemRow(device: SoundOutputDevice, onClick: () -> Unit) 
                 maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.size(22.dp).then(
-                if (selected) Modifier.background(colors.primaryAccent, CircleShape)
+                if (selected) Modifier.background(colors.heroGradient, CircleShape)
                 else Modifier.border(1.5.dp, colors.textMuted.copy(alpha = 0.45f), CircleShape)
             ), contentAlignment = Alignment.Center) {
                 if (selected) Icon(Icons.Default.Check, null,
-                    tint = if (colors.primaryAccent.luminance() > 0.5f) Color.Black else Color.White,
+                    tint = colors.onAccentGradient,
                     modifier = Modifier.size(14.dp))
             }
         }

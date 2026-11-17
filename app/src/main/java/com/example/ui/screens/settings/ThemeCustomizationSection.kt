@@ -927,7 +927,7 @@ private fun ThemeExportSuccessDialog(
                         Text(text = "Share", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
 
-                    Button(
+                    com.example.ui.theme.AccentButton(
                         onClick = onDismiss,
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(

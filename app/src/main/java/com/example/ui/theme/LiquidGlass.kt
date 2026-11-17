@@ -347,8 +347,8 @@ private fun Modifier.matteThemeSurface(colors: AppThemeColors, shape: Shape, ele
     borderWidth: Dp, active: Boolean = false): Modifier = this
     .shadow(elevation, shape)
     .clip(shape)
-    .background(if (active) colors.primaryAccent.copy(alpha = 0.16f).compositeOver(colors.cardBackground)
-        else colors.cardBackground.copy(alpha = 1f))
+    .background(if (active) colors.accentBrush(.16f, colors.cardBackground)
+        else Brush.horizontalGradient(listOf(colors.cardBackground, colors.cardBackground)))
     .border(borderWidth, if (!colors.isDark) LiquidGlass.lightOutlineColor(colors, active)
         else if (active) colors.primaryAccent.copy(alpha = 0.45f) else colors.cardBorder, shape)
 
@@ -461,7 +461,7 @@ fun Modifier.liquidGlassButton(
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.35f),
-                colors.primaryAccent.copy(alpha = 0.18f)
+                colors.secondaryAccent.copy(alpha = 0.18f)
             )
         )
     } else {
@@ -469,7 +469,7 @@ fun Modifier.liquidGlassButton(
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.12f).compositeOver(base).copy(alpha = 0.96f),
-                colors.primaryAccent.copy(alpha = 0.08f).compositeOver(base).copy(alpha = 0.94f),
+                colors.secondaryAccent.copy(alpha = 0.08f).compositeOver(base).copy(alpha = 0.94f),
                 base.copy(alpha = 0.96f)
             )
         )
@@ -750,7 +750,7 @@ private fun createLiquidGlassPill(
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.35f),
-                colors.primaryAccent.copy(alpha = 0.18f)
+                colors.secondaryAccent.copy(alpha = 0.18f)
             )
         )
     } else {
@@ -758,7 +758,7 @@ private fun createLiquidGlassPill(
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.12f).compositeOver(base).copy(alpha = 0.96f),
-                colors.primaryAccent.copy(alpha = 0.08f).compositeOver(base).copy(alpha = 0.94f),
+                colors.secondaryAccent.copy(alpha = 0.08f).compositeOver(base).copy(alpha = 0.94f),
                 base.copy(alpha = 0.96f)
             )
         )
@@ -870,7 +870,7 @@ fun Modifier.bouncyClickable(
 fun liquidGlassSwitchColors(appColors: AppThemeColors): androidx.compose.material3.SwitchColors {
     val isDark = appColors.isDark
     val checkedTrack = appColors.primaryAccent
-    val checkedThumb = appColors.onPrimaryAccent
+    val checkedThumb = appColors.onAccentGradient
     return androidx.compose.material3.SwitchDefaults.colors(
         checkedThumbColor = checkedThumb,
         checkedTrackColor = checkedTrack,

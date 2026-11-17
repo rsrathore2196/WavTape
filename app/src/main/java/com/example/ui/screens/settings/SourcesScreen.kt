@@ -472,7 +472,7 @@ private fun SourceItemRow(
                 )
             }
         } else {
-            Switch(
+            com.example.ui.theme.AccentSwitch(
                 checked = isEnabled && isAllowed,
                 onCheckedChange = { onToggle(it) },
                 enabled = isAllowed,
@@ -577,7 +577,7 @@ private fun AddAddonDialog(
             }
         },
         confirmButton = {
-            Button(
+            com.example.ui.theme.AccentButton(
                 enabled = url.isNotBlank() && !busy,
                 onClick = {
                     busy = true

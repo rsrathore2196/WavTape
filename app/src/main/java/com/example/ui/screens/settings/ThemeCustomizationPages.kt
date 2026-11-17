@@ -53,6 +53,7 @@ import com.example.data.local.AppThemePreset
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePresets
 import com.example.ui.theme.AppThemeColors
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.liquidGlassCard
 import com.example.ui.theme.liquidGlassPill
@@ -126,8 +127,8 @@ fun ThemePresetsPage(state: CustomThemeState, onApplyPreset: (AppThemePreset) ->
                             }
                         }
                         if (selected) Icon(Icons.Default.Check, contentDescription = "Selected theme",
-                            tint = colors.onPrimaryAccent, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
-                                .size(22.dp).clip(CircleShape).background(colors.primaryAccent).padding(3.dp))
+                            tint = colors.onAccentGradient, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                                .size(22.dp).clip(CircleShape).background(colors.heroGradient).padding(3.dp))
                     }
                     Text(preset.name, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)

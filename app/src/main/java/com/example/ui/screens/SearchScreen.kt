@@ -304,8 +304,7 @@ fun SearchScreen(
     onRemoveRecentSearch: (String) -> Unit = {},
     onClearRecentSearches: () -> Unit = {},
     onExploreVisibilityChanged: (Boolean) -> Unit = {},
-    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null,
-    onOpenSettings: (() -> Unit)? = null
+    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null
 ) {
     val currentPlayingId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id
     val isCurrentlyPlaying = isPlaying || (playerUiState?.isPlaying == true)
@@ -454,7 +453,8 @@ fun SearchScreen(
         modifier = modifier.fillMaxSize().background(appColors.scaffoldBackground),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        com.example.ui.components.HomeAppHeader(onOpenSettings, headerTag = "search_fixed_header")
+        com.example.ui.components.AccentPageHeader("Search Online Music",
+            "Stream millions of Ultra High Quality Tracks", "search_fixed_header")
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -469,22 +469,6 @@ fun SearchScreen(
         // SEARCH INPUT BAR
         item(key = "search_input", contentType = "search_input") {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp)) {
-                Text(
-                    text = "Search Online Music",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Black,
-                        fontSize = 28.sp,
-                        letterSpacing = (-0.6).sp,
-                        color = appColors.textPrimary
-                    )
-                )
-                Text(
-                    text = "Stream millions of Ultra High Quality Tracks",
-                    style = MaterialTheme.typography.bodySmall.copy(color = appColors.textMuted)
-                )
-
-                Spacer(modifier = Modifier.height(22.dp))
-
                 OutlinedTextField(
                     value = searchState.query,
                     onValueChange = { newText ->

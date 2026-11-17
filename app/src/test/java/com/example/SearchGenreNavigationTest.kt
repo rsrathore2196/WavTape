@@ -15,6 +15,7 @@ import com.example.ui.theme.LightAppColors
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.viewmodel.SearchUiState
 import com.example.ui.viewmodel.CatalogSearchState
+import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -23,6 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
+@OptIn(ExperimentalRoborazziApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -46,11 +48,9 @@ class SearchGenreNavigationTest {
         var catalog by mutableStateOf(CatalogSearchState())
         var searched: String? = null
         var remembered: String? = null
-        var settingsOpened = 0
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides false) {
                 SearchScreen(SearchUiState(query = "track title"), onQueryChange = { searched = it },
-                    onOpenSettings = { settingsOpened++ },
                     onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {},
                     catalogState = catalog, onSelectType = { catalog = catalog.copy(type = it) },
                     onRememberSearch = { remembered = it })
@@ -81,8 +81,11 @@ class SearchGenreNavigationTest {
         }
         compose.onNodeWithTag("search_screen").performTouchInput { swipeUp() }
         assertEquals(header, compose.onNodeWithTag("search_fixed_header").fetchSemanticsNode().boundsInRoot)
-        compose.onNodeWithTag("top_settings_button").assertIsDisplayed().performClick()
-        assertEquals(1, settingsOpened)
+        compose.onNodeWithTag("top_settings_button").assertDoesNotExist()
+        compose.onNodeWithText("XTREME").assertDoesNotExist()
+        compose.onNodeWithText("Search Online Music").assertIsDisplayed()
+        val preview = java.io.File("build/reports/accent-adaptation/search-header.png").apply { parentFile.mkdirs() }
+        compose.onRoot().captureRoboImage(preview.absolutePath, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
 
     }
 

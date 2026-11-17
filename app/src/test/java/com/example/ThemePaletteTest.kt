@@ -75,6 +75,16 @@ class ThemePaletteTest {
         assertEquals(ThemePresets.StudioNight.toCustomThemeState(), com.example.data.local.CustomThemeState())
     }
 
+    @Test fun gradientContentRemainsReadableAcrossEveryBuiltInAccentPair() {
+        ThemePresets.allPresets.forEach { preset ->
+            val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
+            for (step in 0..10) {
+                val surface = androidx.compose.ui.graphics.lerp(colors.primaryAccent, colors.secondaryAccent, step / 10f)
+                assertTrue("${preset.name} gradient content contrast", contrast(colors.onAccentGradient, surface) >= 4.5f)
+            }
+        }
+    }
+
     @Test fun highContrastIncludesElevatedSurfacesAndCustomColorsAreNotNeutralized() {
         ThemePresets.allPresets.forEach { preset ->
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState(), true)
@@ -106,7 +116,8 @@ class ThemePaletteTest {
             val player = playerAppearanceColors(settings)
             assertFalse(player.settingsSurface)
             assertFalse(player.neutralSurfaces)
-            assertEquals(Color.White, player.primaryAccent)
+            assertEquals(original.primaryAccent, player.primaryAccent)
+            assertEquals(original.secondaryAccent, player.secondaryAccent)
         }
     }
 }

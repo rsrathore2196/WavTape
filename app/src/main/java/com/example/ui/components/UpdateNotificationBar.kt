@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -314,7 +313,7 @@ fun UpdateNotificationBar(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Bottom Pill-shaped Download / Install Button
-                    Button(
+                    com.example.ui.theme.AccentButton(
                         onClick = {
                             when (val status = updateStatus) {
                                 is UpdateStatus.UpdateAvailable -> {

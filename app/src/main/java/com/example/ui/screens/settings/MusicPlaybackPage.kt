@@ -27,14 +27,12 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -157,7 +155,7 @@ fun MusicPlaybackPage(
                         )
                     }
 
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = effectsState.isEnabled,
                         onCheckedChange = { onToggleEqualizer(it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -201,7 +199,7 @@ fun MusicPlaybackPage(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = null,
-                                        tint = appColors.onPrimaryAccent,
+                                        tint = appColors.textPrimary,
                                         modifier = Modifier.size(12.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
@@ -210,7 +208,7 @@ fun MusicPlaybackPage(
                                     text = preset,
                                     fontSize = 11.5.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) appColors.onPrimaryAccent else textPrimary
+                                    color = if (isSelected) appColors.textPrimary else textPrimary
                                 )
                             }
                         }
@@ -279,7 +277,7 @@ fun MusicPlaybackPage(
                             lineHeight = 15.sp
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = effectsState.crystalClarityEnabled,
                         onCheckedChange = { onCrystalClarityToggle(it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -353,7 +351,7 @@ fun MusicPlaybackPage(
                             color = textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = playerExperience.crossfade,
                         onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setCrossfade(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -440,7 +438,7 @@ private fun PlaybackProcessingSettingRow(title: String, description: String, che
             Text(title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
             Text(description, fontSize = 11.sp, color = colors.textMuted)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange,
+        com.example.ui.theme.AccentSwitch(checked = checked, onCheckedChange = onCheckedChange,
             colors = liquidGlassSwitchColors(colors), modifier = Modifier.testTag(tag))
     }
 }
@@ -468,7 +466,7 @@ internal fun DolbyAtmosSettingsCard(
                     else -> "Prefer genuine Atmos mixes from compatible sources"
                 }, fontSize = 11.sp, color = colors.textMuted)
             }
-            Switch(checked = requested && usable, enabled = usable, onCheckedChange = onToggle,
+            com.example.ui.theme.AccentSwitch(checked = requested && usable, enabled = usable, onCheckedChange = onToggle,
                 colors = liquidGlassSwitchColors(colors), modifier = Modifier.testTag("switch_dolby_atmos"))
         }
     }

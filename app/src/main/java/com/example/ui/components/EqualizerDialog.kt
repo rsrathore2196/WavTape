@@ -30,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -136,7 +135,7 @@ fun EqualizerDialog(
                             }
                         }
 
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = effectsState.isEnabled,
                         onCheckedChange = onEnableChanged,
                         colors = playerPopupSwitchColors(appColors),

@@ -33,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -239,7 +238,7 @@ fun QueueBottomSheet(
                             }
                         }
 
-                        Switch(
+                        com.example.ui.theme.AccentSwitch(
                             checked = isAutoplayEnabled,
                             onCheckedChange = { onToggleAutoplay() },
                             colors = playerPopupSwitchColors(appColors)

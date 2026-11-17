@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.playback.AudioSignalPath
 import com.example.playback.OutputPrecision
 import com.example.playback.SignalPathState
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -49,11 +50,11 @@ internal fun OutputPrecisionSetting(selected: OutputPrecision, skipSilence: Bool
             OutputPrecision.entries.forEach { precision ->
                 val active = selected == precision
                 Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
-                    .background(if (active) colors.primaryAccent else androidx.compose.ui.graphics.Color.Transparent)
+                    .then(if (active) Modifier.background(colors.heroGradient) else Modifier)
                     .selectable(selected = active, role = Role.RadioButton, onClick = { if (!active) onSelect(precision) })
                     .testTag("output_precision_${precision.name}").padding(horizontal = 6.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center) {
-                    Text(precision.label, color = if (active) colors.onPrimaryAccent else colors.textMuted,
+                    Text(precision.label, color = if (active) colors.onAccentGradient else colors.textMuted,
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }

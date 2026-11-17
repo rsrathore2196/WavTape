@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.UserProfile
 import com.example.data.model.CountryData
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassCard
@@ -298,22 +299,10 @@ fun ProfileDetailPage(
 
         // Prominent "Edit Details" Button Below Attributes
         // Fully dynamic: Adapts to AMOLED and Dark/Light themes with high-contrast icon and text
-        val isExtremelyDarkAccent = appColors.isDark && accentLum < 0.25f
-        val editButtonBg = if (isExtremelyDarkAccent) {
-            Brush.horizontalGradient(listOf(Color(0xFF2E2E36), Color(0xFF1E1E24)))
-        } else {
-            Brush.horizontalGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent))
-        }
-        val editButtonBorder = if (isExtremelyDarkAccent) {
-            BorderStroke(1.2.dp, Color.White.copy(alpha = 0.50f))
-        } else {
-            BorderStroke(1.dp, if (appColors.isDark) Color.White.copy(alpha = 0.35f) else LiquidGlass.lightOutlineColor(appColors, true))
-        }
-        val editButtonContentColor = if (isExtremelyDarkAccent) {
-            Color.White
-        } else {
-            contrastingContentColor(appColors.primaryAccent)
-        }
+        val editButtonBg = appColors.heroGradient
+        val editButtonBorder = BorderStroke(1.dp,
+            if (appColors.isDark) Color.White.copy(alpha = .35f) else LiquidGlass.lightOutlineColor(appColors, true))
+        val editButtonContentColor = appColors.onAccentGradient
 
         Box(
             modifier = Modifier
@@ -322,7 +311,7 @@ fun ProfileDetailPage(
                 .shadow(
                     elevation = if (appColors.isAmoled) 6.dp else 4.dp,
                     shape = RoundedCornerShape(16.dp),
-                    spotColor = if (isExtremelyDarkAccent) Color.Black.copy(alpha = 0.5f) else appColors.primaryAccent.copy(alpha = 0.35f),
+                    spotColor = appColors.primaryAccent.copy(alpha = 0.35f),
                     ambientColor = if (appColors.isAmoled) appColors.primaryAccent.copy(alpha = 0.15f) else Color.Transparent
                 )
                 .clip(RoundedCornerShape(16.dp))

@@ -59,7 +59,7 @@ fun DownloadsPage(modifier: Modifier = Modifier, store: OfflineDownloads = Offli
                             Text("Wi-Fi only", color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
                             Text("Wait for an unmetered connection", color = colors.textSecondary, style = MaterialTheme.typography.bodySmall)
                         }
-                        Switch(preferences.wifiOnly, { value -> action { store.updatePreferences { it.copy(wifiOnly = value) } } },
+                        com.example.ui.theme.AccentSwitch(preferences.wifiOnly, { value -> action { store.updatePreferences { it.copy(wifiOnly = value) } } },
                             modifier = Modifier.testTag("downloads_wifi_only"))
                     }
                     HorizontalDivider(Modifier.padding(vertical = 10.dp), color = colors.cardBorder)

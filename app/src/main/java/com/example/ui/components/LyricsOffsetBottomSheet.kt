@@ -35,7 +35,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -483,7 +482,7 @@ fun LyricsOffsetBottomSheet(
                             )
                         }
 
-                        Switch(
+                        com.example.ui.theme.AccentSwitch(
                             checked = applyToAll,
                             onCheckedChange = { checked ->
                                 AppHaptics.performTap(context)

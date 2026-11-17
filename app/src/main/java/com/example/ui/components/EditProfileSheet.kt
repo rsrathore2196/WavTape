@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,6 +68,7 @@ import com.example.data.model.CountryData
 import com.example.data.model.CountryItem
 import com.example.data.model.LanguageData
 import com.example.ui.screens.CountryPickerBottomSheet
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.XtremeLightBlue
 
@@ -194,10 +194,10 @@ fun EditProfileSheet(
                         Modifier.size(88.dp).align(Alignment.Center).testTag("edit_profile_avatar_image"))
                     IconButton(onClick = { hideKeyboard(); avatarPickerOpen = true },
                         modifier = Modifier.align(Alignment.BottomEnd).size(36.dp).clip(CircleShape)
-                            .background(primaryAccent).border(BorderStroke(2.dp, bg), CircleShape)
+                            .background(appColors.heroGradient).border(BorderStroke(2.dp, bg), CircleShape)
                             .testTag("edit_profile_avatar")) {
                         Icon(androidx.compose.material.icons.Icons.Default.Edit, "Edit avatar",
-                            tint = appColors.onPrimaryAccent, modifier = Modifier.size(18.dp))
+                            tint = appColors.onAccentGradient, modifier = Modifier.size(18.dp))
                     }
                 }
                 if (avatarError != null) Text(avatarError.orEmpty(), color = textMuted, fontSize = 12.sp)
@@ -476,7 +476,7 @@ fun EditProfileSheet(
             }
 
             // Save Button
-            Button(
+            com.example.ui.theme.AccentButton(
                 onClick = {
                     if (isFormValid) {
                         onSave(

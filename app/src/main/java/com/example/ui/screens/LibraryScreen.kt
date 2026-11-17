@@ -56,7 +56,6 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,7 +81,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -129,6 +129,7 @@ import com.example.ui.theme.XtremeCyan
 import com.example.ui.theme.XtremeGradients
 import com.example.ui.theme.XtremeGreen
 import com.example.ui.theme.XtremeLightBlue
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.XtremePurple
 import com.example.ui.theme.XtremeRose
 
@@ -152,8 +153,7 @@ fun LibraryScreen(
     listState: LazyListState = rememberLazyListState(),
     onPlayDownloadedTrack: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick,
     downloadStore: OfflineDownloads = OfflineDownloads.get(LocalContext.current),
-    onPrepareDownloads: (suspend (OfflineDownloads) -> Boolean)? = null,
-    onOpenSettings: (() -> Unit)? = null
+    onPrepareDownloads: (suspend (OfflineDownloads) -> Boolean)? = null
 ) {
     var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf("Playlists", "Listening Stats")
@@ -204,7 +204,7 @@ fun LibraryScreen(
     val tabPosition = animateFloatAsState(selectedTab.toFloat(),
         animationSpec = spring(dampingRatio = 1f, stiffness = 220f), label = "library_tab_position")
     val tabLabelColors = tabs.indices.map { index ->
-        animateColorAsState(if (selectedTab == index) com.example.ui.theme.contrastingContentColor(appColors.primaryAccent)
+        animateColorAsState(if (selectedTab == index) appColors.onAccentGradient
             else appColors.textMuted, animationSpec = tween(220), label = "library_tab_label_$index")
     }
     val layoutDirection = LocalLayoutDirection.current
@@ -213,54 +213,19 @@ fun LibraryScreen(
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(modifier.fillMaxSize().background(appColors.scaffoldBackground)) {
-        com.example.ui.components.HomeAppHeader(onOpenSettings, headerTag = "library_fixed_header")
+        com.example.ui.components.AccentPageHeader("Your Library",
+            "Saved music, custom playlists & liked songs", "library_fixed_header") {
+            if (selectedTab == 0) {
+                val foreground = androidx.compose.material3.LocalContentColor.current
+                IconButton(onClick = onCreatePlaylistClick, modifier = Modifier.size(46.dp).clip(CircleShape)
+                    .background(foreground.copy(alpha = .12f)).testTag("create_playlist_button")) {
+                    Icon(Icons.Default.Add, "Create Playlist", tint = foreground, modifier = Modifier.size(26.dp))
+                }
+            }
+        }
     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.TopCenter) {
         val libraryHeader: @Composable () -> Unit = {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Your Library",
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 28.sp,
-                                letterSpacing = (-0.6).sp,
-                                color = appColors.textPrimary
-                            )
-                        )
-                        Text(
-                            text = "Saved music, custom playlists & liked songs",
-                            style = MaterialTheme.typography.bodySmall.copy(color = appColors.textMuted)
-                        )
-                    }
-
-                    // Match the Home Settings button's glass finish.
-                    if (selectedTab == 0) {
-                    IconButton(
-                        onClick = {
-                            onCreatePlaylistClick()
-                        },
-                        modifier = Modifier
-                            .size(46.dp)
-                            .xtremeLiquidGlassBackground(shape = CircleShape, elevation = 3.dp, backdrop = null)
-                            .testTag("create_playlist_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Create Playlist",
-                            tint = appColors.textPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
                 Box(Modifier.fillMaxWidth().testTag("library_tabs")) {
                     Box(Modifier.matchParentSize().liquidGlassCard(appColors,
                         shape = RoundedCornerShape(16.dp), elevation = 4.dp, translucency = 0.95f))
@@ -268,14 +233,18 @@ fun LibraryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(4.dp)
-                            .drawBehind {
+                            .drawWithCache {
                                 val gap = 4.dp.toPx()
                                 val tabWidth = (size.width - gap) / 2f
-                                val progress = tabPosition.value.coerceIn(0f, 1f)
-                                val position = if (layoutDirection == LayoutDirection.Rtl) 1f - progress else progress
-                                drawRoundRect(appColors.primaryAccent,
-                                    topLeft = Offset((tabWidth + gap) * position, 0f),
-                                    size = Size(tabWidth, size.height), cornerRadius = CornerRadius(12.dp.toPx()))
+                                val fill = Brush.horizontalGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent),
+                                    endX = tabWidth)
+                                onDrawBehind {
+                                    val progress = tabPosition.value.coerceIn(0f, 1f)
+                                    val position = if (layoutDirection == LayoutDirection.Rtl) 1f - progress else progress
+                                    translate(left = (tabWidth + gap) * position) {
+                                        drawRoundRect(fill, size = Size(tabWidth, size.height), cornerRadius = CornerRadius(12.dp.toPx()))
+                                    }
+                                }
                             },
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -462,7 +431,7 @@ fun LibraryScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Button(
+                                com.example.ui.theme.AccentButton(
                                     onClick = onCreatePlaylistClick,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = appColors.primaryAccent,

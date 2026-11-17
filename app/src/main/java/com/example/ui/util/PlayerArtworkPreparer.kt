@@ -165,14 +165,14 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
         }
 }
 
-/** Neutral player controls are independent of app accents, album colors, and color mode. */
+/** Keep the neutral player canvas and typography while retaining the selected accent pair. */
 internal fun playerAppearanceColors(source: AppThemeColors): AppThemeColors = source.copy(
     isDark = true, isAmoled = false, neutralSurfaces = false, settingsSurface = false,
     screenBackground = neutralPlayerBackground,
     scaffoldBackground = Color(0xff101010), cardBackground = Color(0xff181818),
     cardBackgroundElevated = Color(0xff202020), cardBorder = Color.White.copy(alpha = 0.22f),
     textPrimary = Color.White, textSecondary = Color.White.copy(alpha = 0.75f),
-    textMuted = Color.White.copy(alpha = 0.55f), primaryAccent = Color.White, secondaryAccent = Color.White,
+    textMuted = Color.White.copy(alpha = 0.55f),
     inputBackground = Color(0xff202020), chipBackground = Color(0xff202020),
     chipBorder = Color.White.copy(alpha = 0.22f), dividerColor = Color.White.copy(alpha = 0.15f)
 )

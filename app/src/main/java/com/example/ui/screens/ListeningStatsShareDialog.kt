@@ -122,7 +122,7 @@ internal fun ListeningStatsShareDialog(request: ListeningStatsImageRequest, onDi
                         Spacer(Modifier.width(6.dp))
                         Text(if (saving) "Saving…" else "Save image", maxLines = 1)
                     }
-                    Button(onClick = {
+                    com.example.ui.theme.AccentButton(onClick = {
                         image?.let { file ->
                             scope.launch {
                                 launching = true

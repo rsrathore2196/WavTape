@@ -71,7 +71,7 @@ internal fun PlaybackIntegrationsSection(
                     fontSize = 11.sp
                 )
             }
-            Switch(
+            com.example.ui.theme.AccentSwitch(
                 checked = settings.keepLyricsAwake,
                 onCheckedChange = { OtherSettingsPreferences.setKeepLyricsAwake(context, it) },
                 colors = liquidGlassSwitchColors(colors),

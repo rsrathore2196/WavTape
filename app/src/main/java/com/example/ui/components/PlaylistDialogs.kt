@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -200,7 +199,7 @@ fun CreatePlaylistDialog(
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Button(
+                            com.example.ui.theme.AccentButton(
                                 onClick = {
                                     if (title.isNotBlank()) {
                                         onConfirm(title.trim(), description.trim())

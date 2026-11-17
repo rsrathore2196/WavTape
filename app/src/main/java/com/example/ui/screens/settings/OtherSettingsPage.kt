@@ -55,7 +55,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -207,7 +206,7 @@ fun OtherSettingsPage(
                             fontSize = 11.5.sp, color = appColors.textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = performanceSettings.highPerformanceEnabled,
                         onCheckedChange = { enabled ->
                             if (enabled) showHighPerformanceConfirmation = true
@@ -424,7 +423,7 @@ fun OtherSettingsPage(
                             )
                         }
 
-                        Switch(
+                        com.example.ui.theme.AccentSwitch(
                             checked = cacheStats.autoTrimEnabled,
                             onCheckedChange = { isEnabled ->
                                 SmartCacheManager.setSmartAutoTrim(isEnabled)
@@ -631,7 +630,7 @@ fun OtherSettingsPage(
                         }
                     }
 
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = isHapticsEnabled,
                         onCheckedChange = {
                             isHapticsEnabled = it
@@ -839,7 +838,7 @@ private fun ProxySettingsCard(
                     }
                 }
 
-                Switch(
+                com.example.ui.theme.AccentSwitch(
                     checked = isProxyEnabled,
                     onCheckedChange = onProxyEnabledChange,
                     colors = liquidGlassSwitchColors(appColors),

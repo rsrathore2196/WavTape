@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -476,7 +475,7 @@ fun AboutPage(
                             }
                         },
                         confirmButton = {
-                            Button(
+                            com.example.ui.theme.AccentButton(
                                 onClick = {
                                     showReleaseNotesDialog = false
                                     com.example.updater.AppUpdateManager.downloadAndInstallUpdate(context, availableInfo)

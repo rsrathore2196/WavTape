@@ -35,7 +35,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -337,7 +336,7 @@ private fun ThemesAppUiOverview(
                             )
                         }
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = showMiniHeart,
                         onCheckedChange = { showMiniHeart = it },
                         colors = liquidGlassSwitchColors(appColors),
@@ -379,7 +378,7 @@ private fun ThemesAppUiOverview(
                             )
                         }
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = showMiniNext,
                         onCheckedChange = { showMiniNext = it },
                         colors = liquidGlassSwitchColors(appColors),
@@ -453,7 +452,7 @@ private fun ThemesAppUiOverview(
                             color = appColors.textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = playerExperience.fullScreenAlbumArt,
                         onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setFullScreenAlbumArt(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -485,7 +484,7 @@ private fun ThemesAppUiOverview(
                             color = appColors.textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = playerExperience.dynamicAlbumGlow,
                         onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setDynamicAlbumGlow(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -517,7 +516,7 @@ private fun ThemesAppUiOverview(
                             color = appColors.textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = playerExperience.highContrastTypography,
                         onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setHighContrastTypography(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
@@ -549,7 +548,7 @@ private fun ThemesAppUiOverview(
                             color = appColors.textMuted
                         )
                     }
-                    Switch(
+                    com.example.ui.theme.AccentSwitch(
                         checked = isDynamicGlassEnabled,
                         onCheckedChange = onToggleDynamicGlass,
                         colors = liquidGlassSwitchColors(appColors),

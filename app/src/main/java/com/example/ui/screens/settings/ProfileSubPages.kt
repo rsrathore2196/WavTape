@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -246,7 +245,7 @@ fun EditProfileNameSubPage(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Action Buttons
-        Button(
+        com.example.ui.theme.AccentButton(
             onClick = {
                 if (nameInput.isNotBlank()) {
                     onSaveName(nameInput.trim())
@@ -609,7 +608,7 @@ fun EditRecommendationLanguagesSubPage(
         Spacer(modifier = Modifier.height(28.dp))
 
         // Save Button
-        Button(
+        com.example.ui.theme.AccentButton(
             onClick = { onSaveLanguages(selectedLanguages.toList()) },
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
