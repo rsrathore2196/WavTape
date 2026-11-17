@@ -45,6 +45,10 @@ class AccentControlsUiTest {
                     }
                     AccentSwitch(checked, { checked = it }, Modifier.testTag("accent_switch"))
                     AccentButton({}, enabled = false, modifier = Modifier.testTag("disabled_accent_button")) { Text("Disabled") }
+                    AccentButton({}, elevation = androidx.compose.material3.ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                        modifier = Modifier.padding(16.dp).width(240.dp).height(48.dp).testTag("elevated_accent_button")) {
+                        Text("Elevated")
+                    }
                 }
             }
         } }
@@ -66,6 +70,10 @@ class AccentControlsUiTest {
         compose.runOnIdle { palette = palette.copy(secondaryAccent = Color(0xFFFF6E95)) }
         val after = samples("second")
         before.zip(after).forEach { (a, b) -> assertNotEquals("Every filled control must observe both accent endpoints", a, b) }
+        val elevated = image("elevated_accent_button", "elevated-button")
+        val centerX = elevated.width / 2
+        assertEquals("AccentButton must not cast an inner transparent-Surface shadow over its gradient fill",
+            elevated.getRGB(centerX, 2), elevated.getRGB(centerX, elevated.height / 4))
         compose.onNodeWithTag("accent_button").performClick()
         assertEquals(1, clicks)
         compose.onNodeWithTag("disabled_accent_button").assertIsNotEnabled()

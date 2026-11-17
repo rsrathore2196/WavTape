@@ -878,9 +878,15 @@ internal fun RetainedOnboardingPages(step: OnboardingStep, content: @Composable 
                     layout(child.width, child.height) {
                         // Measuring an unplaced page prepares it without drawing
                         // it or intercepting touches meant for the visible page.
-                        if (step == page || opacity.value > 0f) child.placeWithLayer(0, 0) {
-                            alpha = opacity.value
-                            translationX = child.width * offset.value
+                        if (step == page || opacity.value > 0f) {
+                            if (step == page && !moving && opacity.value == 1f && offset.value == 0f) {
+                                child.place(0, 0)
+                            } else {
+                                child.placeWithLayer(0, 0) {
+                                    alpha = opacity.value
+                                    translationX = child.width * offset.value
+                                }
+                            }
                         }
                     }
                 }
@@ -1029,15 +1035,9 @@ fun OnboardingStartupPage(
                     containerColor = primaryAccent,
                     contentColor = appColors.onPrimaryAccent
                 ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .weight(1f)
                     .height(56.dp)
-                    .shadow(
-                        elevation = 3.dp,
-                        shape = RoundedCornerShape(22.dp),
-                        spotColor = Color.Black
-                    )
                     .testTag("start_listening_button")
             ) {
                 Text(

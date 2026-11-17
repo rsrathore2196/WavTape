@@ -39,9 +39,11 @@ fun AccentButton(
     content: @Composable RowScope.() -> Unit
 ) {
     val palette = LocalAppColors.current
+    // Button's Surface uses Color.Transparent so the accent gradient shows through; passing
+    // non-zero elevation causes Surface to cast a shadow inside the transparent layer.
     Button(onClick, modifier.then(if (enabled) Modifier.background(palette.accentBrush(), shape) else Modifier),
         enabled, shape, colors.copy(containerColor = Color.Transparent, contentColor = palette.onAccentGradient),
-        elevation, border, contentPadding, interactionSource, content)
+        elevation = null, border, contentPadding, interactionSource, content)
 }
 
 /** Material's 52 x 32dp switch track shares the same fill without changing its thumb animation. */
