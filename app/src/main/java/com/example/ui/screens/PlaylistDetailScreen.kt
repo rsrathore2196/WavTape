@@ -310,57 +310,6 @@ fun PlaylistDetailScreen(
                 .then(if (landscape) Modifier.statusBarsPadding() else Modifier)
                 .testTag("playlist_detail_screen")
         ) {
-        // TOP NAVIGATION BAR (Landscape only; portrait header has overlaid controls)
-        if (landscape && !readOnly) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-            if (!readOnly) Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
-                        .bouncyClickable {
-                            newTitleInput = playlist.title
-                            showRenameDialog = true
-                        }
-                        .testTag("edit_playlist_name_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit Playlist Name",
-                        tint = appColors.primaryAccent,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
-                        .bouncyClickable { showDeletePlaylistDialog = true }
-                        .testTag("delete_playlist_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = "Delete Playlist",
-                        tint = appColors.textMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-    }
-
         if (pinPlaybackActions) CollectionPlaybackButtons(tracks, playback::play,
             onShuffle = { playback.shuffle(tracks) }, download = download)
         LazyColumn(
@@ -381,7 +330,12 @@ fun PlaylistDetailScreen(
                         contentDescription = null, contentScale = ContentScale.Crop, modifier = artworkModifier)
                     Spacer(Modifier.width(20.dp))
                     Column(Modifier.weight(1f)) {
-                        CollectionTitleRow(title, MaterialTheme.typography.headlineMedium, "playlist_profile_name")
+                        CollectionTitleRow(title, MaterialTheme.typography.headlineMedium, "playlist_profile_name") {
+                            if (!readOnly) PlaylistTitleActions(
+                                onRename = { newTitleInput = playlist.title; showRenameDialog = true },
+                                onDelete = { showDeletePlaylistDialog = true }
+                            )
+                        }
                         if (description.isNotBlank()) Text(description, color = appColors.textSecondary,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(trackSummary, color = appColors.primaryAccent, fontSize = 12.sp)
@@ -402,56 +356,16 @@ fun PlaylistDetailScreen(
                             if (artworkIcon != null) LibraryCollectionArtwork(artworkIcon, artworkModifier, artworkBrush ?: downloadsArtworkBrush())
                             else AsyncImage(model = rememberPlaylistCoverRequest(playlist.coverUrl, 1200),
                                 contentDescription = title, contentScale = ContentScale.Fit, modifier = artworkModifier)
-                        if (!readOnly) {
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .statusBarsPadding()
-                                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
-                                        .bouncyClickable {
-                                            newTitleInput = playlist.title
-                                            showRenameDialog = true
-                                        }
-                                        .testTag("edit_playlist_name_button"),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit Playlist Name",
-                                        tint = appColors.primaryAccent,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
-                                        .bouncyClickable { showDeletePlaylistDialog = true }
-                                        .testTag("delete_playlist_button"),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Delete Playlist",
-                                        tint = appColors.textMuted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
                         Text(collectionLabel, color = appColors.textMuted, style = MaterialTheme.typography.labelMedium)
-                        CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "playlist_profile_name")
+                        CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "playlist_profile_name") {
+                            if (!readOnly) PlaylistTitleActions(
+                                onRename = { newTitleInput = playlist.title; showRenameDialog = true },
+                                onDelete = { showDeletePlaylistDialog = true }
+                            )
+                        }
                         if (description.isNotBlank()) {
                             Text(
                                 text = description,
@@ -517,6 +431,28 @@ fun PlaylistDetailScreen(
         }
     }
 }
+}
+
+@Composable
+private fun PlaylistTitleActions(onRename: () -> Unit, onDelete: () -> Unit) {
+    val appColors = LocalAppColors.current
+    Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(38.dp)
+            .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
+            .bouncyClickable(onClick = onRename).testTag("edit_playlist_name_button"),
+            contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Edit, "Edit Playlist Name", tint = appColors.primaryAccent,
+                modifier = Modifier.size(18.dp))
+        }
+        Box(Modifier.size(38.dp)
+            .liquidGlassButton(appColors, shape = CircleShape, elevation = 3.dp)
+            .bouncyClickable(onClick = onDelete).testTag("delete_playlist_button"),
+            contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.DeleteOutline, "Delete Playlist", tint = appColors.textMuted,
+                modifier = Modifier.size(18.dp))
+        }
+    }
 }
 
 /** The same compact controls serve albums, playlists and the built-in collections. */

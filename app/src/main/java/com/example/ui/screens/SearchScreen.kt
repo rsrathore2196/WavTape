@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -76,6 +78,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -109,6 +112,46 @@ import com.example.ui.theme.XtremeLightBlue
 import com.example.ui.theme.XtremePurple
 import com.example.ui.theme.XtremeRose
 import com.example.ui.viewmodel.SearchUiState
+
+/** History belongs to the focused field rather than the Explore content below it. */
+@Composable
+private fun RecentSearchList(
+    queries: List<String>, onSearch: (String) -> Unit,
+    onRemove: (String) -> Unit, onClear: () -> Unit
+) {
+    val colors = LocalAppColors.current
+    val maxHeight = minOf(300.dp, LocalConfiguration.current.screenHeightDp.dp * 0.4f)
+    LazyColumn(Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(max = maxHeight)
+        .clip(RoundedCornerShape(12.dp)).background(colors.inputBackground)
+        .testTag("recent_searches_list")) {
+        item(key = "history_heading") {
+            Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent searches", Modifier.weight(1f), color = colors.textMuted,
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Clear all", color = colors.textMuted, fontSize = 11.5.sp,
+                    modifier = Modifier.clickable(onClick = onClear).padding(8.dp)
+                        .testTag("clear_recent_searches_button"))
+            }
+        }
+        items(queries, key = { "query:$it" }) { query ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                .clickable { onSearch(query) }.padding(start = 14.dp, end = 6.dp)
+                .testTag("recent_search_item_$query"), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.History, contentDescription = null, tint = colors.textMuted,
+                    modifier = Modifier.size(18.dp))
+                Text(query, Modifier.weight(1f).padding(horizontal = 10.dp),
+                    color = colors.textPrimary, fontSize = 14.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                Box(Modifier.size(32.dp).clip(CircleShape).clickable { onRemove(query) }
+                    .testTag("remove_recent_search_$query"), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Clear, "Remove $query", tint = colors.textMuted,
+                        modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+}
 
 /** A separate genre destination; the parent Search list keeps its own scroll state. */
 @Composable
@@ -371,6 +414,7 @@ fun SearchScreen(
     }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    var searchFocused by remember { mutableStateOf(false) }
     val explorePills = remember(searchState.exploreCategories, searchState.exploreIndexReady) {
         // A pending restore is not an offline result. Publishing legacy pills
         // here first would replace/reflow the whole list when its index arrives.
@@ -401,9 +445,11 @@ fun SearchScreen(
     // avoiding a redundant request while the existing transition is running.
 
     // Gracefully handle back press: Return to default "All" genres page rather than closing the app
-    BackHandler(enabled = isScreenActive && (isGenreActive || hasQuery || selectedTypeFilter != null)) {
+    BackHandler(enabled = isScreenActive && (searchFocused || isGenreActive || hasQuery || selectedTypeFilter != null)) {
+        val dismissHistory = searchFocused
         keyboardController?.hide()
         focusManager.clearFocus()
+        if (dismissHistory) return@BackHandler
         if (isGenreActive) {
             onSelectGenre("All")
         } else if (selectedTypeFilter != null) {
@@ -621,8 +667,13 @@ fun SearchScreen(
                             ),
                             RoundedCornerShape(16.dp)
                         )
+                        .onFocusChanged { searchFocused = it.isFocused }
                         .testTag("search_query_input")
                 )
+
+                if (isScreenActive && searchFocused && recentSearches.isNotEmpty()) {
+                    RecentSearchList(recentSearches, triggerSearch, onRemoveRecentSearch, onClearRecentSearches)
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -661,104 +712,6 @@ fun SearchScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp)
                             )
-                        }
-                    }
-                }
-            }
-        }
-
-        // RECENT SEARCHES SECTION (Positioned directly above the genre pills)
-        if (!hasQuery && recentSearches.isNotEmpty()) {
-            item(key = "recent_searches", contentType = "search_chips") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Recent Searches",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = appColors.textPrimary,
-                                fontSize = 18.sp
-                            )
-                        )
-                        Text(
-                            text = "Clear all",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = appColors.textMuted,
-                                fontSize = 11.5.sp
-                            ),
-                            modifier = Modifier
-                                .clickable {
-                                    onClearRecentSearches()
-                                }
-                                .padding(4.dp)
-                                .testTag("clear_recent_searches_button")
-                        )
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        recentSearches.chunked((recentSearches.size + 1) / 2).forEachIndexed { rowIndex, queries ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                    .testTag("recent_search_row_$rowIndex"),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                queries.forEach { queryItem ->
-                                    Box(
-                                        modifier = Modifier
-                                            .rememberLiquidGlassPill(
-                                                colors = appColors,
-                                                shape = RoundedCornerShape(20.dp),
-                                                isActive = false,
-                                                elevation = 3.dp
-                                            )
-                                            .testTag("recent_search_chip_$queryItem")
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .bouncyClickable { triggerSearch(queryItem) }
-                                                .padding(start = 14.dp, end = 7.dp, top = 6.dp, bottom = 6.dp)
-                                        ) {
-                                            Text(
-                                                text = queryItem,
-                                                color = if (appColors.isDark) Color.White else appColors.textPrimary,
-                                                fontSize = 13.8.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.width(5.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(22.dp)
-                                                    .clip(CircleShape)
-                                                    .clickable {
-                                                        onRemoveRecentSearch(queryItem)
-                                                    }
-                                                    .testTag("remove_recent_search_$queryItem"),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Clear,
-                                                    contentDescription = "Remove $queryItem",
-                                                    tint = if (appColors.isDark) Color.White.copy(alpha = 0.70f) else appColors.textMuted,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }

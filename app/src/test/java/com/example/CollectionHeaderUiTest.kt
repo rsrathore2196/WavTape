@@ -49,14 +49,15 @@ class CollectionHeaderUiTest {
         runBlocking { store.load() }
     }
 
-    private fun showPlaylist(icon: Boolean = false) {
+    private fun showPlaylist(icon: Boolean = false, readOnly: Boolean = false,
+        onRename: (String) -> Unit = {}, onDelete: () -> Unit = {}) {
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false),
                 LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false,
                 LocalArtworkRequestsActive provides false) {
                 PlaylistDetailScreen(PlaylistWithTracks(playlist, tracks.map(TrackEntity::fromMusicTrack)),
-                    onBackClick = {}, onPlayTrack = { _, _ -> }, onToggleFavorite = {}, onDeletePlaylist = {}, onRemoveTrack = {},
-                    downloadStore = store, artworkIcon = if (icon) Icons.Default.Download else null)
+                    onBackClick = {}, onPlayTrack = { _, _ -> }, onToggleFavorite = {}, onDeletePlaylist = onDelete, onRemoveTrack = {},
+                    onRenamePlaylist = onRename, readOnly = readOnly, downloadStore = store, artworkIcon = if (icon) Icons.Default.Download else null)
             }
         } }
     }
@@ -67,6 +68,7 @@ class CollectionHeaderUiTest {
         compose.onNodeWithText("Late nights & long drives").assertExists()
         compose.onNodeWithText("2 tracks • 4 min").assertExists()
         assertTitleAction("playlist_profile_name", "playlist_profile_header")
+        assertPlaylistTitleActions()
         assertArtAtTop("playlist_profile_artwork", "playlist_profile_header")
         capture("playlist_detail_screen", "playlist")
         assertEquals("Saved title stays intact", "Night Drive (Deluxe) [Official Playlist]", playlist.title)
@@ -117,6 +119,7 @@ class CollectionHeaderUiTest {
     fun landscapePlaylistCentersTheDownloadWithWorkingPlaybackActions() {
         showPlaylist()
         assertTitleAction("playlist_profile_name", "playlist_detail_screen")
+        assertPlaylistTitleActions()
         compose.onNodeWithContentDescription("Play all").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("Shuffle").assertIsDisplayed().performClick()
         capture("playlist_detail_screen", "playlist-landscape")
@@ -130,6 +133,66 @@ class CollectionHeaderUiTest {
         assertEquals(DarkAppColors.scaffoldBackground.toArgb(), image.getRGB(image.width / 2, 1))
         assertTrue(java.awt.Color(image.getRGB(image.width / 2, image.height / 3)).blue > 100)
         assertEquals(DarkAppColors.scaffoldBackground.toArgb(), image.getRGB(image.width / 2, image.height - 1))
+    }
+
+    @Test fun movedTitleActionsKeepTheirRenameAndDeleteBehavior() {
+        var renamed: String? = null
+        var deleted = false
+        showPlaylist(onRename = { renamed = it }, onDelete = { deleted = true })
+        compose.onNodeWithTag("edit_playlist_name_button").performScrollTo()
+        // The host's wrap-content dialog window otherwise repeatedly measures
+        // its text field; give that window a deterministic test viewport.
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("edit_playlist_name_button").performClick()
+        settleDialog()
+        compose.onNode(hasSetTextAction()).performTextReplacement("Renamed playlist")
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("Save").performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.runOnIdle { assertEquals("Renamed playlist", renamed); assertFalse(deleted) }
+        compose.onNodeWithTag("delete_playlist_button").performClick()
+        settleDialog()
+        compose.onNodeWithText("Delete").performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.runOnIdle { assertTrue(deleted) }
+    }
+
+    private fun settleDialog() {
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnUiThread {
+            val density = context.resources.displayMetrics.density
+            org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!
+                .setLayout((360 * density).toInt(), (400 * density).toInt())
+        }
+        compose.mainClock.advanceTimeBy(300)
+    }
+
+    @Test fun readOnlyCollectionsDoNotExposeCustomPlaylistManagement() {
+        showPlaylist(readOnly = true)
+        compose.onNodeWithTag("playlist_profile_name").performScrollTo()
+        compose.onNodeWithTag("edit_playlist_name_button").assertDoesNotExist()
+        compose.onNodeWithTag("delete_playlist_button").assertDoesNotExist()
+        compose.onNodeWithTag("download_collection").performScrollTo().assertIsDisplayed()
+    }
+
+    private fun assertPlaylistTitleActions() {
+        compose.onNodeWithTag("playlist_profile_name").performScrollTo()
+        compose.onAllNodesWithTag("edit_playlist_name_button").assertCountEquals(1)
+        compose.onAllNodesWithTag("delete_playlist_button").assertCountEquals(1)
+        val title = compose.onNodeWithTag("playlist_profile_name").fetchSemanticsNode().boundsInRoot
+        val edit = compose.onNodeWithTag("edit_playlist_name_button").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val delete = compose.onNodeWithTag("delete_playlist_button").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val page = compose.onNodeWithTag("playlist_detail_screen").fetchSemanticsNode().boundsInRoot
+        val density = context.resources.displayMetrics.density
+        assertTrue(edit.left >= title.right)
+        assertEquals(title.center.y, edit.center.y, 1f)
+        assertEquals(edit.center.y, delete.center.y, 1f)
+        assertEquals(38f * density, edit.width, 1f)
+        assertEquals(edit.width, delete.width, .5f)
+        assertEquals(edit.width, edit.height, .5f)
+        assertEquals(delete.width, delete.height, .5f)
+        assertEquals(10f * density, delete.left - edit.right, 1f)
+        assertEquals("Management buttons use the title row's right margin", 24f * density, page.right - delete.right, 1f)
     }
 
     private fun assertTitleAction(titleTag: String, screenTag: String) {

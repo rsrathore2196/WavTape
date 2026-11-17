@@ -164,6 +164,7 @@ class PlaybackManager(
             }
         }
     private var controllerReady = CompletableDeferred<MediaController>()
+    // A controller can proceed once the saved queue is restored or a new selection supersedes it.
     private val sessionRestored = CompletableDeferred<Unit>()
     private var pendingRestoredSession: PlaybackSessionStore.Snapshot? = null
     private var progressTickerJob: Job? = null
@@ -1714,6 +1715,11 @@ class PlaybackManager(
         } catch (e: Exception) {
             Log.w(TAG, "Could not clear the previous playback selection: ${e.message}")
         }
+        // The controller may already be awaiting the passive restore when this
+        // tap arrives. That work yields to playback/gestures and must not hold
+        // up the requested song. Publish selection ownership and clear the old
+        // queue first, so an immediately resumed connection cannot hydrate it.
+        sessionRestored.complete(Unit)
         return generation
     }
 

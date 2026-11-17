@@ -13,10 +13,12 @@ import com.example.ui.theme.LocalAppColors
 
 @Composable
 internal fun CollectionTitleRow(
-    title: String, style: TextStyle, tag: String
+    title: String, style: TextStyle, tag: String,
+    trailingContent: @Composable () -> Unit = {}
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(title, modifier = Modifier.weight(1f).testTag(tag), color = LocalAppColors.current.textPrimary,
             style = style, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        trailingContent()
     }
 }

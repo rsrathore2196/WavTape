@@ -89,29 +89,74 @@ class SearchGenreNavigationTest {
 
     }
 
-    @Test fun twentyRecentPillsUseTwoScrollableRowsAndKeepSearchAndRemovalWorking() {
+    @Test fun focusedHistoryUsesTenListEntriesAndKeepsSearchRemovalAndClearWorking() {
         var searched: String? = null
+        var remembered: String? = null
         var removed: String? = null
+        var state by mutableStateOf(SearchUiState(recentSearches = (1..25).map { "Query $it" }))
         content {
-            SearchScreen(SearchUiState(recentSearches = (1..25).map { "Query $it" }),
-                onQueryChange = { searched = it }, onSelectGenre = {}, onTrackClick = { _, _ -> },
-                onToggleFavorite = {}, onRemoveRecentSearch = { removed = it })
+            SearchScreen(state, onQueryChange = { searched = it; state = state.copy(query = it) },
+                onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {},
+                onRememberSearch = { remembered = it },
+                onRemoveRecentSearch = { removed = it; state = state.copy(recentSearches = state.recentSearches.filterNot { q -> q == it }) },
+                onClearRecentSearches = { state = state.copy(recentSearches = emptyList()) })
         }
-        compose.onNodeWithTag("search_screen").performScrollToNode(hasTestTag("recent_search_row_0"))
-        for (index in 1..20) {
-            compose.onNode(hasTestTag("recent_search_chip_Query $index") and
-                hasAnyAncestor(hasTestTag("recent_search_row_${if (index <= 10) 0 else 1}"))).assertExists()
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.onNodeWithTag("search_query_input").performClick().assertIsFocused()
+        val list = compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+        val field = compose.onNodeWithTag("search_query_input").fetchSemanticsNode().boundsInRoot
+        val history = list.fetchSemanticsNode().boundsInRoot
+        assertTrue(history.top >= field.bottom)
+        assertEquals(field.left, history.left, 1f)
+        assertEquals(field.right, history.right, 1f)
+        list.performScrollToNode(hasTestTag("recent_search_item_Query 10"))
+        compose.onNodeWithTag("recent_search_item_Query 10").assertIsDisplayed()
+        compose.onNodeWithTag("recent_search_item_Query 11").assertDoesNotExist()
+        compose.onNodeWithTag("recent_search_chip_Query 10").assertDoesNotExist()
+        compose.onNodeWithTag("remove_recent_search_Query 10").performClick()
+        compose.runOnIdle { assertEquals("Query 10", removed); assertNull(searched); assertNull(remembered) }
+        compose.onNodeWithTag("search_query_input").assertIsFocused()
+        compose.onNodeWithTag("recent_search_item_Query 10").assertDoesNotExist()
+        list.performScrollToNode(hasTestTag("recent_search_item_Query 9"))
+        compose.onNodeWithTag("recent_search_item_Query 9").performClick()
+        compose.runOnIdle { assertEquals("Query 9", searched); assertEquals("Query 9", remembered) }
+        list.assertDoesNotExist()
+        compose.onNodeWithTag("search_query_input").performClick()
+        // Existing text does not hide history while the field is active.
+        list.assertIsDisplayed().performScrollToNode(hasTestTag("clear_recent_searches_button"))
+        compose.onNodeWithTag("clear_recent_searches_button").performClick()
+        list.assertDoesNotExist()
+    }
+
+    @Test fun historyIsShownWhileTypingAndHiddenWhenSearchTabIsInactive() = checkHistoryVisibility()
+
+    @Test @Config(qualifiers = "w891dp-h411dp-land")
+    fun landscapeHistoryFitsBelowTheFocusedField() = checkHistoryVisibility()
+
+    private fun checkHistoryVisibility() {
+        var state by mutableStateOf(SearchUiState(recentSearches = listOf("history_heading", "Second")))
+        var active by mutableStateOf(true)
+        content {
+            SearchScreen(state, onQueryChange = { state = state.copy(query = it) },
+                onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {}, isScreenActive = active)
         }
-        compose.onNodeWithTag("recent_search_row_2").assertDoesNotExist()
-        compose.onNodeWithTag("recent_search_chip_Query 21").assertDoesNotExist()
-        val first = compose.onNodeWithTag("recent_search_row_0").fetchSemanticsNode().boundsInRoot
-        val second = compose.onNodeWithTag("recent_search_row_1").fetchSemanticsNode().boundsInRoot
-        assertTrue(second.top >= first.bottom)
-        compose.onNodeWithTag("recent_search_chip_Query 10").performScrollTo().assertIsDisplayed().performClick()
-        compose.runOnIdle { assertEquals("Query 10", searched) }
-        compose.onNodeWithTag("recent_search_chip_Query 20").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("remove_recent_search_Query 20").performClick()
-        compose.runOnIdle { assertEquals("Query 20", removed); assertEquals("Query 10", searched) }
+        compose.onNodeWithTag("search_query_input").performClick().performTextInput("mix")
+        val field = compose.onNodeWithTag("search_query_input").fetchSemanticsNode().boundsInRoot
+        val history = compose.onNodeWithTag("recent_searches_list").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("History stays below the focused field", history.top >= field.bottom)
+        compose.onNodeWithTag("recent_search_item_Second").assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.runOnIdle { assertEquals("Dismissing history preserves the typed query", "mix", state.query) }
+        compose.onNodeWithTag("search_query_input").performClick()
+        compose.runOnIdle { active = false }
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.runOnIdle { active = true }
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.onNodeWithTag("search_query_input").performClick()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+        compose.onNodeWithTag("finish_search_button").performClick()
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
     }
 
     @Test fun genreOpensItsOwnPageWithPlayableSongsAlbumsAndBackNavigation() {
