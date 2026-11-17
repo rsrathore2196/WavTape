@@ -23,5 +23,4 @@ debug.keystore
 aistudio/
 **/aistudio/**
 public/assets/aistudio/
-/apk/
-apk/app-debug.apk
+apk/*.apk
