@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.unit.dp
 import com.example.data.local.ThemePresets
@@ -56,7 +57,7 @@ class ThemePaletteTest {
         }
     }
 
-    @Test fun everyPresetHasDistinctSaturatedGradientEndpointsAndUpdatesThePreviousPalette() {
+    @Test fun everyPresetHasDistinctSaturatedTonalGradientsAndUpdatesThePreviousPalette() {
         val pairs = ThemePresets.allPresets.map { it.accentColorHex to it.secondaryAccentHex }
         assertEquals(20, pairs.distinct().size)
         for (preset in ThemePresets.allPresets) {
@@ -71,6 +72,16 @@ class ThemePaletteTest {
             }
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             assertNotEquals(colors.primaryAccent, colors.secondaryAccent)
+            // Check the resolved colors too: contrast correction must retain the tonal pair.
+            for ((start, end) in listOf(
+                android.graphics.Color.parseColor(preset.accentColorHex) to android.graphics.Color.parseColor(preset.secondaryAccentHex),
+                colors.primaryAccent.toArgb() to colors.secondaryAccent.toArgb()
+            )) {
+                val first = FloatArray(3).also { android.graphics.Color.colorToHSV(start, it) }
+                val last = FloatArray(3).also { android.graphics.Color.colorToHSV(end, it) }
+                val difference = kotlin.math.abs(first[0] - last[0])
+                assertTrue("${preset.name} gradient must use shades of one hue", minOf(difference, 360f - difference) < 2f)
+            }
         }
         assertEquals(ThemePresets.StudioNight.toCustomThemeState(), com.example.data.local.CustomThemeState())
     }

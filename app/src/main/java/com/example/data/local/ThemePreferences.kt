@@ -647,7 +647,7 @@ private object LegacyThemePresets {
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
 object ThemePresets {
-    const val PALETTE_VERSION = 3
+    const val PALETTE_VERSION = 4
 
     private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
         val canvas = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#0B0B0B" } else "#FFFFFF"
@@ -681,8 +681,8 @@ object ThemePresets {
 
     private data class AccentPair(val name: String, val primary: String, val secondary: String)
 
-    // Independent, saturated gradient endpoints, tuned for each preset's brightness.
-    private val accents = mapOf(
+    // Keep the previous accent pairs only to recognize untouched saved presets.
+    private val versionThreeAccents = mapOf(
         "dark_studio_night" to AccentPair("Azure Pulse", "#27C7FF", "#C471FF"),
         "dark_amoled_black" to AccentPair("Neon Aurora", "#00E5FF", "#7DFFB2"),
         "dark_cyberpunk_neon" to AccentPair("Neon Fusion", "#FF4FDC", "#BD7BFF"),
@@ -705,8 +705,32 @@ object ThemePresets {
         "light_sage_mist" to AccentPair("Jade Tide", "#227447", "#007477")
     )
 
-    private fun modernize(preset: AppThemePreset): AppThemePreset {
-        val accent = accents.getValue(preset.id)
+    // A vivid base and a nearby tint (dark themes) or shade (light themes).
+    // Both stops keep the same hue so large accent surfaces remain smooth and tonal.
+    private val accents = mapOf(
+        "dark_studio_night" to AccentPair("Azure Pulse", "#27C7FF", "#57D3FF"),
+        "dark_amoled_black" to AccentPair("Neon Aurora", "#00E5FF", "#38EBFF"),
+        "dark_cyberpunk_neon" to AccentPair("Neon Fusion", "#FF4FDC", "#FF76E4"),
+        "dark_emerald_nebula" to AccentPair("Emerald Current", "#1FE7AC", "#50ECBE"),
+        "dark_sunset_horizon" to AccentPair("Coral Flare", "#FF8A3D", "#FFA468"),
+        "oceanic_glass" to AccentPair("Ocean Voltage", "#25D7FF", "#55E0FF"),
+        "nebula_glass" to AccentPair("Prism Violet", "#AB88FF", "#BDA2FF"),
+        "matrix_glass" to AccentPair("Lime Circuit", "#8DF43A", "#A6F665"),
+        "solar_glass" to AccentPair("Solar Flame", "#FFD23F", "#FFDC69"),
+        "dark_velvet_noir" to AccentPair("Velvet Bloom", "#FF6FAD", "#FF8FBF"),
+        "light_clean_day" to AccentPair("Sapphire Rush", "#155EEF", "#124FC9"),
+        "light_minimal_ivory" to AccentPair("Amber Rose", "#B54708", "#983C07"),
+        "light_cherry_blossom" to AccentPair("Cherry Electric", "#C9115C", "#A90E4D"),
+        "light_electric_mint" to AccentPair("Mint Wave", "#007765", "#006455"),
+        "light_sunset_peach" to AccentPair("Tangerine Bloom", "#BA3908", "#9C3007"),
+        "glacier_glass" to AccentPair("Glacier Prism", "#006DA8", "#005C8D"),
+        "sakura_glass" to AccentPair("Sakura Pop", "#BE185D", "#A0144E"),
+        "light_porcelain_blue" to AccentPair("Cobalt Flow", "#304FFE", "#2842D5"),
+        "light_lavender_linen" to AccentPair("Orchid Pulse", "#7C24DB", "#681EB8"),
+        "light_sage_mist" to AccentPair("Jade Tide", "#227447", "#1D613C")
+    )
+
+    private fun modernize(preset: AppThemePreset, accent: AccentPair = accents.getValue(preset.id)): AppThemePreset {
         return neutralPalette(preset).copy(
             subtitle = "${accent.name} gradient on ${if (preset.isDark) "deep dark glass" else "crisp light glass"}",
             accentName = accent.name, accentShade = "Vibrant",
@@ -714,7 +738,7 @@ object ThemePresets {
         )
     }
 
-    val allPresets = LegacyThemePresets.allPresets.map(::modernize)
+    val allPresets = LegacyThemePresets.allPresets.map { modernize(it) }
     val darkPresets = allPresets.filter { it.isDark }
     val lightPresets = allPresets.filterNot { it.isDark }
     private fun modern(legacy: AppThemePreset) = allPresets.first { it.id == legacy.id }
@@ -746,12 +770,17 @@ object ThemePresets {
 
     internal fun legacyPreset(id: String, name: String, version: Int = 1): AppThemePreset? =
         (LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName))
-            ?.let { if (version == 2) neutralPalette(it) else it }
+            ?.let { when (version) {
+                2 -> neutralPalette(it)
+                3 -> modernize(it, versionThreeAccents.getValue(it.id))
+                else -> it
+            } }
 
     internal fun upgradeLegacy(state: CustomThemeState): CustomThemeState {
         val legacy = legacyPreset(state.presetId, state.currentThemeName) ?: return state
         // A known ID alone is not proof that a saved/imported palette was never edited.
-        return if (state == legacy.toCustomThemeState() || state == neutralPalette(legacy).toCustomThemeState())
+        return if (state == legacy.toCustomThemeState() || state == neutralPalette(legacy).toCustomThemeState() ||
+            state == modernize(legacy, versionThreeAccents.getValue(legacy.id)).toCustomThemeState())
             modern(legacy).toCustomThemeState() else state
     }
 
@@ -771,7 +800,7 @@ data class CustomThemeState(
     val accentName: String = "Azure Pulse",
     val accentShade: String = "Vibrant",
     val accentColorHex: String = "#27C7FF",
-    val secondaryAccentHex: String = "#C471FF",
+    val secondaryAccentHex: String = "#57D3FF",
     val canvasColorName: String = "Neutral Black",
     val canvasColorHex: String = "#0B0B0B",
     val cardColorName: String = "Neutral Charcoal",

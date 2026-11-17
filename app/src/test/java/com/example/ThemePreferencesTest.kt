@@ -117,6 +117,47 @@ class ThemePreferencesTest {
         }
     }
 
+    @Test fun multicolorPresetsUpgradeToTonalAccentsWhileCustomColorsAndSavedModesSurviveReload() = runBlocking {
+        val dark = ThemePresets.StudioNight
+        val light = ThemePresets.CleanDay
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            val preferences = repository.preferences("xtreme_theme_prefs")
+            for (preset in ThemePresets.allPresets) {
+                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 3))
+                // This refresh changes only the second accent, preserving each preset's base and surfaces.
+                assertEquals(preset, previous.copy(secondaryAccentHex = preset.secondaryAccentHex))
+                val mode = if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
+                ThemePreferences.saveThemeSelection(context, mode, previous.toCustomThemeState())
+                preferences.edit().putInt("palette_version", 3).apply()
+                assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
+                assertEquals(preset.toCustomThemeState(), ThemePresets.upgradeLegacy(previous.toCustomThemeState()))
+
+                val edited = previous.toCustomThemeState().copy(secondaryAccentHex = "#F07DE1")
+                ThemePreferences.saveThemeSelection(context, mode, edited)
+                preferences.edit().putInt("palette_version", 3).apply()
+                assertEquals(edited, ThemePreferences.getCustomThemeState(context))
+                assertEquals(edited, ThemePresets.upgradeLegacy(edited))
+            }
+            ThemePreferences.saveThemeSelection(context, AppThemeMode.DARK,
+                checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 3)).toCustomThemeState())
+            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT,
+                checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 3)).toCustomThemeState())
+            preferences.edit().putInt("palette_version", 3).putInt("saved_dark_palette_version", 3)
+                .putInt("saved_light_palette_version", 3).apply()
+            repository.awaitPendingWrites()
+        }
+        ReactiveSettingsRepository(app).use { reopened ->
+            reopened.preload()
+            val context = client(reopened)
+            assertEquals(light.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
+            assertEquals(dark.toCustomThemeState(), ThemePreferences.setThemeMode(context, AppThemeMode.DARK))
+            assertEquals(light.toCustomThemeState(), ThemePreferences.setThemeMode(context, AppThemeMode.LIGHT))
+            reopened.awaitPendingWrites()
+        }
+    }
+
     @Test fun selectingThemePublishesModeAndPaletteInOnePreferenceSnapshot() = runBlocking {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
