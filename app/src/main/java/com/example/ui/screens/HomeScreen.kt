@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,7 +51,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Equalizer
 import com.example.ui.components.xtremeLiquidGlassBackground
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -94,8 +93,8 @@ import com.example.data.model.MusicTrack
 import com.example.data.model.CollectionPlaybackTarget
 import com.example.ui.components.CollectionTargetPlayButton
 import com.example.playback.PlayerUiState
-import com.example.ui.components.AppDynamicLogo
 import com.example.ui.components.HomePullRefreshOverscrollLayout
+import com.example.ui.components.HomeAppHeader
 import com.example.ui.components.InfiniteRadioHeroCard
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.ImageConfig
@@ -214,30 +213,26 @@ fun HomeScreen(
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalHomeScrollListener provides scrollMonitor) {
-        HomePullRefreshOverscrollLayout(
+        HomeScreenContent(
+            homeViewModel = homeViewModel,
+            listState = listState,
+            onOpenArtist = onOpenArtist,
+            onOpenCatalog = onOpenCatalog,
+            isRadioSession = playerUiState?.isInfiniteRadio == true,
+            isRadioLoading = playerUiState?.isLoading == true,
+            currentTrack = currentTrack ?: playerUiState?.currentTrack,
+            isPlaying = isPlaying,
+            isAutoplayEnabled = isAutoplayEnabled,
+            currentPlayingTrackId = currentPlayingTrackId ?: currentTrack?.id ?: playerUiState?.currentTrack?.id,
+            onTrackClick = onTrackClick,
+            onToggleFavorite = onToggleFavorite,
+            onOpenSettings = onOpenSettings,
+            onPlayInfiniteRadio = onPlayInfiniteRadio,
+            onAddToQueue = onAddToQueue,
+            modifier = modifier,
             isRefreshing = isRefreshing,
             onRefresh = { homeViewModel.refreshHome(isExplicitPull = true) },
-            modifier = modifier.fillMaxSize()
-        ) { contentOffset ->
-            HomeScreenContent(
-                homeViewModel = homeViewModel,
-                listState = listState,
-                onOpenArtist = onOpenArtist,
-                onOpenCatalog = onOpenCatalog,
-                isRadioSession = playerUiState?.isInfiniteRadio == true,
-                isRadioLoading = playerUiState?.isLoading == true,
-                currentTrack = currentTrack ?: playerUiState?.currentTrack,
-                isPlaying = isPlaying,
-                isAutoplayEnabled = isAutoplayEnabled,
-                currentPlayingTrackId = currentPlayingTrackId ?: currentTrack?.id ?: playerUiState?.currentTrack?.id,
-                onTrackClick = onTrackClick,
-                onToggleFavorite = onToggleFavorite,
-                onOpenSettings = onOpenSettings,
-                onPlayInfiniteRadio = onPlayInfiniteRadio,
-                onAddToQueue = onAddToQueue,
-                boundaryOffset = contentOffset,
-            )
-        }
+        )
     }
 }
 
@@ -266,7 +261,9 @@ fun HomeScreenContent(
     homeViewModel: HomeViewModel? = null,
     serverShelves: List<com.example.data.model.ServerHomeShelf> = emptyList(),
     profileShelf: com.example.data.model.ServerHomeShelf? = null,
-    onOpenCatalog: (CatalogDestination) -> Unit = {}
+    onOpenCatalog: (CatalogDestination) -> Unit = {},
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {}
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Only structural visibility is observed by the lazy-list owner. Section
@@ -330,12 +327,15 @@ fun HomeScreenContent(
     ObserveHomeScroll(listState)
 
     androidx.compose.runtime.CompositionLocalProvider(com.example.ui.util.LocalHomeThumbnailLoading provides true) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(screenBg),
-        contentAlignment = Alignment.TopCenter
+    Column(
+        modifier = modifier.fillMaxSize().background(screenBg),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        HomeAppHeader(onOpenSettings = onOpenSettings)
+        HomePullRefreshOverscrollLayout(
+            isRefreshing = isRefreshing, onRefresh = onRefresh,
+            modifier = Modifier.weight(1f).clipToBounds()
+        ) { contentOffset ->
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -344,67 +344,18 @@ fun HomeScreenContent(
                 .landscapeContentBounds(landscape, maxWidthDp = null)
                 .then(revealModifier)
                 .graphicsLayer {
-                    translationY = boundaryOffset()
+                    translationY = contentOffset() + boundaryOffset()
                 }
-                .statusBarsPadding()
                 .testTag("home_screen"),
             contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 180.dp)
         ) {
-            // HEADER BAR: Dynamic App Logo, XTREME PLAYER Title, Greeting & Settings Icon (Preserved)
-            item(key = "header_bar", contentType = "header") {
+            // Greeting belongs to the scrolling feed, below the fixed app header.
+            item(key = "header_bar", contentType = "greeting") {
                 val profile = homeViewModel?.userProfile?.collectAsStateWithLifecycle()?.value ?: userProfile
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)
+                        .testTag("home_greeting")
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            AppDynamicLogo(modifier = Modifier.size(38.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "XTREME",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 21.sp,
-                                    letterSpacing = 1.sp,
-                                    color = appColors.primaryAccent
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = "PLAYER",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 21.sp,
-                                    letterSpacing = 1.sp,
-                                    color = textPrimaryColor
-                                )
-                            }
-                        }
-
-                        // Theme-adaptive Settings button on top right
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .xtremeLiquidGlassBackground(shape = CircleShape, elevation = 3.dp, backdrop = null)
-                                .clickable { onOpenSettings?.invoke() }
-                                .testTag("top_settings_button"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = "Settings",
-                                tint = textPrimaryColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     val userName = profile?.name?.trim()?.takeIf { it.isNotBlank() } ?: "Listener"
 
                     Column(
@@ -414,8 +365,9 @@ fun HomeScreenContent(
                     ) {
                         Text(
                             text = greeting,
+                            modifier = Modifier.testTag("home_greeting_text"),
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 14.sp,
+                                fontSize = 16.1.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 0.4.sp,
                                 color = textMutedColor
@@ -632,6 +584,7 @@ fun HomeScreenContent(
                 }
             }
 
+        }
         }
     }
     }
