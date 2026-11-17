@@ -240,16 +240,19 @@ fun MyApplicationTheme(
         resolveColorScheme(darkTheme, appColors)
     }
 
+    val statusBarAppearance = remember { StatusBarAppearance() }
+    val headerDarkIcons = statusBarAppearance.headerDarkIcons
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            val statusBarBg = appColors.scaffoldBackground
+            // Edge-to-edge headers paint behind the status bar, including on older Android versions.
+            val statusBarBg = if (headerDarkIcons != null) Color.Transparent else appColors.scaffoldBackground
             val navBarBg = appColors.bottomBarBackground
             window.statusBarColor = statusBarBg.toArgb()
             window.navigationBarColor = navBarBg.toArgb()
             val windowInsetsController = WindowCompat.getInsetsController(window, view)
-            windowInsetsController.isAppearanceLightStatusBars = !darkTheme
+            windowInsetsController.isAppearanceLightStatusBars = headerDarkIcons ?: !darkTheme
             windowInsetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
@@ -264,6 +267,7 @@ fun MyApplicationTheme(
 
     CompositionLocalProvider(
         LocalAppColors provides appColors,
+        LocalStatusBarAppearance provides statusBarAppearance,
         androidx.compose.ui.platform.LocalDensity provides customDensity
     ) {
         MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)

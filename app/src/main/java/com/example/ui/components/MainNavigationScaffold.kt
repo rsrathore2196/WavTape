@@ -331,6 +331,10 @@ fun MainNavigationScaffold(
     val appColors = remember(baseAppColors, isDynamicGlassEnabled) {
         baseAppColors.copy(dynamicGlassEnabled = isDynamicGlassEnabled)
     }
+    // Retained pages must not style the status bar while another screen covers their header.
+    val accentHeaderVisible = selectedTabIndex in 0..2 && !playerVisibility.targetState &&
+        playerVisibility.isIdle && !playerVisibility.currentState && !tabTransition.isRunning &&
+        catalogDetail == null && selectedPlaylistWithTracks == null
 
     // These screens own their edge spring; disable Android's competing stretch effect.
     val platformOverscroll = LocalOverscrollConfiguration.current
@@ -365,6 +369,8 @@ fun MainNavigationScaffold(
 
                 run {
                     val tabContent: @Composable (Int) -> Unit = { tabIndex ->
+                      CompositionLocalProvider(com.example.ui.theme.LocalAccentHeaderVisible provides
+                          (accentHeaderVisible && selectedTabIndex == tabIndex)) {
                       tabState.SaveableStateProvider(tabIndex) {
                         when (tabIndex) {
                             0 -> HomeFeedRoute(
@@ -460,6 +466,7 @@ fun MainNavigationScaffold(
                                 )
                             }
                         }
+                      }
                       }
                     }
                     val primaryCovered = playerCoversContent || catalogDetail != null || currentPlaylist != null

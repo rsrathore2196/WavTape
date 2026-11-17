@@ -49,6 +49,7 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
 internal fun AccentHeaderSurface(modifier: Modifier = Modifier, headerTag: String,
     content: @Composable () -> Unit) {
     val colors = LocalAppColors.current
+    com.example.ui.theme.AccentHeaderStatusBar()
     Box(
         modifier.fillMaxWidth().testTag(headerTag).drawWithCache {
             val surface = Path().apply {
