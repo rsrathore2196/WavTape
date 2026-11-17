@@ -61,14 +61,15 @@ class ThemePaletteTest {
         val pairs = ThemePresets.allPresets.map { it.accentColorHex to it.secondaryAccentHex }
         assertEquals(20, pairs.distinct().size)
         for (preset in ThemePresets.allPresets) {
-            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 2))
+            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 4))
             assertNotEquals(previous.accentColorHex, preset.accentColorHex)
             assertNotEquals(previous.secondaryAccentHex, preset.secondaryAccentHex)
             assertNotEquals(preset.accentColorHex, preset.secondaryAccentHex)
             for (hex in listOf(preset.accentColorHex, preset.secondaryAccentHex)) {
                 val hsv = FloatArray(3)
                 android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(hex), hsv)
-                assertTrue("${preset.name} should have colorful gradient endpoints", hsv[1] >= .35f)
+                if (preset.isAmoled) assertEquals(0f, hsv[1], 0f)
+                else assertTrue("${preset.name} should have colorful gradient endpoints", hsv[1] >= .35f)
             }
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             assertNotEquals(colors.primaryAccent, colors.secondaryAccent)
@@ -84,6 +85,27 @@ class ThemePaletteTest {
             }
         }
         assertEquals(ThemePresets.StudioNight.toCustomThemeState(), com.example.data.local.CustomThemeState())
+    }
+
+    @Test fun presetBaseHuesAreSeparatedAndAmoledUsesOnlyWhiteShades() {
+        val colored = ThemePresets.allPresets.filterNot { it.isAmoled }
+        for (resolved in listOf(false, true)) {
+            val hues = colored.map { preset ->
+                val color = if (resolved) resolveAppThemeColors(preset.isDark, preset.toCustomThemeState()).primaryAccent.toArgb()
+                    else android.graphics.Color.parseColor(preset.accentColorHex)
+                FloatArray(3).also { android.graphics.Color.colorToHSV(color, it) }[0]
+            }
+            for (first in hues.indices) for (second in first + 1 until hues.size) {
+                val difference = kotlin.math.abs(hues[first] - hues[second])
+                assertTrue("${colored[first].name} and ${colored[second].name} must not look like duplicate hues",
+                    minOf(difference, 360f - difference) >= 15f)
+            }
+        }
+        val amoled = resolveAppThemeColors(true, ThemePresets.AmoledPureBlack.toCustomThemeState())
+        assertEquals(Color.White, amoled.primaryAccent)
+        neutral(amoled.secondaryAccent)
+        assertTrue(amoled.secondaryAccent.red >= .85f)
+        assertEquals(Color.Black, amoled.scaffoldBackground)
     }
 
     @Test fun gradientContentRemainsReadableAcrossEveryBuiltInAccentPair() {

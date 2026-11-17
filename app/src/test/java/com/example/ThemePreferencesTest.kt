@@ -117,35 +117,38 @@ class ThemePreferencesTest {
         }
     }
 
-    @Test fun multicolorPresetsUpgradeToTonalAccentsWhileCustomColorsAndSavedModesSurviveReload() = runBlocking {
+    @Test fun previousAccentPresetsUpgradeWhileCustomColorsAndSavedModesSurviveReload() = runBlocking {
         val dark = ThemePresets.StudioNight
         val light = ThemePresets.CleanDay
+        val previousDark = checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 4)).toCustomThemeState()
+        val previousLight = checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 4)).toCustomThemeState()
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
             val preferences = repository.preferences("xtreme_theme_prefs")
-            for (preset in ThemePresets.allPresets) {
-                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 3))
-                // This refresh changes only the second accent, preserving each preset's base and surfaces.
-                assertEquals(preset, previous.copy(secondaryAccentHex = preset.secondaryAccentHex))
+            for (version in listOf(3, 4)) for (preset in ThemePresets.allPresets) {
+                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version))
+                // Only accent colors and their descriptions change; surfaces and text stay intact.
+                assertEquals(preset, previous.copy(subtitle = preset.subtitle, accentName = preset.accentName,
+                    accentColorHex = preset.accentColorHex, secondaryAccentHex = preset.secondaryAccentHex))
                 val mode = if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
                 ThemePreferences.saveThemeSelection(context, mode, previous.toCustomThemeState())
-                preferences.edit().putInt("palette_version", 3).apply()
+                preferences.edit().putInt("palette_version", version).apply()
                 assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
                 assertEquals(preset.toCustomThemeState(), ThemePresets.upgradeLegacy(previous.toCustomThemeState()))
 
                 val edited = previous.toCustomThemeState().copy(secondaryAccentHex = "#F07DE1")
                 ThemePreferences.saveThemeSelection(context, mode, edited)
-                preferences.edit().putInt("palette_version", 3).apply()
+                preferences.edit().putInt("palette_version", version).apply()
                 assertEquals(edited, ThemePreferences.getCustomThemeState(context))
                 assertEquals(edited, ThemePresets.upgradeLegacy(edited))
             }
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.DARK,
-                checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 3)).toCustomThemeState())
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT,
-                checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 3)).toCustomThemeState())
-            preferences.edit().putInt("palette_version", 3).putInt("saved_dark_palette_version", 3)
-                .putInt("saved_light_palette_version", 3).apply()
+            ThemePreferences.saveThemeSelection(context, AppThemeMode.DARK, previousDark)
+            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, previousLight)
+            preferences.edit().putInt("palette_version", 4).putInt("saved_dark_palette_version", 4)
+                .putInt("saved_light_palette_version", 4)
+                .putString("saved_dark_custom_accent_hex", previousDark.accentColorHex)
+                .putString("saved_dark_custom_secondary_accent_hex", previousDark.secondaryAccentHex).apply()
             repository.awaitPendingWrites()
         }
         ReactiveSettingsRepository(app).use { reopened ->

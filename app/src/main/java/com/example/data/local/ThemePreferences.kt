@@ -647,7 +647,7 @@ private object LegacyThemePresets {
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
 object ThemePresets {
-    const val PALETTE_VERSION = 4
+    const val PALETTE_VERSION = 5
 
     private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
         val canvas = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#0B0B0B" } else "#FFFFFF"
@@ -705,9 +705,7 @@ object ThemePresets {
         "light_sage_mist" to AccentPair("Jade Tide", "#227447", "#007477")
     )
 
-    // A vivid base and a nearby tint (dark themes) or shade (light themes).
-    // Both stops keep the same hue so large accent surfaces remain smooth and tonal.
-    private val accents = mapOf(
+    private val versionFourAccents = mapOf(
         "dark_studio_night" to AccentPair("Azure Pulse", "#27C7FF", "#57D3FF"),
         "dark_amoled_black" to AccentPair("Neon Aurora", "#00E5FF", "#38EBFF"),
         "dark_cyberpunk_neon" to AccentPair("Neon Fusion", "#FF4FDC", "#FF76E4"),
@@ -728,6 +726,31 @@ object ThemePresets {
         "light_porcelain_blue" to AccentPair("Cobalt Flow", "#304FFE", "#2842D5"),
         "light_lavender_linen" to AccentPair("Orchid Pulse", "#7C24DB", "#681EB8"),
         "light_sage_mist" to AccentPair("Jade Tide", "#227447", "#1D613C")
+    )
+
+    // Distinct base hues across the collection, with tonal stops inside each gradient.
+    // AMOLED deliberately uses only white and a neutral white shade.
+    private val accents = mapOf(
+        "dark_studio_night" to AccentPair("Azure Pulse", "#4099FF", "#66ADFF"),
+        "dark_amoled_black" to AccentPair("Pure White", "#FFFFFF", "#E0E0E0"),
+        "dark_cyberpunk_neon" to AccentPair("Neon Fuchsia", "#FF40F5", "#FF66F7"),
+        "dark_emerald_nebula" to AccentPair("Jade Current", "#17E66D", "#45EB8A"),
+        "dark_sunset_horizon" to AccentPair("Tangerine Flare", "#FF8826", "#FFA052"),
+        "oceanic_glass" to AccentPair("Electric Turquoise", "#0BE6DE", "#3CEBE5"),
+        "nebula_glass" to AccentPair("Ultraviolet", "#AD73FF", "#BE8FFF"),
+        "matrix_glass" to AccentPair("Acid Lime", "#7AF224", "#95F550"),
+        "solar_glass" to AccentPair("Lemon Gold", "#FFFB26", "#FFFC52"),
+        "dark_velvet_noir" to AccentPair("Raspberry Glow", "#FF528F", "#FF75A5"),
+        "light_clean_day" to AccentPair("Cobalt Rush", "#183FED", "#1332BE"),
+        "light_minimal_ivory" to AccentPair("Amber Gold", "#866000", "#6B4D00"),
+        "light_cherry_blossom" to AccentPair("Cherry Red", "#CD0C1C", "#A40A17"),
+        "light_electric_mint" to AccentPair("Cool Mint", "#007552", "#005E42"),
+        "light_sunset_peach" to AccentPair("Coral Spark", "#C42906", "#9D2105"),
+        "glacier_glass" to AccentPair("Arctic Cyan", "#006E93", "#005875"),
+        "sakura_glass" to AccentPair("Orchid Rose", "#BF0F7F", "#990C65"),
+        "light_porcelain_blue" to AccentPair("Royal Indigo", "#3C29E6", "#3021B8"),
+        "light_lavender_linen" to AccentPair("Violet Bloom", "#9818C7", "#7A139F"),
+        "light_sage_mist" to AccentPair("Leaf Green", "#0C7718", "#095F13")
     )
 
     private fun modernize(preset: AppThemePreset, accent: AccentPair = accents.getValue(preset.id)): AppThemePreset {
@@ -773,6 +796,7 @@ object ThemePresets {
             ?.let { when (version) {
                 2 -> neutralPalette(it)
                 3 -> modernize(it, versionThreeAccents.getValue(it.id))
+                4 -> modernize(it, versionFourAccents.getValue(it.id))
                 else -> it
             } }
 
@@ -780,7 +804,8 @@ object ThemePresets {
         val legacy = legacyPreset(state.presetId, state.currentThemeName) ?: return state
         // A known ID alone is not proof that a saved/imported palette was never edited.
         return if (state == legacy.toCustomThemeState() || state == neutralPalette(legacy).toCustomThemeState() ||
-            state == modernize(legacy, versionThreeAccents.getValue(legacy.id)).toCustomThemeState())
+            state == modernize(legacy, versionThreeAccents.getValue(legacy.id)).toCustomThemeState() ||
+            state == modernize(legacy, versionFourAccents.getValue(legacy.id)).toCustomThemeState())
             modern(legacy).toCustomThemeState() else state
     }
 
@@ -799,8 +824,8 @@ data class CustomThemeState(
     val isAmoled: Boolean = false,
     val accentName: String = "Azure Pulse",
     val accentShade: String = "Vibrant",
-    val accentColorHex: String = "#27C7FF",
-    val secondaryAccentHex: String = "#57D3FF",
+    val accentColorHex: String = "#4099FF",
+    val secondaryAccentHex: String = "#66ADFF",
     val canvasColorName: String = "Neutral Black",
     val canvasColorHex: String = "#0B0B0B",
     val cardColorName: String = "Neutral Charcoal",
