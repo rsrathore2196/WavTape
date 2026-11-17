@@ -45,7 +45,6 @@ import com.example.ui.components.playerArtworkEdgeBlend
 import com.example.ui.components.headerArtworkEdgeBlend
 import com.example.ui.components.TrackListItem
 import com.example.ui.components.bouncyOverscroll
-import com.example.ui.components.CollectionDownloadAction
 import com.example.ui.components.CollectionTitleRow
 import com.example.ui.components.rememberCollectionDownloadAction
 import com.example.ui.util.CollectionPageMetadata
@@ -117,14 +116,15 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                     ArtistProfileHeader(state.artistProfile?.artist ?: dest.artist)
                 }
                 is CatalogDestination.Album -> {
-                    AlbumProfileHeader(dest.album, albumDownload, state.tracks,
+                    AlbumProfileHeader(dest.album, state.tracks,
                         !state.loading && state.nextPage == null && state.pending.isEmpty())
                 }
                 is CatalogDestination.Playlist -> Unit
             }
         }
         if (state.destination is CatalogDestination.Album) item("album_playback_actions") {
-            CollectionPlaybackButtons(state.tracks, onPlay, tagPrefix = "album", onShuffle = onShuffleCollection)
+            CollectionPlaybackButtons(state.tracks, onPlay, tagPrefix = "album", onShuffle = onShuffleCollection,
+                download = albumDownload)
         }
         state.artistProfile?.let { profile ->
             item("artist_stats") {
@@ -238,7 +238,7 @@ private fun ArtistStatistic(label: String, rawValue: String, modifier: Modifier)
 
 /** Full-bleed official album artwork; alpha edges reveal the same page canvas. */
 @Composable
-private fun AlbumProfileHeader(album: CatalogAlbum, download: CollectionDownloadAction?,
+private fun AlbumProfileHeader(album: CatalogAlbum,
     tracks: List<MusicTrack>, collectionComplete: Boolean) {
     val colors = LocalAppColors.current
     val title = remember(album.title) { CollectionPageMetadata.title(album.title, "Untitled album") }
@@ -265,7 +265,7 @@ private fun AlbumProfileHeader(album: CatalogAlbum, download: CollectionDownload
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
             Text("ALBUM", color = colors.textMuted, style = MaterialTheme.typography.labelMedium)
-            CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "album_profile_name", download)
+            CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "album_profile_name")
             if (subtitle.isNotBlank()) {
                 Text(
                     subtitle,

@@ -95,7 +95,7 @@ private fun HomeHeaderContent(text: Color, onOpenSettings: (() -> Unit)?) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            AppDynamicLogo(Modifier.size(38.dp), primaryAccent = text, secondaryAccent = text.copy(alpha = .78f),
+            AppDynamicLogo(Modifier.size(48.dp).testTag("home_header_logo"), primaryAccent = text, secondaryAccent = text.copy(alpha = .78f),
                 cutoutColor = colors.primaryAccent, showGlow = false)
             BoxWithConstraints(Modifier.weight(1f)) {
                 // Keep the complete brand on compact screens and with larger system text.

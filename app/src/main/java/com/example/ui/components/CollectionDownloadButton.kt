@@ -28,6 +28,9 @@ internal data class CollectionDownloadAction(
     val enabled: Boolean, val description: String, val onDownload: () -> Unit
 )
 
+internal val CollectionActionSize = 48.dp * 1.2f
+internal val CollectionActionSurfaceSize = 44.dp * 1.2f
+
 /** Lives outside lazy headers so scrolling cannot cancel collection preparation. */
 @Composable
 internal fun rememberCollectionDownloadAction(
@@ -79,24 +82,24 @@ internal fun CollectionDownloadButton(action: CollectionDownloadAction, modifier
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(action.description) } }, state = rememberTooltipState()) {
         IconButton(onClick = action.onDownload, enabled = action.enabled,
-            modifier = modifier.size(48.dp).testTag("download_collection")) {
-            Box(Modifier.size(44.dp).liquidGlassButton(colors, shape = CircleShape, elevation = 3.dp),
+            modifier = modifier.size(CollectionActionSize).testTag("download_collection")) {
+            Box(Modifier.size(CollectionActionSurfaceSize).liquidGlassButton(colors, shape = CircleShape, elevation = 3.dp),
                 contentAlignment = Alignment.Center) {
                 val progress = action.progress
                 val showRing = action.loading || progress.active || progress.complete || (progress.fraction ?: 0f) > 0f
                 if (showRing) {
-                    val ring = Modifier.matchParentSize().padding(2.dp).testTag("collection_download_progress")
+                    val ring = Modifier.matchParentSize().padding(2.4.dp).testTag("collection_download_progress")
                     if (action.loading || progress.fraction == null) {
-                        VisibleCircularProgressIndicator(modifier = ring, color = colors.primaryAccent, strokeWidth = 2.dp)
+                        VisibleCircularProgressIndicator(modifier = ring, color = colors.primaryAccent, strokeWidth = 2.4.dp)
                     } else {
                         CircularProgressIndicator(progress = { progress.fraction }, modifier = ring,
-                            color = colors.primaryAccent, strokeWidth = 2.dp,
+                            color = colors.primaryAccent, strokeWidth = 2.4.dp,
                             trackColor = colors.primaryAccent.copy(alpha = .18f), gapSize = 0.dp)
                     }
                 }
                 Icon(when { progress.complete -> Icons.Default.DownloadDone; action.error -> Icons.Default.Refresh
                     else -> Icons.Default.Download }, contentDescription = action.description,
-                    tint = colors.primaryAccent, modifier = Modifier.size(20.dp))
+                    tint = colors.primaryAccent, modifier = Modifier.size(24.dp))
             }
         }
     }

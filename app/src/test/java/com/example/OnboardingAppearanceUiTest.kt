@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
@@ -33,6 +36,34 @@ class OnboardingAppearanceUiTest {
 
     @Test fun blackOnboardingRetainsTheDarkThemesAccentAndProfileChoices() = verify(false)
     @Test fun blackOnboardingRetainsTheLightThemesAccentAndProfileChoices() = verify(true)
+
+    @Test fun bothLogosFollowChangesToTheActiveAccent() {
+        val purple = DarkAppColors.copy(primaryAccent = Color(0xFFDD44EE), secondaryAccent = Color(0xFFB52CD1))
+        val green = DarkAppColors.copy(primaryAccent = Color(0xFF33DD77), secondaryAccent = Color(0xFF22BB66))
+        var colors by mutableStateOf(purple)
+        compose.setContent { MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors) {
+            OnboardingScreen(onComplete = { _, _, _, _, _ -> })
+        } } }
+        fun assertHue(tag: String, greenAccent: Boolean) {
+            val file = File("/tmp/$tag-${if (greenAccent) "green" else "purple"}.png")
+            compose.onNodeWithTag(tag).captureRoboImage(file.absolutePath, RoborazziOptions(taskType = RoborazziTaskType.Record))
+            val image = ImageIO.read(file)
+            var matched = 0
+            for (y in 0 until image.height) for (x in 0 until image.width) {
+                val pixel = java.awt.Color(image.getRGB(x, y))
+                if (if (greenAccent) pixel.green > pixel.red * 1.5 && pixel.green > pixel.blue * 1.2
+                    else pixel.red > pixel.green * 1.5 && pixel.blue > pixel.green * 1.5) matched++
+            }
+            assertTrue("The actual logo pixels must follow the current accent", matched > 30)
+        }
+        assertHue("onboarding_brand_logo", false)
+        compose.runOnIdle { colors = green }
+        assertHue("onboarding_brand_logo", true)
+        compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
+        assertHue("onboarding_details_logo", true)
+        compose.runOnIdle { colors = purple }
+        assertHue("onboarding_details_logo", false)
+    }
 
     private fun verify(light: Boolean) {
         val inherited = if (light) LightAppColors else DarkAppColors

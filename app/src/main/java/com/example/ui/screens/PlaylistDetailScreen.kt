@@ -5,6 +5,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.util.landscapeContentBounds
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -87,6 +88,11 @@ import com.example.ui.theme.XtremeGreen
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassButton
 import com.example.ui.theme.bouncyClickable
+import com.example.ui.components.CollectionActionSize
+import com.example.ui.components.CollectionActionSurfaceSize
+import com.example.ui.components.CollectionDownloadButton
+import com.example.ui.theme.accentBrush
+import com.example.ui.theme.onAccentGradient
 
 @Composable
 fun PlaylistDetailScreen(
@@ -355,7 +361,8 @@ fun PlaylistDetailScreen(
         }
     }
 
-        if (pinPlaybackActions) CollectionPlaybackButtons(tracks, playback::play)
+        if (pinPlaybackActions) CollectionPlaybackButtons(tracks, playback::play,
+            onShuffle = { playback.shuffle(tracks) }, download = download)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -374,31 +381,10 @@ fun PlaylistDetailScreen(
                         contentDescription = null, contentScale = ContentScale.Crop, modifier = artworkModifier)
                     Spacer(Modifier.width(20.dp))
                     Column(Modifier.weight(1f)) {
-                        CollectionTitleRow(title, MaterialTheme.typography.headlineMedium, "playlist_profile_name", download)
+                        CollectionTitleRow(title, MaterialTheme.typography.headlineMedium, "playlist_profile_name")
                         if (description.isNotBlank()) Text(description, color = appColors.textSecondary,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(trackSummary, color = appColors.primaryAccent, fontSize = 12.sp)
-                        if (!pinPlaybackActions) {
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                com.example.ui.theme.AccentButton(onClick = { tracks.firstOrNull()?.let { playback.play(it, tracks) } },
-                                    enabled = tracks.isNotEmpty(), shape = CircleShape,
-                                    colors = ButtonDefaults.buttonColors(containerColor = appColors.primaryAccent,
-                                        contentColor = appColors.onPrimaryAccent), modifier = Modifier.height(46.dp)) {
-                                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("PLAY ALL", fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(onClick = { if (tracks.isNotEmpty()) {
-                                    playback.shuffle(tracks)
-                                } }, enabled = tracks.isNotEmpty(), shape = CircleShape,
-                                    border = BorderStroke(1.dp, appColors.cardBorder), modifier = Modifier.height(46.dp)) {
-                                    Icon(Icons.Default.Shuffle, null, tint = appColors.textPrimary, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("SHUFFLE", color = appColors.textPrimary, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
                     }
                 }
             } else {
@@ -465,7 +451,7 @@ fun PlaylistDetailScreen(
 
                     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
                         Text(collectionLabel, color = appColors.textMuted, style = MaterialTheme.typography.labelMedium)
-                        CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "playlist_profile_name", download)
+                        CollectionTitleRow(title, MaterialTheme.typography.headlineLarge, "playlist_profile_name")
                         if (description.isNotBlank()) {
                             Text(
                                 text = description,
@@ -486,63 +472,11 @@ fun PlaylistDetailScreen(
                 }
             }
 
-                if (!pinPlaybackActions) {
-                    item("portrait_playlist_actions") {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            com.example.ui.theme.AccentButton(
-                                onClick = {
-                                    if (tracks.isNotEmpty()) {
-                                        playback.play(tracks.first(), tracks)
-                                    }
-                                },
-                                enabled = tracks.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = appColors.primaryAccent,
-                                    contentColor = appColors.onPrimaryAccent
-                                ),
-                                shape = CircleShape,
-                                modifier = Modifier.height(46.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = appColors.onPrimaryAccent,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("PLAY ALL", color = appColors.onPrimaryAccent, fontWeight = FontWeight.Bold)
-                            }
+            }
 
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            OutlinedButton(
-                                onClick = {
-                                    if (tracks.isNotEmpty()) {
-                                        playback.shuffle(tracks)
-                                    }
-                                },
-                                enabled = tracks.isNotEmpty(),
-                                border = BorderStroke(1.dp, appColors.cardBorder),
-                                shape = CircleShape,
-                                modifier = Modifier.height(46.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shuffle,
-                                    contentDescription = null,
-                                    tint = appColors.textPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("SHUFFLE", color = appColors.textPrimary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
+            if (!pinPlaybackActions) item("playlist_actions") {
+                CollectionPlaybackButtons(tracks, playback::play, tagPrefix = "playlist",
+                    onShuffle = { playback.shuffle(tracks) }, download = download)
             }
 
             if (tracks.isEmpty()) {
@@ -585,35 +519,44 @@ fun PlaylistDetailScreen(
 }
 }
 
-/** The liked-song actions remain available as the list scrolls, using the existing playlist style. */
+/** The same compact controls serve albums, playlists and the built-in collections. */
 @Composable
 internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicTrack, List<MusicTrack>) -> Unit,
-    tagPrefix: String = "liked_songs", onShuffle: (() -> Unit)? = null) {
+    tagPrefix: String = "liked_songs", onShuffle: (() -> Unit)? = null,
+    download: com.example.ui.components.CollectionDownloadAction? = null) {
     val colors = LocalAppColors.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var preparation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        com.example.ui.theme.AccentButton(onClick = {
-            preparation?.cancel()
-            tracks.firstOrNull()?.let { onPlay(it, tracks) }
-        }, enabled = tracks.isNotEmpty(), shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = colors.primaryAccent, contentColor = colors.onPrimaryAccent),
-            modifier = Modifier.weight(1f).height(46.dp).testTag("${tagPrefix}_play")) {
-            Icon(Icons.Default.PlayArrow, null, Modifier.size(22.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("PLAY ALL", fontWeight = FontWeight.Bold)
-        }
-        OutlinedButton(onClick = {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).testTag("${tagPrefix}_actions"),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = {
             preparation?.cancel()
             if (onShuffle != null) onShuffle() else preparation = scope.launch {
                 val queue = kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.CpuBounded) { tracks.shuffled() }
                 queue.firstOrNull()?.let { onPlay(it, queue) }
             }
-        }, enabled = tracks.isNotEmpty(), shape = CircleShape, border = BorderStroke(1.dp, colors.cardBorder),
-            modifier = Modifier.weight(1f).height(46.dp).testTag("${tagPrefix}_shuffle")) {
-            Icon(Icons.Default.Shuffle, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("SHUFFLE", color = colors.textPrimary, fontWeight = FontWeight.Bold)
+        }, enabled = tracks.isNotEmpty(), modifier = Modifier.size(CollectionActionSize).testTag("${tagPrefix}_shuffle")) {
+            Box(Modifier.size(CollectionActionSurfaceSize).liquidGlassButton(colors, shape = CircleShape, elevation = 3.dp),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Shuffle, "Shuffle", tint = if (tracks.isNotEmpty()) colors.primaryAccent else colors.textMuted,
+                    modifier = Modifier.size(24.dp))
+            }
         }
+        IconButton(onClick = {
+            preparation?.cancel()
+            tracks.firstOrNull()?.let { onPlay(it, tracks) }
+        }, enabled = tracks.isNotEmpty(), modifier = Modifier.size(CollectionActionSize * 1.15f).testTag("${tagPrefix}_play")) {
+            val fill = if (tracks.isNotEmpty()) colors.accentBrush()
+                else Brush.linearGradient(listOf(colors.cardBackgroundElevated, colors.cardBackgroundElevated))
+            Box(Modifier.size(CollectionActionSurfaceSize * 1.15f).clip(CircleShape).background(fill)
+                .border(BorderStroke(1.dp, colors.primaryAccent.copy(alpha = .2f)), CircleShape),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PlayArrow, "Play all",
+                    tint = if (tracks.isNotEmpty()) colors.onAccentGradient else colors.textMuted,
+                    modifier = Modifier.size(30.dp))
+            }
+        }
+        if (download != null) CollectionDownloadButton(download)
     }
 }

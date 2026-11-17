@@ -61,7 +61,7 @@ class CollectionHeaderUiTest {
         } }
     }
 
-    @Test fun playlistUsesACleanTitleAndOneCompactDownloadControlBesideIt() {
+    @Test fun playlistUsesACleanTitleAndOneCenteredCircularActionGroup() {
         showPlaylist()
         compose.onNodeWithText("Night Drive").assertExists()
         compose.onNodeWithText("Late nights & long drives").assertExists()
@@ -114,11 +114,11 @@ class CollectionHeaderUiTest {
     }
 
     @Test @Config(qualifiers = "w740dp-h400dp-land")
-    fun landscapePlaylistKeepsTheDownloadBesideTheTitleAndPlaybackActionsWorking() {
+    fun landscapePlaylistCentersTheDownloadWithWorkingPlaybackActions() {
         showPlaylist()
         assertTitleAction("playlist_profile_name", "playlist_detail_screen")
-        compose.onNodeWithText("PLAY ALL").assertIsDisplayed().performClick()
-        compose.onNodeWithText("SHUFFLE").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Play all").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Shuffle").assertIsDisplayed().performClick()
         capture("playlist_detail_screen", "playlist-landscape")
     }
 
@@ -133,18 +133,32 @@ class CollectionHeaderUiTest {
     }
 
     private fun assertTitleAction(titleTag: String, screenTag: String) {
+        val prefix = if (titleTag.startsWith("album")) "album" else "playlist"
+        compose.onNodeWithTag("${prefix}_play").performScrollTo()
         compose.onNodeWithTag("download_collection").assertIsDisplayed()
         compose.onAllNodesWithTag("download_collection").assertCountEquals(1)
         compose.onNodeWithText("Download").assertDoesNotExist()
         val action = compose.onNodeWithTag("download_collection").fetchSemanticsNode().boundsInRoot
+        val play = compose.onNodeWithTag("${prefix}_play").fetchSemanticsNode().boundsInRoot
+        val shuffle = compose.onNodeWithTag("${prefix}_shuffle").fetchSemanticsNode().boundsInRoot
         val title = compose.onNodeWithTag(titleTag).fetchSemanticsNode().boundsInRoot
         val screen = compose.onNodeWithTag(screenTag).fetchSemanticsNode().boundsInRoot
         val density = context.resources.displayMetrics.density
-        assertTrue("Download sits beside the name", title.right < action.left)
-        assertEquals(title.center.y, action.center.y, .5f)
-        assertEquals(48f * density, action.width, .5f)
+        assertTrue("The controls follow the collection details", play.top >= title.bottom)
+        assertTrue("Shuffle, play and download retain their requested order", shuffle.right < play.left && play.right < action.left)
+        assertEquals(57.6f * density, action.width, 1f)
+        assertEquals(action.width, shuffle.width, 1f)
+        assertEquals(66.24f * density, play.width, 1f)
         assertEquals(action.width, action.height, .5f)
-        assertEquals("Download aligns with the header's right edge", screen.right - 24f * density, action.right, 1f)
+        assertEquals(play.width, play.height, .5f)
+        assertEquals(shuffle.width, shuffle.height, .5f)
+        assertEquals(play.center.y, action.center.y, 1f)
+        assertEquals(play.center.y, shuffle.center.y, 1f)
+        assertEquals("The complete group has equal page margins", screen.center.x, (shuffle.left + action.right) / 2f, 1f)
+        assertEquals(12f * density, play.left - shuffle.right, 1f)
+        assertEquals(12f * density, action.left - play.right, 1f)
+        compose.onNodeWithText("PLAY ALL").assertDoesNotExist()
+        compose.onNodeWithText("SHUFFLE").assertDoesNotExist()
     }
 
     private fun assertArtAtTop(artTag: String, headerTag: String) {

@@ -136,13 +136,13 @@ class LibraryDownloadsUiTest {
         val file = File("build/reports/library-downloads/collection.png").apply { parentFile?.mkdirs() }
         compose.onNodeWithTag("library_downloads_page").captureRoboImage(file.absolutePath,
             roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
-        compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         compose.waitUntil(5_000) { play != null }
         assertEquals(listOf("newer", "older"), play!!.second.map { it.id })
         assertEquals("newer", play!!.first.id)
         assertTrue(play!!.second.all { Uri.parse(it.audioUrl).scheme == "xtreme-offline" && it.isCached })
         compose.runOnIdle { play = null }
-        compose.onNodeWithText("SHUFFLE").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Shuffle").performScrollTo().performClick()
         compose.waitUntil(5_000) { play != null }
         assertEquals(setOf("newer", "older"), play!!.second.map { it.id }.toSet())
         assertEquals(play!!.second.first().id, play!!.first.id)
@@ -158,15 +158,15 @@ class LibraryDownloadsUiTest {
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
-        compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Saved audio is missing. Download this track again.").fetchSemanticsNodes().isNotEmpty() }
         assertNull(play)
         // Bring the next lazy item into view; it is not required to be prefetched.
         compose.onNode(hasScrollAction() and hasAnyAncestor(hasTestTag("playlist_detail_screen"))).performScrollToIndex(1)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("No downloads yet").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("No downloads yet").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("PLAY ALL").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("SHUFFLE").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Shuffle").assertIsNotEnabled()
     }
 
     @Test fun settingsKeepsPreferencesAndStorageControlsWithoutTheSavedTrackBrowser() {
@@ -190,7 +190,7 @@ class LibraryDownloadsUiTest {
         awaitCollection()
         assertArtworkStartsAtTop("liked-songs")
         compose.onNodeWithTag("download_collection").assertExists()
-        compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         assertEquals(liked.id, play!!.first.id)
         assertEquals(listOf(liked.id), play!!.second.map { it.id })
     }
@@ -250,7 +250,7 @@ class LibraryDownloadsUiTest {
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
-        compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         compose.waitUntil(5_000) { play != null }
         assertEquals(listOf("available-first"), play!!.second.map { it.id })
         assertEquals(DownloadStatus.FAILED, store.records.value["missing-upcoming"]!!.status)

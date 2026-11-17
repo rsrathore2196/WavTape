@@ -304,10 +304,10 @@ class LandscapeScreensUiTest {
         val artwork = rect("landscape_playlist_artwork")
         assertEquals(px(112f), artwork.width, 1f)
         assertEquals(artwork.width, artwork.height, 1f)
-        compose.onNodeWithText("PLAY ALL").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Play all").assertIsDisplayed().performClick()
         assertEquals(tracks.first().id, played?.id)
         assertEquals(12, queue.size)
-        compose.onNodeWithText("SHUFFLE").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Shuffle").assertIsDisplayed().performClick()
         assertEquals(tracks.map { it.id }.toSet(), queue.map { it.id }.toSet())
         capture("playlist-landscape")
     }

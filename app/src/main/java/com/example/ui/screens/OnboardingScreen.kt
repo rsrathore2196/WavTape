@@ -9,7 +9,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -98,7 +97,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -289,7 +287,7 @@ private fun OnboardingContent(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Centered original logo and app title.
+                        // Centered logo in the active theme's accents and app title.
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -297,9 +295,9 @@ private fun OnboardingContent(
                                 .padding(top = 4.dp, bottom = 4.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(76.dp)) {
-                                Image(painterResource(R.drawable.ic_onboarding_logo),
-                                    contentDescription = "Xtreme Player Logo",
-                                    modifier = Modifier.size(70.4.dp).testTag("onboarding_details_logo"))
+                                com.example.ui.components.AppDynamicLogo(
+                                    modifier = Modifier.size(70.4.dp).testTag("onboarding_details_logo"),
+                                    cutoutColor = Color.Black, showGlow = false)
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -930,12 +928,10 @@ fun OnboardingStartupPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Use the actual launcher foreground, without an enclosing ring or badge.
-            Image(
-                painter = painterResource(R.drawable.ic_onboarding_logo),
-                contentDescription = "Xtreme Player Logo",
-                modifier = Modifier.size(136.dp).testTag("onboarding_brand_logo")
-            )
+            // Keep the launcher geometry, colored with the active theme's accents.
+            com.example.ui.components.AppDynamicLogo(
+                modifier = Modifier.size(136.dp).testTag("onboarding_brand_logo"),
+                cutoutColor = Color.Black, showGlow = false)
 
             Spacer(modifier = Modifier.height(20.dp))
 

@@ -15,6 +15,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import com.example.data.local.UserProfile
 import com.example.data.model.MusicTrack
 import com.example.data.model.ServerHomeShelf
@@ -143,6 +144,7 @@ class HomeAppHeaderUiTest {
     }
 
     private fun assertBrandFits() {
+        compose.onNodeWithTag("home_header_logo").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
         val header = bounds("home_fixed_header")
         val settings = bounds("top_settings_button")
         for (word in listOf("XTREME", "PLAYER")) {

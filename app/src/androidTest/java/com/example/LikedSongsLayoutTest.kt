@@ -34,26 +34,27 @@ class LikedSongsLayoutTest {
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("playlist_profile_artwork").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("liked_songs_play").assertDoesNotExist()
         compose.onNodeWithTag("liked_songs_shuffle").assertDoesNotExist()
-        compose.onNodeWithText("PLAY ALL").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsDisplayed()
         val art = compose.onNodeWithTag("playlist_profile_artwork").fetchSemanticsNode().boundsInRoot
         val title = compose.onNodeWithTag("playlist_profile_name").fetchSemanticsNode().boundsInRoot
-        val play = compose.onNodeWithText("PLAY ALL").fetchSemanticsNode().boundsInRoot
-        val shuffle = compose.onNodeWithText("SHUFFLE").fetchSemanticsNode().boundsInRoot
+        val play = compose.onNodeWithContentDescription("Play all").fetchSemanticsNode().boundsInRoot
+        val shuffle = compose.onNodeWithContentDescription("Shuffle").fetchSemanticsNode().boundsInRoot
         assertTrue("Artwork precedes the playlist title", title.top >= art.bottom)
         assertTrue("Actions follow the playlist details", play.top >= title.bottom)
-        assertEquals("Play and shuffle share the same row", play.top, shuffle.top, 1f)
+        assertEquals("Play and shuffle share the same row", play.center.y, shuffle.center.y, 1f)
+        assertTrue("Shuffle sits to the left of play", shuffle.right < play.left)
 
         compose.onRoot().captureToImage().asAndroidBitmap().let { image ->
             File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "liked-songs-layout.png")
                 .outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        compose.onNodeWithText("PLAY ALL").performClick()
+        compose.onNodeWithContentDescription("Play all").performClick()
         compose.runOnIdle {
             assertEquals(favorites.map { it.id }, played.get()!!.second.map { it.id })
             assertEquals(favorites.first().id, played.get()!!.first.id)
             played.set(null)
         }
-        compose.onNodeWithText("SHUFFLE").performClick()
+        compose.onNodeWithContentDescription("Shuffle").performClick()
         compose.waitUntil(30_000) { played.get() != null }
         compose.runOnIdle {
             val (selected, queue) = checkNotNull(played.get())
@@ -62,7 +63,7 @@ class LikedSongsLayoutTest {
             assertEquals(queue.first().id, selected.id)
         }
         compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("track_item_liked-layout-24"))
-        compose.onNodeWithText("PLAY ALL").assertIsNotDisplayed()
-        compose.onNodeWithText("SHUFFLE").assertIsNotDisplayed()
+        compose.onNodeWithContentDescription("Play all").assertIsNotDisplayed()
+        compose.onNodeWithContentDescription("Shuffle").assertIsNotDisplayed()
     }
 }
