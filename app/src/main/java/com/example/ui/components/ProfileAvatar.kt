@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -18,9 +19,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -32,20 +33,20 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.data.local.UserProfile
-import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.LocalAppColors
 
-internal data class DefaultProfileAvatar(val id: String, val label: String, val icon: ImageVector)
+internal data class DefaultProfileAvatar(val id: String, val label: String, val style: HumanAvatarStyle)
+// Retain the stored IDs so existing selections and backups map to the new portraits.
 internal val DefaultProfileAvatars = listOf(
-    DefaultProfileAvatar("headphones", "Headphones", Icons.Default.Headphones),
-    DefaultProfileAvatar("vinyl", "Vinyl", Icons.Default.Album),
-    DefaultProfileAvatar("soundwave", "Soundwave", Icons.Default.GraphicEq),
-    DefaultProfileAvatar("microphone", "Microphone", Icons.Default.Mic),
-    DefaultProfileAvatar("radio", "Radio", Icons.Default.Radio),
-    DefaultProfileAvatar("music", "Music", Icons.Default.MusicNote),
-    DefaultProfileAvatar("piano", "Piano", Icons.Default.Piano),
-    DefaultProfileAvatar("speaker", "Speaker", Icons.Default.Speaker),
-    DefaultProfileAvatar("dj", "DJ", Icons.Default.Equalizer)
+    DefaultProfileAvatar("headphones", "Boy with swept hair", HumanAvatarStyle.SWEPT),
+    DefaultProfileAvatar("vinyl", "Girl with long hair", HumanAvatarStyle.LONG),
+    DefaultProfileAvatar("soundwave", "Boy with curly hair", HumanAvatarStyle.CURLS),
+    DefaultProfileAvatar("microphone", "Girl with a bob", HumanAvatarStyle.BOB),
+    DefaultProfileAvatar("radio", "Listener with glasses", HumanAvatarStyle.GLASSES),
+    DefaultProfileAvatar("music", "Girl with a headscarf", HumanAvatarStyle.HEADSCARF),
+    DefaultProfileAvatar("piano", "Listener with a turban", HumanAvatarStyle.TURBAN),
+    DefaultProfileAvatar("speaker", "Older listener", HumanAvatarStyle.SILVER),
+    DefaultProfileAvatar("dj", "Girl with curly hair", HumanAvatarStyle.AFRO)
 )
 
 /** Theme-colored illustrations also serve as the fallback for an unavailable personal image. */
@@ -55,10 +56,12 @@ internal fun ProfileAvatar(profile: UserProfile?, modifier: Modifier = Modifier)
     val avatar = DefaultProfileAvatars.firstOrNull { it.id == profile?.avatarId } ?: DefaultProfileAvatars.first()
     val uri = profile?.avatarUri?.takeIf { it.startsWith("content://") }
     var failed by remember(uri) { mutableStateOf(false) }
-    val foreground = remember(colors.primaryAccent, colors.secondaryAccent) {
-        LiquidGlass.contrastColor(colors.onPrimaryAccent, listOf(colors.primaryAccent, colors.secondaryAccent), 4.5f)
+    val background = remember(colors.cardBackground, colors.primaryAccent, colors.secondaryAccent) {
+        Brush.linearGradient(listOf(lerp(colors.cardBackground, colors.primaryAccent, .18f),
+            lerp(colors.cardBackground, colors.secondaryAccent, .12f)))
     }
-    Box(modifier.clip(CircleShape).background(colors.heroGradient).drawWithCache {
+    val illustration = rememberHumanAvatar(avatar.style)
+    Box(modifier.clip(CircleShape).background(background).drawWithCache {
         val rim = Color.White.copy(alpha = .25f)
         onDrawBehind {
             drawCircle(rim, radius = size.minDimension * .44f, style = Stroke(1.dp.toPx()))
@@ -66,7 +69,7 @@ internal fun ProfileAvatar(profile: UserProfile?, modifier: Modifier = Modifier)
                 center = Offset(size.width * .12f, size.height * .12f))
         }
     }, contentAlignment = Alignment.Center) {
-        Icon(avatar.icon, if (uri == null || failed) avatar.label + " avatar" else null, tint = foreground, modifier = Modifier.fillMaxSize(.48f))
+        Image(illustration, if (uri == null || failed) avatar.label + " avatar" else null, modifier = Modifier.fillMaxSize())
         if (uri != null && !failed) AsyncImage(model = uri, contentDescription = "Custom profile image",
             contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), onError = { failed = true })
     }
