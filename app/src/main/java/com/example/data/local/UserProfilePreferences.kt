@@ -15,7 +15,9 @@ data class UserProfile(
     val countryCode: String = "IN",
     val flag: String = "🇮🇳",
     val appLanguage: String = "English",
-    val isOnboardingCompleted: Boolean = false
+    val isOnboardingCompleted: Boolean = false,
+    val avatarId: String = "headphones",
+    val avatarUri: String = ""
 ) {
     fun getInitials(): String {
         if (name.isBlank()) return "U"
@@ -37,6 +39,8 @@ object UserProfilePreferences {
     private const val KEY_COUNTRY_FLAG = "user_country_flag"
     private const val KEY_APP_LANGUAGE = "user_app_language"
     private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+    private const val KEY_AVATAR_ID = "avatar_id"
+    private const val KEY_AVATAR_URI = "avatar_uri"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return ReactiveSettingsRepository.preferences(context, PREFS_NAME)
@@ -60,7 +64,9 @@ object UserProfilePreferences {
             countryCode = countryCode,
             flag = flag,
             appLanguage = appLanguage,
-            isOnboardingCompleted = isOnboardingCompleted
+            isOnboardingCompleted = isOnboardingCompleted,
+            avatarId = prefs.getString(KEY_AVATAR_ID, "headphones") ?: "headphones",
+            avatarUri = prefs.getString(KEY_AVATAR_URI, "") ?: ""
         )
     }
 
@@ -87,6 +93,8 @@ object UserProfilePreferences {
             .putString(KEY_COUNTRY_FLAG, profile.flag.trim())
             .putString(KEY_APP_LANGUAGE, profile.appLanguage.trim())
             .putBoolean(KEY_ONBOARDING_COMPLETED, profile.isOnboardingCompleted)
+            .putString(KEY_AVATAR_ID, profile.avatarId)
+            .putString(KEY_AVATAR_URI, profile.avatarUri)
 
     fun saveUserProfile(context: Context, profile: UserProfile) {
         profileEditor(context, profile).apply()

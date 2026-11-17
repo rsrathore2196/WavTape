@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,7 +60,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack: () -> Unit,
     onMore: () -> Unit, onPlay: (MusicTrack, List<MusicTrack>) -> Unit, onFavorite: (MusicTrack) -> Unit,
     onScroll: (Int, Int) -> Unit, handleBack: Boolean = true,
-    onOpenAlbum: (CatalogAlbum) -> Unit = {}, onOpenArtist: (CatalogArtist) -> Unit = {}) {
+    onOpenAlbum: (CatalogAlbum) -> Unit = {}, onOpenArtist: (CatalogArtist) -> Unit = {},
+    onShuffleCollection: (() -> Unit)? = null) {
     val colors = LocalAppColors.current
     val downloadContext = androidx.compose.ui.platform.LocalContext.current
     val downloadRepository by remember(downloadContext) {
@@ -114,14 +114,17 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
         item("header") {
             when (val dest = state.destination) {
                 is CatalogDestination.Artist -> {
-                    ArtistProfileHeader(state.artistProfile?.artist ?: dest.artist, onBack)
+                    ArtistProfileHeader(state.artistProfile?.artist ?: dest.artist)
                 }
                 is CatalogDestination.Album -> {
-                    AlbumProfileHeader(dest.album, onBack, albumDownload, state.tracks,
+                    AlbumProfileHeader(dest.album, albumDownload, state.tracks,
                         !state.loading && state.nextPage == null && state.pending.isEmpty())
                 }
                 is CatalogDestination.Playlist -> Unit
             }
+        }
+        if (state.destination is CatalogDestination.Album) item("album_playback_actions") {
+            CollectionPlaybackButtons(state.tracks, onPlay, tagPrefix = "album", onShuffle = onShuffleCollection)
         }
         state.artistProfile?.let { profile ->
             item("artist_stats") {
@@ -200,7 +203,7 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
 /** Full-bleed official artist photography; alpha edges reveal the same page canvas.
  * The small Home/related portraits retain their existing size, shape and requests. */
 @Composable
-private fun ArtistProfileHeader(artist: CatalogArtist, onBack: () -> Unit) {
+private fun ArtistProfileHeader(artist: CatalogArtist) {
     val colors = LocalAppColors.current
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -209,11 +212,6 @@ private fun ArtistProfileHeader(artist: CatalogArtist, onBack: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(height).testTag("artist_profile_header")) {
         ArtistPortrait(artist, Modifier.matchParentSize().playerArtworkEdgeBlend(true), targetSize = 1200,
             backgroundColor = colors.scaffoldBackground)
-        Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)
-            .size(38.dp).liquidGlassButton(colors, shape = CircleShape, elevation = 4.dp)
-            .bouncyClickable(onClick = onBack), contentAlignment = Alignment.Center) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = colors.textPrimary, modifier = Modifier.size(19.dp))
-        }
         Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 24.dp, vertical = 12.dp)) {
             Text("ARTIST", color = colors.textMuted, style = MaterialTheme.typography.labelMedium)
             Text(artist.name, color = colors.textPrimary, style = MaterialTheme.typography.headlineLarge,
@@ -240,7 +238,7 @@ private fun ArtistStatistic(label: String, rawValue: String, modifier: Modifier)
 
 /** Full-bleed official album artwork; alpha edges reveal the same page canvas. */
 @Composable
-private fun AlbumProfileHeader(album: CatalogAlbum, onBack: () -> Unit, download: CollectionDownloadAction?,
+private fun AlbumProfileHeader(album: CatalogAlbum, download: CollectionDownloadAction?,
     tracks: List<MusicTrack>, collectionComplete: Boolean) {
     val colors = LocalAppColors.current
     val title = remember(album.title) { CollectionPageMetadata.title(album.title, "Untitled album") }
@@ -263,14 +261,7 @@ private fun AlbumProfileHeader(album: CatalogAlbum, onBack: () -> Unit, download
                     .testTag("album_profile_artwork")
                     .headerArtworkEdgeBlend(topFade = 0.10f, bottomFade = 0.10f, topMargin = 0.01f, bottomMargin = 0.02f)
             )
-            Box(
-                Modifier.align(Alignment.TopStart).statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)
-                    .size(38.dp).liquidGlassButton(colors, shape = CircleShape, elevation = 4.dp)
-                    .bouncyClickable(onClick = onBack),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = colors.textPrimary, modifier = Modifier.size(19.dp))
-            }
+
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
             Text("ALBUM", color = colors.textMuted, style = MaterialTheme.typography.labelMedium)

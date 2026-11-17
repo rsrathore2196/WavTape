@@ -46,14 +46,17 @@ class SearchGenreNavigationTest {
         var catalog by mutableStateOf(CatalogSearchState())
         var searched: String? = null
         var remembered: String? = null
+        var settingsOpened = 0
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides false) {
                 SearchScreen(SearchUiState(query = "track title"), onQueryChange = { searched = it },
+                    onOpenSettings = { settingsOpened++ },
                     onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {},
                     catalogState = catalog, onSelectType = { catalog = catalog.copy(type = it) },
                     onRememberSearch = { remembered = it })
             }
         } }
+        val header = compose.onNodeWithTag("search_fixed_header").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         for (theme in listOf(DarkAppColors, LightAppColors)) {
             compose.runOnIdle { colors = theme.copy(dynamicGlassEnabled = false) }
             val field = compose.onNodeWithTag("search_query_input").fetchSemanticsNode().boundsInRoot
@@ -76,6 +79,11 @@ class SearchGenreNavigationTest {
                 compose.runOnIdle { assertEquals(type, catalog.type) }
             }
         }
+        compose.onNodeWithTag("search_screen").performTouchInput { swipeUp() }
+        assertEquals(header, compose.onNodeWithTag("search_fixed_header").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithTag("top_settings_button").assertIsDisplayed().performClick()
+        assertEquals(1, settingsOpened)
+
     }
 
     @Test fun twentyRecentPillsUseTwoScrollableRowsAndKeepSearchAndRemovalWorking() {
@@ -128,8 +136,8 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("genre_results_page").performScrollToNode(hasText("Pop Album"))
         compose.onNodeWithText("Pop Album").performClick()
         compose.runOnIdle { assertEquals(CatalogDestination.Album(album), opened) }
-        compose.onNodeWithTag("genre_results_page").performScrollToNode(hasTestTag("back_to_all_genres_button"))
-        compose.onNodeWithTag("back_to_all_genres_button").performClick()
+        compose.onNodeWithTag("back_to_all_genres_button").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithTag("search_screen").assertExists()
         compose.onNodeWithTag("genre_results_page").assertDoesNotExist()
         compose.onNodeWithTag("explore_chip_${category.key}").assertIsDisplayed()

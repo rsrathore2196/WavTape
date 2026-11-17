@@ -978,13 +978,13 @@ class PlayerViewModel(
         }
     }
 
-    fun playCatalogCollection(track: MusicTrack, state: CatalogDetailState) {
+    fun playCatalogCollection(track: MusicTrack, state: CatalogDetailState, shuffle: Boolean = false) {
         val more = catalogBrowser.playlistPlaybackContinuation(state)
         activePlaybackLaunchJob?.cancel()
         activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-            val queue = state.preparePlaybackQueue(track)
+            val queue = state.preparePlaybackQueue(track, shuffle)
             ensureActive()
-            playbackManager.playTrack(track, queue, isExplicitPlaylist = true, collectionLoader = more)
+            playbackManager.playTrack(if (shuffle) queue.first() else track, queue, isExplicitPlaylist = true, collectionLoader = more)
         }
     }
 

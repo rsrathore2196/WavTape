@@ -57,9 +57,9 @@ private fun CatalogDetailState.withTracks(tracks: List<MusicTrack>, pending: Lis
 }
 
 /** Preserve catalog ordering/first metadata, without deduplicating a large playlist on Main. */
-internal suspend fun CatalogDetailState.preparePlaybackQueue(fallback: MusicTrack): List<MusicTrack> =
+internal suspend fun CatalogDetailState.preparePlaybackQueue(fallback: MusicTrack, shuffle: Boolean = false): List<MusicTrack> =
     withContext(AppDispatchers.CpuBounded) {
-        (tracks + pending).distinctBy { it.id }.ifEmpty { listOf(fallback) }
+        (tracks + pending).distinctBy { it.id }.ifEmpty { listOf(fallback) }.let { if (shuffle) it.shuffled() else it }
     }
 
 /** Each loader captures its cursor; retries cannot consume the next provider page. */

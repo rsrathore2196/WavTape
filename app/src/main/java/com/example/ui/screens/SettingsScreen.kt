@@ -37,7 +37,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -184,18 +183,7 @@ fun SettingsScreen(
                 selectedCategory = if (isViewingProfileDetail) null else selectedCategory,
                 subPageTitle = if (isViewingProfileDetail) "Profile" else subPageTitle,
                 subPageSubtitle = if (isViewingProfileDetail) "Account attributes & languages" else subPageSubtitle,
-                isDarkMode = isDarkMode,
-                onBackClick = {
-                    if (isViewingProfileDetail) {
-                        isViewingProfileDetail = false
-                    } else if (selectedCategory != null) {
-                        if (subPageBackAction?.invoke() != true) {
-                            selectedCategory = null
-                        }
-                    } else {
-                        onNavigateBackToHome()
-                    }
-                }
+                isDarkMode = isDarkMode
             )
         }
 
@@ -322,7 +310,6 @@ private fun SettingsTopBar(
     subPageTitle: String? = null,
     subPageSubtitle: String? = null,
     isDarkMode: Boolean,
-    onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isMainSettings = selectedCategory == null && subPageTitle == null
@@ -340,24 +327,6 @@ private fun SettingsTopBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f)
         ) {
-            // Liquid Glass round arrow back button
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .liquidGlassButton(appColors, shape = CircleShape, elevation = 4.dp)
-                    .bouncyClickable { onBackClick() }
-                    .testTag("settings_back_button"),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = if (isMainSettings) "Back to Home" else "Back",
-                    tint = appColors.textPrimary,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-
             Column {
                 Text(
                     text = subPageTitle ?: (selectedCategory?.title ?: "Settings"),
@@ -480,28 +449,7 @@ private fun MainProfilePreviewBar(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            val avatarBg = Brush.linearGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent))
-            val initialTextColor = contrastingContentColor(appColors.primaryAccent)
-
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(avatarBg)
-                    .then(
-                        if (appColors.isAmoled) Modifier.border(1.5.dp, appColors.cardBorder, CircleShape)
-                        else Modifier
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                val initial = userProfile?.getInitials() ?: "X"
-                Text(
-                    text = initial,
-                    color = initialTextColor,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 20.sp
-                )
-            }
+            com.example.ui.components.ProfileAvatar(userProfile, Modifier.size(50.dp).testTag("profile_preview_avatar"))
 
             Spacer(modifier = Modifier.width(14.dp))
 

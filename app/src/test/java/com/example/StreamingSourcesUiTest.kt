@@ -36,6 +36,15 @@ class StreamingSourcesUiTest {
         field.set(null, null)
     }
 
+    @Test fun sourcesUsesSystemBackWithoutAnOnScreenBackButton() {
+        var backs = 0
+        compose.setContent { MaterialTheme { SourcesScreen(onNavigateBack = { backs++ }) } }
+        compose.onNodeWithTag("sources_back_button").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
+        assertEquals(1, backs)
+    }
+
     @Test fun restrictedSourcesAreOffAndDisabledWhileSavedPreferencesRemainIntact() = runBlocking {
         val sources = PlaybackSource.builtIns
         OtherSettingsPreferences.savePlaybackSources(app, sources)

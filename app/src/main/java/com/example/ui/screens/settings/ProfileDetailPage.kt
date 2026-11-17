@@ -108,30 +108,7 @@ fun ProfileDetailPage(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Avatar Header Card: Dynamic gradient adapting to current theme
-        val avatarBg = Brush.linearGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent))
-        val avatarTextColor = contrastingContentColor(appColors.primaryAccent)
-
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(avatarBg)
-                .border(
-                    width = 2.dp,
-                    color = if (appColors.isDark) Color.White.copy(alpha = 0.35f) else LiquidGlass.lightOutlineColor(appColors, true),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            val initial = userProfile?.getInitials() ?: "X"
-            Text(
-                text = initial,
-                color = avatarTextColor,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 32.sp
-            )
-        }
+        com.example.ui.components.ProfileAvatar(userProfile, Modifier.size(80.dp).testTag("profile_avatar"))
 
         Spacer(modifier = Modifier.height(12.dp))
 

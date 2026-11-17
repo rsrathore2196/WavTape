@@ -35,7 +35,7 @@ import com.example.ui.theme.LocalAppColors
 
 /** A fixed accent canopy. Cached shapes/shaders never observe feed scroll. */
 @Composable
-internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier) {
+internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier, headerTag: String = "home_fixed_header") {
     val colors = LocalAppColors.current
     val surfaces = remember(colors.primaryAccent, colors.secondaryAccent) {
         val hsv = FloatArray(3)
@@ -52,7 +52,7 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
     }
     val text = Color.White
     Box(
-        modifier.fillMaxWidth().testTag("home_fixed_header").drawWithCache {
+        modifier.fillMaxWidth().testTag(headerTag).drawWithCache {
             val surface = Path().apply {
                 addRoundRect(RoundRect(0f, -1.dp.toPx(), size.width, size.height,
                     bottomLeftCornerRadius = CornerRadius(32.dp.toPx()),

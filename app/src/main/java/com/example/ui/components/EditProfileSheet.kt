@@ -27,6 +27,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.border
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
@@ -94,6 +97,31 @@ fun EditProfileSheet(
         )
     }
     var isCountryPickerOpen by remember { mutableStateOf(false) }
+    var avatarId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(userProfile.avatarId) }
+    var avatarUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(userProfile.avatarUri) }
+    var avatarPickerOpen by remember { mutableStateOf(false) }
+    var avatarError by remember { mutableStateOf<String?>(null) }
+    var avatarPreparing by remember { mutableStateOf(false) }
+    val avatarContext = androidx.compose.ui.platform.LocalContext.current
+    val avatarScope = androidx.compose.runtime.rememberCoroutineScope()
+    val chooseImage = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            avatarPreparing = true
+            avatarScope.launch {
+                try {
+                    kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.Io) {
+                        avatarContext.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    avatarUri = uri.toString()
+                    avatarError = null
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { avatarError = "Could not use this image. Please choose another image." }
+                finally { avatarPreparing = false }
+            }
+        }
+    }
 
     val bg = appColors.bottomSheetBackground
     val cardBg = appColors.cardBackground
@@ -111,7 +139,7 @@ fun EditProfileSheet(
         containerColor = bg,
         dragHandle = null
     ) {
-        androidx.activity.compose.BackHandler(enabled = !isCountryPickerOpen) { keyboard?.hide() }
+        androidx.activity.compose.BackHandler(enabled = !isCountryPickerOpen && !avatarPickerOpen) { keyboard?.hide() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -160,6 +188,20 @@ fun EditProfileSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                Box(Modifier.align(Alignment.CenterHorizontally).size(96.dp)) {
+                    ProfileAvatar(userProfile.copy(avatarId = avatarId, avatarUri = avatarUri),
+                        Modifier.size(88.dp).align(Alignment.Center).testTag("edit_profile_avatar_image"))
+                    IconButton(onClick = { hideKeyboard(); avatarPickerOpen = true },
+                        modifier = Modifier.align(Alignment.BottomEnd).size(36.dp).clip(CircleShape)
+                            .background(primaryAccent).border(BorderStroke(2.dp, bg), CircleShape)
+                            .testTag("edit_profile_avatar")) {
+                        Icon(androidx.compose.material.icons.Icons.Default.Edit, "Edit avatar",
+                            tint = appColors.onPrimaryAccent, modifier = Modifier.size(18.dp))
+                    }
+                }
+                if (avatarError != null) Text(avatarError.orEmpty(), color = textMuted, fontSize = 12.sp)
+                Spacer(Modifier.height(16.dp))
 
                 // 1. User Name
                 Card(
@@ -444,13 +486,14 @@ fun EditProfileSheet(
                                 country = selectedCountry.name,
                                 countryCode = selectedCountry.code,
                                 flag = selectedCountry.flag,
-                                isOnboardingCompleted = true
+                                isOnboardingCompleted = true,
+                                avatarId = avatarId, avatarUri = avatarUri
                             )
                         )
                         onDismiss()
                     }
                 },
-                enabled = isFormValid,
+                enabled = isFormValid && !avatarPreparing,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = primaryAccent,
@@ -471,6 +514,11 @@ fun EditProfileSheet(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+
+    if (avatarPickerOpen) AvatarPickerDialog(avatarId, avatarUri.isNotBlank(),
+        onSelect = { avatarId = it; avatarUri = ""; avatarPickerOpen = false; avatarError = null },
+        onChooseImage = { avatarPickerOpen = false; chooseImage.launch(arrayOf("image/*")) },
+        onDismiss = { avatarPickerOpen = false })
 
     if (isCountryPickerOpen) {
         CountryPickerBottomSheet(

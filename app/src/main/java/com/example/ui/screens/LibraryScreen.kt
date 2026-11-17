@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -151,7 +152,8 @@ fun LibraryScreen(
     listState: LazyListState = rememberLazyListState(),
     onPlayDownloadedTrack: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick,
     downloadStore: OfflineDownloads = OfflineDownloads.get(LocalContext.current),
-    onPrepareDownloads: (suspend (OfflineDownloads) -> Boolean)? = null
+    onPrepareDownloads: (suspend (OfflineDownloads) -> Boolean)? = null,
+    onOpenSettings: (() -> Unit)? = null
 ) {
     var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf("Playlists", "Listening Stats")
@@ -210,12 +212,9 @@ fun LibraryScreen(
     val currentPlayingId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxSize()
-            .background(appColors.scaffoldBackground),
-        contentAlignment = Alignment.TopCenter
-    ) {
+    Column(modifier.fillMaxSize().background(appColors.scaffoldBackground)) {
+        com.example.ui.components.HomeAppHeader(onOpenSettings, headerTag = "library_fixed_header")
+    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.TopCenter) {
         val libraryHeader: @Composable () -> Unit = {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
                 Row(
@@ -311,7 +310,7 @@ fun LibraryScreen(
         if (selectedTab == 1) {
             Column(Modifier.fillMaxWidth().widthIn(max = 640.dp)
                 .landscapeContentBounds(landscape, maxWidthDp = null).fillMaxSize()
-                .statusBarsPadding().testTag("library_screen")) {
+                .testTag("library_screen")) {
                 libraryHeader()
                 ListeningStatsScreen(period, { period = it }, { selectedTab = 0 }, onTrackClick, onOpenArtist,
                     statsScroll, embedded = true, modifier = Modifier.weight(1f))
@@ -324,7 +323,6 @@ fun LibraryScreen(
                 .widthIn(max = 640.dp)
                 .landscapeContentBounds(landscape, maxWidthDp = null)
                 .bouncyOverscroll()
-                .statusBarsPadding()
                 .testTag("library_screen"),
             contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 150.dp)
         ) {
@@ -556,6 +554,7 @@ fun LibraryScreen(
     }
 }
 }
+    }
 }
 
 /**

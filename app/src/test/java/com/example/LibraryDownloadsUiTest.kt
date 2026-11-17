@@ -67,7 +67,7 @@ class LibraryDownloadsUiTest {
         track
     }
 
-    private fun showLibrary(colors: AppThemeColors = DarkAppColors, onImport: () -> Unit = {}) {
+    private fun showLibrary(colors: AppThemeColors = DarkAppColors, onSettings: () -> Unit = {}, onImport: () -> Unit = {}) {
         compose.setContent {
             MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors.copy(dynamicGlassEnabled = false),
                 LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false,
@@ -75,7 +75,7 @@ class LibraryDownloadsUiTest {
                 LocalArtworkRequestsActive provides false) {
                 LibraryScreen(listOf(liked), playlists, onTrackClick = { track, queue -> play = track to queue },
                     onPlayDownloadedTrack = { track, queue -> play = track to queue }, onToggleFavorite = {},
-                    onOpenPlaylist = { openedPlaylist = it }, onCreatePlaylistClick = {}, onImportPlaylistClick = onImport, downloadStore = store)
+                    onOpenPlaylist = { openedPlaylist = it }, onCreatePlaylistClick = {}, onImportPlaylistClick = onImport, downloadStore = store, onOpenSettings = onSettings)
             } }
         }
         compose.waitForIdle()
@@ -113,6 +113,16 @@ class LibraryDownloadsUiTest {
             roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
     }
 
+    @Test fun libraryHeaderStaysFixedAndOpensSettingsWhileThePlaylistListScrolls() {
+        var settings = 0
+        showLibrary(onSettings = { settings++ })
+        val header = compose.onNodeWithTag("library_fixed_header").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("library_screen").performScrollToNode(hasTestTag("playlist_card_1"))
+        assertEquals(header, compose.onNodeWithTag("library_fixed_header").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithTag("top_settings_button").assertIsDisplayed().performClick()
+        assertEquals(1, settings)
+    }
+
     @Test fun downloadsOpensTheCollectionAndPlaysOnlySavedOfflineTracksInPlayAndShuffleOrder() {
         save("older", 1); save("newer", 2); save("paused", 3, DownloadStatus.PAUSED); save("failed", 4, DownloadStatus.FAILED)
         showLibrary()
@@ -134,7 +144,8 @@ class LibraryDownloadsUiTest {
         assertEquals(play!!.second.first().id, play!!.first.id)
         compose.onNodeWithText("Saved paused").assertDoesNotExist()
         compose.onNodeWithText("Saved failed").assertDoesNotExist()
-        compose.onNodeWithTag("playlist_back_button").performScrollTo().performClick()
+        compose.onNodeWithTag("playlist_back_button").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithTag("library_screen").assertExists()
     }
 
@@ -146,6 +157,7 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithText("PLAY ALL").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Saved audio is missing. Download this track again.").fetchSemanticsNodes().isNotEmpty() }
         assertNull(play)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("No downloads yet").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("No downloads yet").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("PLAY ALL").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("SHUFFLE").assertIsNotEnabled()

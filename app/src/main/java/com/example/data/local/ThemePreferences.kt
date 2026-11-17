@@ -647,9 +647,9 @@ private object LegacyThemePresets {
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
 object ThemePresets {
-    const val PALETTE_VERSION = 2
+    const val PALETTE_VERSION = 3
 
-    private fun modernize(preset: AppThemePreset): AppThemePreset {
+    private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
         val canvas = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#0B0B0B" } else "#FFFFFF"
         val card = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#171717" } else "#F5F5F5"
         val foreground = if (preset.isDark) "#F5F5F5" else "#161616"
@@ -676,6 +676,41 @@ object ThemePresets {
             bottomSheetGradientColorsHex = listOf(canvas, canvas),
             bgGradientName = "Neutral Solid", cardGradientName = "Neutral Surface",
             bottomSheetGradientName = "Neutral Solid"
+        )
+    }
+
+    private data class AccentPair(val name: String, val primary: String, val secondary: String)
+
+    // Independent, saturated gradient endpoints, tuned for each preset's brightness.
+    private val accents = mapOf(
+        "dark_studio_night" to AccentPair("Azure Pulse", "#27C7FF", "#C471FF"),
+        "dark_amoled_black" to AccentPair("Neon Aurora", "#00E5FF", "#7DFFB2"),
+        "dark_cyberpunk_neon" to AccentPair("Neon Fusion", "#FF4FDC", "#BD7BFF"),
+        "dark_emerald_nebula" to AccentPair("Emerald Current", "#1FE7AC", "#45D5FF"),
+        "dark_sunset_horizon" to AccentPair("Coral Flare", "#FF8A3D", "#FF5B95"),
+        "oceanic_glass" to AccentPair("Ocean Voltage", "#25D7FF", "#619BFF"),
+        "nebula_glass" to AccentPair("Prism Violet", "#AB88FF", "#FA73E3"),
+        "matrix_glass" to AccentPair("Lime Circuit", "#8DF43A", "#22E1C2"),
+        "solar_glass" to AccentPair("Solar Flame", "#FFD23F", "#FF9559"),
+        "dark_velvet_noir" to AccentPair("Velvet Bloom", "#FF6FAD", "#D0A0FF"),
+        "light_clean_day" to AccentPair("Sapphire Rush", "#155EEF", "#7C3AED"),
+        "light_minimal_ivory" to AccentPair("Amber Rose", "#B54708", "#C11574"),
+        "light_cherry_blossom" to AccentPair("Cherry Electric", "#C9115C", "#8B2BE2"),
+        "light_electric_mint" to AccentPair("Mint Wave", "#007765", "#006CB8"),
+        "light_sunset_peach" to AccentPair("Tangerine Bloom", "#BA3908", "#C0267D"),
+        "glacier_glass" to AccentPair("Glacier Prism", "#006DA8", "#4147D5"),
+        "sakura_glass" to AccentPair("Sakura Pop", "#BE185D", "#A21CAF"),
+        "light_porcelain_blue" to AccentPair("Cobalt Flow", "#304FFE", "#006DAD"),
+        "light_lavender_linen" to AccentPair("Orchid Pulse", "#7C24DB", "#B31C8A"),
+        "light_sage_mist" to AccentPair("Jade Tide", "#227447", "#007477")
+    )
+
+    private fun modernize(preset: AppThemePreset): AppThemePreset {
+        val accent = accents.getValue(preset.id)
+        return neutralPalette(preset).copy(
+            subtitle = "${accent.name} gradient on ${if (preset.isDark) "deep dark glass" else "crisp light glass"}",
+            accentName = accent.name, accentShade = "Vibrant",
+            accentColorHex = accent.primary, secondaryAccentHex = accent.secondary
         )
     }
 
@@ -709,13 +744,15 @@ object ThemePresets {
     fun findByName(name: String): AppThemePreset? = name.takeIf { it.isNotBlank() }
         ?.let(LegacyThemePresets::findByName)?.let(::modern)
 
-    internal fun legacyPreset(id: String, name: String): AppThemePreset? =
-        LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName)
+    internal fun legacyPreset(id: String, name: String, version: Int = 1): AppThemePreset? =
+        (LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName))
+            ?.let { if (version == 2) neutralPalette(it) else it }
 
     internal fun upgradeLegacy(state: CustomThemeState): CustomThemeState {
         val legacy = legacyPreset(state.presetId, state.currentThemeName) ?: return state
         // A known ID alone is not proof that a saved/imported palette was never edited.
-        return if (state == legacy.toCustomThemeState()) modern(legacy).toCustomThemeState() else state
+        return if (state == legacy.toCustomThemeState() || state == neutralPalette(legacy).toCustomThemeState())
+            modern(legacy).toCustomThemeState() else state
     }
 
     internal fun isBuiltIn(state: CustomThemeState): Boolean =
@@ -731,10 +768,10 @@ data class CustomThemeState(
     val currentThemeName: String = "Studio Night",
     val isPresetDark: Boolean = true,
     val isAmoled: Boolean = false,
-    val accentName: String = "Electric Azure",
-    val accentShade: String = "400",
-    val accentColorHex: String = "#66D5FF",
-    val secondaryAccentHex: String = "#7FDAFD",
+    val accentName: String = "Azure Pulse",
+    val accentShade: String = "Vibrant",
+    val accentColorHex: String = "#27C7FF",
+    val secondaryAccentHex: String = "#C471FF",
     val canvasColorName: String = "Neutral Black",
     val canvasColorHex: String = "#0B0B0B",
     val cardColorName: String = "Neutral Charcoal",
@@ -822,8 +859,9 @@ object ThemePreferences {
     private fun readTheme(prefs: SharedPreferences, prefix: String, fallback: AppThemePreset): CustomThemeState {
         val name = prefs.getString(prefix + KEY_CURRENT_THEME, null)
         val id = prefs.getString(prefix + KEY_PRESET_ID, null)
-        val original = if (prefs.getInt(prefix + KEY_PALETTE_VERSION, 1) < ThemePresets.PALETTE_VERSION)
-            ThemePresets.legacyPreset(id.orEmpty(), name.orEmpty()) else null
+        val version = prefs.getInt(prefix + KEY_PALETTE_VERSION, 1)
+        val original = if (version < ThemePresets.PALETTE_VERSION)
+            ThemePresets.legacyPreset(id.orEmpty(), name.orEmpty(), version) else null
         val preset = original ?: ThemePresets.findById(id.orEmpty()) ?: fallback
         fun text(key: String, default: String) = prefs.getString(prefix + key, default) ?: default
         fun gradient(key: String, default: List<String>): List<String> =

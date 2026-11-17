@@ -91,6 +91,28 @@ class CollectionHeaderUiTest {
         capture("catalog_detail_list", "album-light")
     }
 
+    @Test fun albumPlayAllAndShuffleSubmitPlayableQueuesWithoutABackButton() {
+        var played: MusicTrack? = null
+        var queue = emptyList<MusicTrack>()
+        val album = CatalogAlbum("actions", "Album", emptyList(), "", "2026")
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides DarkAppColors, LocalArtworkRequestsActive provides false,
+                LocalVisualEffectsActive provides false, LocalDynamicGlassEnabled provides false) {
+                CatalogDetailScreen(CatalogDetailState(CatalogDestination.Album(album), tracks = tracks), PlayerUiState(),
+                    onBack = {}, onMore = {}, onPlay = { song, songs -> played = song; queue = songs },
+                    onFavorite = {}, onScroll = { _, _ -> })
+            }
+        } }
+        compose.onNodeWithContentDescription("Back").assertDoesNotExist()
+        compose.onNodeWithTag("album_play").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(tracks.first(), played)
+        assertEquals(tracks, queue)
+        compose.runOnIdle { played = null; queue = emptyList() }
+        compose.onNodeWithTag("album_shuffle").performScrollTo().assertIsEnabled().performClick()
+        compose.waitUntil(5_000) { played == queue.firstOrNull() && queue.isNotEmpty() }
+        assertEquals(tracks.toSet(), queue.toSet())
+    }
+
     @Test @Config(qualifiers = "w740dp-h400dp-land")
     fun landscapePlaylistKeepsTheDownloadBesideTheTitleAndPlaybackActionsWorking() {
         showPlaylist()

@@ -99,8 +99,9 @@ class ListeningStatsUiTest {
         compose.onNodeWithTag("library_screen").assertExists()
         compose.onNodeWithTag("create_playlist_button").assertIsDisplayed()
         compose.onNodeWithTag("open_downloads").performScrollTo().performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("playlist_back_button").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("playlist_back_button").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("playlist_profile_header").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("playlist_back_button").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithTag("library_screen").performScrollToNode(hasText("Listening Stats"))
         compose.onNodeWithText("Listening Stats").performClick()
         compose.onNodeWithText("Yearly").assertIsSelected()

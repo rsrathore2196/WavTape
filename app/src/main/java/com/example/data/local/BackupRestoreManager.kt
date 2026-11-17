@@ -404,6 +404,8 @@ object BackupRestoreManager {
             profileJson.put("countryCode", userProfile.countryCode)
             profileJson.put("flag", userProfile.flag)
             profileJson.put("appLanguage", userProfile.appLanguage)
+            profileJson.put("avatarId", userProfile.avatarId)
+            profileJson.put("avatarUri", userProfile.avatarUri)
             profileJson.put("isOnboardingCompleted", userProfile.isOnboardingCompleted)
             val langsArray = JSONArray()
             userProfile.languages.forEach { langsArray.put(it) }
@@ -733,6 +735,8 @@ object BackupRestoreManager {
             (0 until array.length()).map { array.getString(it) }.ifEmpty { previous.languages }
         } else previous.languages,
         appLanguage = stringField(json, "appLanguage", previous.appLanguage),
+        avatarId = stringField(json, "avatarId", previous.avatarId),
+        avatarUri = stringField(json, "avatarUri", previous.avatarUri),
         isOnboardingCompleted = booleanField(json, "isOnboardingCompleted", previous.isOnboardingCompleted)
     )
 

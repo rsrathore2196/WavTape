@@ -56,6 +56,25 @@ class ThemePaletteTest {
         }
     }
 
+    @Test fun everyPresetHasDistinctSaturatedGradientEndpointsAndUpdatesThePreviousPalette() {
+        val pairs = ThemePresets.allPresets.map { it.accentColorHex to it.secondaryAccentHex }
+        assertEquals(20, pairs.distinct().size)
+        for (preset in ThemePresets.allPresets) {
+            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 2))
+            assertNotEquals(previous.accentColorHex, preset.accentColorHex)
+            assertNotEquals(previous.secondaryAccentHex, preset.secondaryAccentHex)
+            assertNotEquals(preset.accentColorHex, preset.secondaryAccentHex)
+            for (hex in listOf(preset.accentColorHex, preset.secondaryAccentHex)) {
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(hex), hsv)
+                assertTrue("${preset.name} should have colorful gradient endpoints", hsv[1] >= .35f)
+            }
+            val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
+            assertNotEquals(colors.primaryAccent, colors.secondaryAccent)
+        }
+        assertEquals(ThemePresets.StudioNight.toCustomThemeState(), com.example.data.local.CustomThemeState())
+    }
+
     @Test fun highContrastIncludesElevatedSurfacesAndCustomColorsAreNotNeutralized() {
         ThemePresets.allPresets.forEach { preset ->
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState(), true)

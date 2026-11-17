@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -306,31 +305,14 @@ fun PlaylistDetailScreen(
                 .testTag("playlist_detail_screen")
         ) {
         // TOP NAVIGATION BAR (Landscape only; portrait header has overlaid controls)
-        if (landscape) {
+        if (landscape && !readOnly) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            // Liquid Glass Circle Back Button
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .liquidGlassButton(appColors, shape = CircleShape, elevation = 4.dp)
-                    .bouncyClickable { onBackClick() }
-                    .testTag("playlist_back_button"),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = appColors.textPrimary,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-
             if (!readOnly) Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -373,7 +355,7 @@ fun PlaylistDetailScreen(
         }
     }
 
-        if (pinPlaybackActions) PlaylistPlaybackActions(tracks, playback::play)
+        if (pinPlaybackActions) CollectionPlaybackButtons(tracks, playback::play)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -434,20 +416,6 @@ fun PlaylistDetailScreen(
                             if (artworkIcon != null) LibraryCollectionArtwork(artworkIcon, artworkModifier, artworkBrush ?: downloadsArtworkBrush())
                             else AsyncImage(model = rememberPlaylistCoverRequest(playlist.coverUrl, 1200),
                                 contentDescription = title, contentScale = ContentScale.Fit, modifier = artworkModifier)
-                            Box(
-                                Modifier
-                                    .align(Alignment.TopStart)
-                                    .statusBarsPadding()
-                                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                                    .size(38.dp)
-                                    .liquidGlassButton(appColors, shape = CircleShape, elevation = 4.dp)
-                                    .bouncyClickable { onBackClick() }
-                                    .testTag("playlist_back_button"),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = appColors.textPrimary, modifier = Modifier.size(19.dp))
-                            }
-
                         if (!readOnly) {
                             Row(
                                 modifier = Modifier
@@ -619,7 +587,8 @@ fun PlaylistDetailScreen(
 
 /** The liked-song actions remain available as the list scrolls, using the existing playlist style. */
 @Composable
-private fun PlaylistPlaybackActions(tracks: List<MusicTrack>, onPlay: (MusicTrack, List<MusicTrack>) -> Unit) {
+internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicTrack, List<MusicTrack>) -> Unit,
+    tagPrefix: String = "liked_songs", onShuffle: (() -> Unit)? = null) {
     val colors = LocalAppColors.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var preparation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -629,19 +598,19 @@ private fun PlaylistPlaybackActions(tracks: List<MusicTrack>, onPlay: (MusicTrac
             tracks.firstOrNull()?.let { onPlay(it, tracks) }
         }, enabled = tracks.isNotEmpty(), shape = CircleShape,
             colors = ButtonDefaults.buttonColors(containerColor = colors.primaryAccent, contentColor = colors.onPrimaryAccent),
-            modifier = Modifier.weight(1f).height(46.dp).testTag("liked_songs_play")) {
+            modifier = Modifier.weight(1f).height(46.dp).testTag("${tagPrefix}_play")) {
             Icon(Icons.Default.PlayArrow, null, Modifier.size(22.dp))
             Spacer(Modifier.width(6.dp))
             Text("PLAY ALL", fontWeight = FontWeight.Bold)
         }
         OutlinedButton(onClick = {
             preparation?.cancel()
-            preparation = scope.launch {
+            if (onShuffle != null) onShuffle() else preparation = scope.launch {
                 val queue = kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.CpuBounded) { tracks.shuffled() }
                 queue.firstOrNull()?.let { onPlay(it, queue) }
             }
         }, enabled = tracks.isNotEmpty(), shape = CircleShape, border = BorderStroke(1.dp, colors.cardBorder),
-            modifier = Modifier.weight(1f).height(46.dp).testTag("liked_songs_shuffle")) {
+            modifier = Modifier.weight(1f).height(46.dp).testTag("${tagPrefix}_shuffle")) {
             Icon(Icons.Default.Shuffle, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(6.dp))
             Text("SHUFFLE", color = colors.textPrimary, fontWeight = FontWeight.Bold)

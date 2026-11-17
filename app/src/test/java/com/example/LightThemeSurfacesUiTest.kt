@@ -312,10 +312,12 @@ class LightThemeSurfacesUiTest {
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(600)
         assertModeIconColors()
-        compose.onNodeWithTag("settings_back_button").performClick()
+        compose.onNodeWithTag("settings_back_button").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.mainClock.advanceTimeBy(600)
         compose.onNodeWithTag("settings_cat_themes").assertIsDisplayed()
-        compose.onNodeWithTag("settings_back_button").performClick()
+        compose.onNodeWithTag("settings_back_button").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         assertEquals(1, homeBacks)
     }
 }

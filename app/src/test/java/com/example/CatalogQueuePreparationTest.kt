@@ -41,6 +41,16 @@ class CatalogQueuePreparationTest {
         assertSame(source[5], queue[5])
     }
 
+    @Test fun shuffleIncludesPendingAlbumSongsAndKeepsTheFirstCopyOfEachRecording() = runBlocking {
+        val first = track("first")
+        val state = CatalogDetailState(CatalogDestination.Album(com.example.data.repository.CatalogAlbum("a", "Album", emptyList(), "", "2026")),
+            tracks = listOf(first, track("second")), pending = listOf(track("first", "Duplicate"), track("third")))
+        val shuffled = state.preparePlaybackQueue(first, shuffle = true)
+        assertEquals(setOf("first", "second", "third"), shuffled.map { it.id }.toSet())
+        assertEquals(3, shuffled.size)
+        assertSame(first, shuffled.first { it.id == "first" })
+    }
+
     @Test fun emptyCatalogRetainsTheSelectedRecording() = runBlocking {
         val selected = track("selected")
         val state = CatalogDetailState(CatalogDestination.Playlist(CatalogPlaylist("123", "Playlist", "")))

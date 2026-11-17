@@ -127,7 +127,8 @@ class ArtistProfileUiTest {
         assertEquals("Portrait must extend to both horizontal sides, not a circle", Color.White.toArgb(), image.getRGB(1, image.height / 2))
         assertEquals(Color.White.toArgb(), image.getRGB(image.width - 2, image.height / 2))
         for (y in listOf(1, image.height - 2)) assertEquals(canvas.toArgb(), image.getRGB(image.width / 2, y))
-        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithContentDescription("Back").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.runOnIdle { assertEquals(1, backs) }
     }
 }

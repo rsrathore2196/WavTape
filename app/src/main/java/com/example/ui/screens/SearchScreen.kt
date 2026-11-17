@@ -74,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -113,7 +114,7 @@ import com.example.ui.viewmodel.SearchUiState
 @Composable
 private fun GenreResultsPage(
     state: SearchUiState, modifier: Modifier, playingId: String?, isPlaying: Boolean,
-    isLoading: Boolean, pendingTrackId: String?, onBack: () -> Unit, onReshuffle: () -> Unit,
+    isLoading: Boolean, pendingTrackId: String?, onReshuffle: () -> Unit,
     onPlay: (MusicTrack, List<MusicTrack>) -> Unit, onFavorite: (MusicTrack) -> Unit,
     onOpenCatalog: (com.example.data.repository.CatalogDestination) -> Unit,
     onOpenAlbumByName: (String) -> Unit
@@ -135,9 +136,6 @@ private fun GenreResultsPage(
         item("genre_header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.testTag("back_to_all_genres_button")) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to all genres", tint = colors.textPrimary)
-                }
                 Text(state.selectedGenre, style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold, color = colors.textPrimary, modifier = Modifier.weight(1f))
                 IconButton(onClick = onReshuffle, modifier = Modifier.testTag("reshuffle_genre_button")) {
@@ -306,7 +304,8 @@ fun SearchScreen(
     onRemoveRecentSearch: (String) -> Unit = {},
     onClearRecentSearches: () -> Unit = {},
     onExploreVisibilityChanged: (Boolean) -> Unit = {},
-    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null
+    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null
 ) {
     val currentPlayingId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id
     val isCurrentlyPlaying = isPlaying || (playerUiState?.isPlaying == true)
@@ -440,7 +439,7 @@ fun SearchScreen(
             state = searchState, modifier = modifier,
             playingId = currentPlayingId, isPlaying = isCurrentlyPlaying,
             isLoading = isCurrentlyLoading, pendingTrackId = pendingLoadingTrackId,
-            onBack = { onSelectGenre("All") }, onReshuffle = {
+            onReshuffle = {
                 val category = searchState.selectedExploreCategory
                 if (category != null && onSelectExploreCategory != null) onSelectExploreCategory(category, true)
                 else onSelectGenre(searchState.selectedGenre)
@@ -451,20 +450,19 @@ fun SearchScreen(
         return
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(appColors.scaffoldBackground),
-        contentAlignment = Alignment.TopCenter
+    Column(
+        modifier = modifier.fillMaxSize().background(appColors.scaffoldBackground),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        com.example.ui.components.HomeAppHeader(onOpenSettings, headerTag = "search_fixed_header")
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxWidth()
+                .weight(1f).fillMaxWidth()
                 .widthIn(max = 640.dp)
                 .landscapeContentBounds(landscape, maxWidthDp = null)
+                .clipToBounds()
                 .bouncyOverscroll()
-                .statusBarsPadding()
                 .testTag("search_screen"),
             contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 150.dp)
         ) {
@@ -893,40 +891,7 @@ fun SearchScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 4.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .rememberLiquidGlassPill(
-                                    colors = appColors,
-                                    shape = RoundedCornerShape(20.dp),
-                                    isActive = false,
-                                    elevation = 3.dp
-                                )
-                                .bouncyClickable {
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                    onSelectGenre("All")
-                                }
-                                .testTag("back_to_all_genres_button")
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back to all genres",
-                                    tint = appColors.primaryAccent,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "All Genres",
-                                    color = appColors.textPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
+
 
                         Box(
                             modifier = Modifier

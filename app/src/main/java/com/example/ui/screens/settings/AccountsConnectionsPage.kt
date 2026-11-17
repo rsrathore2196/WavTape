@@ -53,7 +53,7 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
     }
     if (lastFmDialog) LastFmConnectDialog(state.lastFm, onDismiss = { lastFmDialog = false })
     library?.let { provider ->
-        ConnectedLibraryPage(provider, onBack = { library = null }, modifier)
+        ConnectedLibraryPage(provider, modifier)
         BackHandler { library = null }
         return
     }
@@ -255,7 +255,7 @@ internal fun LastFmConnectDialog(initial: LastFmConnection, onDismiss: () -> Uni
 }
 
 @Composable
-private fun ConnectedLibraryPage(provider: String, onBack: () -> Unit, modifier: Modifier) {
+private fun ConnectedLibraryPage(provider: String, modifier: Modifier) {
     val context = LocalContext.current
     val client = remember(context) { ConnectedLibraries(context) }
     val colors = LocalAppColors.current
@@ -279,8 +279,7 @@ private fun ConnectedLibraryPage(provider: String, onBack: () -> Unit, modifier:
     CompositionLocalProvider(LocalConnectionService provides service) {
     LazyColumn(modifier.fillMaxSize().testTag("connected_library_page"), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { ConnectionActionButton("Back to accounts", { importJob?.cancel(); onBack() })
-            Text(if (provider == "youtube") "YouTube Music library" else "Spotify library", color = colors.textPrimary,
+        item { Text(if (provider == "youtube") "YouTube Music library" else "Spotify library", color = colors.textPrimary,
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Import a collection into your local library. Import again to refresh it.", color = colors.textSecondary) }
         if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }

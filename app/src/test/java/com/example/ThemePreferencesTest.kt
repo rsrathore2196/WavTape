@@ -98,6 +98,25 @@ class ThemePreferencesTest {
         }
     }
 
+    @Test fun previousNeutralPresetsUpgradeWhileEditedAccentsSurviveReload() = runBlocking {
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            for (preset in ThemePresets.allPresets) {
+                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 2)).toCustomThemeState()
+                val mode = if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
+                ThemePreferences.saveThemeSelection(context, mode, previous)
+                repository.preferences("xtreme_theme_prefs").edit().putInt("palette_version", 2).apply()
+                assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
+                val edited = previous.copy(accentColorHex = "#1257E9")
+                ThemePreferences.saveThemeSelection(context, mode, edited)
+                assertEquals(edited, ThemePreferences.getCustomThemeState(context))
+                assertEquals(edited, ThemePresets.upgradeLegacy(edited))
+            }
+            repository.awaitPendingWrites()
+        }
+    }
+
     @Test fun selectingThemePublishesModeAndPaletteInOnePreferenceSnapshot() = runBlocking {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
