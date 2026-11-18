@@ -32,7 +32,8 @@ class ThemePaletteTest {
     @Test fun everyPresetUsesItsExactTonalMaterialRolesWithReadableContent() {
         ThemePresets.allPresets.forEach { preset ->
             val state = preset.toCustomThemeState()
-            val tones = ThemeTonePalettes.get(preset.accentName, preset.isDark)
+            val tones = if (preset.id == ThemePresets.StudioNight.id) ThemeTonePalettes.studioNight
+                else ThemeTonePalettes.get(preset.accentName, preset.isDark)
             assertEquals(tones, ThemePresets.tonalPalette(state))
             val colors = resolveAppThemeColors(preset.isDark, state)
             assertTrue(colors.neutralSurfaces)
@@ -131,15 +132,37 @@ class ThemePaletteTest {
             assertNotEquals(previous.accentColorHex, preset.accentColorHex)
             assertNotEquals(previous.secondaryAccentHex, preset.secondaryAccentHex)
             val expected = expectedAccents.getValue(preset.accentName)
-            assertEquals(if (preset.isDark) expected.first else expected.second, preset.accentColorHex)
+            assertEquals(if (preset.id == ThemePresets.StudioNight.id) "#95B0ED"
+                else if (preset.isDark) expected.first else expected.second, preset.accentColorHex)
             assertEquals("Tonal", preset.accentShade)
-            val tones = ThemeTonePalettes.get(preset.accentName, preset.isDark)
+            val tones = checkNotNull(ThemePresets.tonalPalette(preset.toCustomThemeState()))
             assertEquals(tones.secondary, preset.secondaryAccentHex)
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             assertEquals(color(preset.accentColorHex), colors.primaryAccent)
             assertEquals(color(preset.secondaryAccentHex), colors.secondaryAccent)
         }
         assertEquals(ThemePresets.StudioNight.toCustomThemeState(), CustomThemeState())
+    }
+
+    @Test fun studioNightUpdatesOnlyItsAccentsAndLeavesEveryOtherPresetUntouched() {
+        for (preset in ThemePresets.allPresets) {
+            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, 6))
+            if (preset.id == ThemePresets.StudioNight.id) {
+                assertEquals("#9FB3C1", previous.accentColorHex)
+                assertEquals("#AAB1B7", previous.secondaryAccentHex)
+                assertEquals(previous.copy(accentColorHex = "#95B0ED", secondaryAccentHex = "#77BBC5"), preset)
+                val tones = checkNotNull(ThemePresets.tonalPalette(preset.toCustomThemeState()))
+                assertEquals(ThemeTonePalettes.get("Ocean", true).copy(
+                    primary = "#95B0ED", onPrimary = "#001A42", primaryContainer = "#123368", onPrimaryContainer = "#C3D4FF",
+                    secondary = "#77BBC5", onSecondary = "#001F23", secondaryContainer = "#003B41", onSecondaryContainer = "#9BE0EA",
+                    tertiary = "#95B0ED", onTertiary = "#001A42", tertiaryContainer = "#123368", onTertiaryContainer = "#C3D4FF"
+                ), tones)
+            } else {
+                assertEquals("${preset.name} must not change", previous, preset)
+                assertEquals(ThemeTonePalettes.get(preset.accentName, preset.isDark),
+                    ThemePresets.tonalPalette(preset.toCustomThemeState()))
+            }
+        }
     }
 
     @Test fun monoUsesNeutralAccentsInBothModesAndAmoledRetainsBlackSurfaces() {

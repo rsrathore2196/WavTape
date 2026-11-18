@@ -180,4 +180,14 @@ internal object ThemeTonePalettes {
     ).associateBy { it.family to it.dark }
 
     fun get(family: String, dark: Boolean): ThemeTonePalette = palettes.getValue(family to dark)
+
+    /** A soft azure/cyan accent pair; all non-accent roles remain the Ocean defaults. */
+    val studioNight: ThemeTonePalette = get("Ocean", true).copy(
+        primary = "#95B0ED", onPrimary = "#001A42",
+        primaryContainer = "#123368", onPrimaryContainer = "#C3D4FF",
+        secondary = "#77BBC5", onSecondary = "#001F23",
+        secondaryContainer = "#003B41", onSecondaryContainer = "#9BE0EA",
+        tertiary = "#95B0ED", onTertiary = "#001A42",
+        tertiaryContainer = "#123368", onTertiaryContainer = "#C3D4FF"
+    )
 }

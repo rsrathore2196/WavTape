@@ -647,7 +647,7 @@ private object LegacyThemePresets {
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
 object ThemePresets {
-    const val PALETTE_VERSION = 6
+    const val PALETTE_VERSION = 7
 
     private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
         val canvas = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#0B0B0B" } else "#FFFFFF"
@@ -774,8 +774,12 @@ object ThemePresets {
         "light_lavender_linen" to "Violet", "light_sage_mist" to "Sage"
     )
 
-    private fun curated(preset: AppThemePreset): AppThemePreset {
-        val tones = ThemeTonePalettes.get(families.getValue(preset.id), preset.isDark)
+    private fun presetTones(id: String, dark: Boolean): ThemeTonePalette =
+        if (id == "dark_studio_night" && dark) ThemeTonePalettes.studioNight
+        else ThemeTonePalettes.get(families.getValue(id), dark)
+
+    private fun curated(preset: AppThemePreset,
+        tones: ThemeTonePalette = presetTones(preset.id, preset.isDark)): AppThemePreset {
         val canvas = if (preset.isAmoled) "#000000" else tones.background
         val card = if (preset.isAmoled) "#000000" else tones.surfaceContainerHigh
         return preset.copy(
@@ -792,7 +796,7 @@ object ThemePresets {
         )
     }
 
-    val allPresets = LegacyThemePresets.allPresets.map(::curated)
+    val allPresets = LegacyThemePresets.allPresets.map { curated(it) }
     val darkPresets = allPresets.filter { it.isDark }
     val lightPresets = allPresets.filterNot { it.isDark }
     private val presetsById = allPresets.associateBy { it.id }
@@ -802,7 +806,8 @@ object ThemePresets {
     private val legacyPalettes by lazy {
         LegacyThemePresets.allPresets.associate { preset -> preset.id to listOf(
             preset, neutralPalette(preset), modernize(preset, versionThreeAccents.getValue(preset.id)),
-            modernize(preset, versionFourAccents.getValue(preset.id)), modernize(preset)) }
+            modernize(preset, versionFourAccents.getValue(preset.id)), modernize(preset),
+            curated(preset, ThemeTonePalettes.get(families.getValue(preset.id), preset.isDark))) }
     }
     private val legacyStates by lazy {
         legacyPalettes.mapValues { (_, presets) -> presets.map { it.toCustomThemeState() } }
@@ -836,7 +841,7 @@ object ThemePresets {
 
     internal fun legacyPreset(id: String, name: String, version: Int = 1): AppThemePreset? =
         (LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName))
-            ?.let { legacyPalettes.getValue(it.id)[if (version in 1..5) version - 1 else 0] }
+            ?.let { legacyPalettes.getValue(it.id)[if (version in 1..6) version - 1 else 0] }
 
     internal fun upgradeLegacy(state: CustomThemeState): CustomThemeState {
         if (statesById[state.presetId] == state) return state
@@ -849,7 +854,7 @@ object ThemePresets {
         statesById[state.presetId] == state
 
     internal fun tonalPalette(state: CustomThemeState): ThemeTonePalette? =
-        if (isBuiltIn(state)) ThemeTonePalettes.get(families.getValue(state.presetId), state.isPresetDark) else null
+        if (isBuiltIn(state)) presetTones(state.presetId, state.isPresetDark) else null
 }
 
 /**
@@ -863,8 +868,8 @@ data class CustomThemeState(
     val isAmoled: Boolean = false,
     val accentName: String = "Ocean",
     val accentShade: String = "Tonal",
-    val accentColorHex: String = "#9FB3C1",
-    val secondaryAccentHex: String = "#AAB1B7",
+    val accentColorHex: String = "#95B0ED",
+    val secondaryAccentHex: String = "#77BBC5",
     val canvasColorName: String = "Soft Obsidian",
     val canvasColorHex: String = "#0C0C0E",
     val cardColorName: String = "Tonal Surface",

@@ -120,13 +120,13 @@ class ThemePreferencesTest {
     @Test fun previousAccentPresetsUpgradeWhileCustomColorsAndSavedModesSurviveReload() = runBlocking {
         val dark = ThemePresets.StudioNight
         val light = ThemePresets.CleanDay
-        val previousDark = checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 5)).toCustomThemeState()
-        val previousLight = checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 5)).toCustomThemeState()
+        val previousDark = checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 6)).toCustomThemeState()
+        val previousLight = checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 6)).toCustomThemeState()
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
             val preferences = repository.preferences("xtreme_theme_prefs")
-            for (version in listOf(3, 4, 5)) for (preset in ThemePresets.allPresets) {
+            for (version in listOf(3, 4, 5, 6)) for (preset in ThemePresets.allPresets) {
                 val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version))
                 assertEquals(previous.id, preset.id)
                 assertEquals(previous.name, preset.name)
@@ -150,7 +150,7 @@ class ThemePreferencesTest {
             val previousDarkValues = preferences.all.filterKeys { it.startsWith("saved_dark_") }
             ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, previousLight)
             // Saving the second mode upgrades the active preset before writing its history.
-            // Restore the complete old snapshot to model a real installation with both modes on v5.
+            // Restore the complete old snapshot to model a real installation with both modes on v6.
             val editor = preferences.edit()
             previousDarkValues.forEach { (key, value) ->
                 when (value) {
@@ -160,8 +160,8 @@ class ThemePreferencesTest {
                     else -> error("Unexpected theme preference value for $key")
                 }
             }
-            editor.putInt("palette_version", 5).putInt("saved_dark_palette_version", 5)
-                .putInt("saved_light_palette_version", 5).apply()
+            editor.putInt("palette_version", 6).putInt("saved_dark_palette_version", 6)
+                .putInt("saved_light_palette_version", 6).apply()
             repository.awaitPendingWrites()
         }
         ReactiveSettingsRepository(app).use { reopened ->
