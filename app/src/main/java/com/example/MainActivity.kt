@@ -26,6 +26,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
@@ -211,6 +213,15 @@ class MainActivity : ComponentActivity() {
                 playerViewModel.setResolvedDarkMode(effectiveDark)
             }
 
+            val matchAlbum = themeSelection.tonalTheme?.let { it.useAlbumArtwork && !it.useSystemDynamicColor } == true
+            val tonalArtworkUrl = if (matchAlbum) {
+                val source = androidx.compose.runtime.remember(playerViewModel) {
+                    playerViewModel.playbackPresentationState.map { it.currentTrack?.coverUrl }.distinctUntilChanged()
+                }
+                source.collectAsStateWithLifecycle(initialValue = null).value
+            } else null
+            val tonalArtwork = com.example.ui.theme.rememberTonalArtworkBitmap(tonalArtworkUrl, matchAlbum)
+
             MyApplicationTheme(
                 darkTheme = effectiveDark,
                 customThemeState = androidx.compose.runtime.remember(themeSelection, effectiveDark) {
@@ -218,7 +229,9 @@ class MainActivity : ComponentActivity() {
                         ?: com.example.data.local.ThemePreferences.getThemeForDarkMode(this@MainActivity, effectiveDark)
                 },
                 textScale = textScale,
-                uiScale = uiScale
+                uiScale = uiScale,
+                tonalTheme = themeSelection.tonalTheme,
+                artworkBitmap = tonalArtwork
             ) {
                 androidx.compose.animation.Crossfade(
                     targetState = isOnboardingCompleted,

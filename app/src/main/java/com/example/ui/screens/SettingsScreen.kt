@@ -112,7 +112,10 @@ fun SettingsScreen(
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
     onSubpageStateChanged: (Boolean) -> Unit = {},
     onNavigateBackToHome: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    tonalTheme: com.example.ui.theme.TonalThemeOptions? = null,
+    onApplyTonalTheme: (com.example.ui.theme.TonalThemeOptions, Boolean) -> Unit = { _, _ -> },
+    tonalArtworkUrl: String? = null
 ) {
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
     var isViewingProfileDetail by remember { mutableStateOf(false) }
@@ -253,6 +256,9 @@ fun SettingsScreen(
                                         customThemeState = customThemeState,
                                         onUpdateCustomThemeState = onUpdateCustomThemeState,
                                         onApplyPreset = onApplyPreset,
+                                        tonalTheme = tonalTheme,
+                                        onApplyTonalTheme = onApplyTonalTheme,
+                                        tonalArtworkUrl = tonalArtworkUrl,
                                         isDynamicGlassEnabled = isDynamicGlassEnabled,
                                         onToggleDynamicGlass = onToggleDynamicGlass,
                                         liquidGlassProfile = liquidGlassProfile,

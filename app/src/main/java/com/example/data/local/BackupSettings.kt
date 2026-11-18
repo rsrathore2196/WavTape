@@ -29,6 +29,11 @@ internal object BackupSettings {
         "lyrics_offset_preferences" to mapOf("global_lyrics_offset_ms" to "int"),
         "xtreme_theme_prefs" to buildMap {
             put("selected_theme_mode", "string")
+            put("tonal_enabled", "boolean")
+            put("tonal_seed_argb", "int")
+            put("tonal_style", "string")
+            put("tonal_system_colors", "boolean")
+            put("tonal_album_art", "boolean")
             for (prefix in listOf("", "saved_dark_", "saved_light_")) {
                 listOf("custom_preset_is_dark", "custom_is_amoled").forEach { put(prefix + it, "boolean") }
                 put(prefix + "palette_version", "int")

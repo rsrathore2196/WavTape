@@ -461,6 +461,9 @@ fun MainNavigationScaffold(
                                     customThemeState = themeSelection.palette,
                                     onUpdateCustomThemeState = { updatedState -> viewModel.updateCustomThemeState(updatedState) },
                                     onApplyPreset = { preset -> viewModel.applyThemePreset(preset) },
+                                    tonalTheme = themeSelection.tonalTheme,
+                                    onApplyTonalTheme = viewModel::applyTonalTheme,
+                                    tonalArtworkUrl = playerUiState.currentTrack?.coverUrl,
                                     onTextScaleChanged = { index -> viewModel.setTextScaleIndex(index) },
                                     onUiScaleChanged = { index -> viewModel.setUiScaleIndex(index) }
                                 )

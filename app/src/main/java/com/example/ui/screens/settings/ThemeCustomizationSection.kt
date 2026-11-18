@@ -540,7 +540,8 @@ fun ThemeCustomizationSection(
     onApplyPreset: (AppThemePreset) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenPresets: () -> Unit = {},
-    onOpenCustomTheming: () -> Unit = {}
+    onOpenCustomTheming: () -> Unit = {},
+    onOpenTonalThemes: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -554,31 +555,6 @@ fun ThemeCustomizationSection(
     val cardBorder = appColors.cardBorder
     val dividerColor = appColors.dividerColor
     val accentColor = appColors.primaryAccent
-
-    // Dialog state
-    var showExportSuccessDialog by remember { mutableStateOf(false) }
-    var exportedThemeFilePath by remember { mutableStateOf<String?>(null) }
-
-    val exportScope = rememberCoroutineScope()
-    fun exportTheme() {
-        val stateToExport = customState
-        exportScope.launch {
-            val result = ThemeExportManager.exportCustomTheme(context, stateToExport)
-            result.onSuccess { path ->
-                exportedThemeFilePath = path
-                showExportSuccessDialog = true
-                Toast.makeText(context, "Theme exported to $path", Toast.LENGTH_LONG).show()
-            }.onFailure { e ->
-                Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    val storagePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        exportTheme()
-    }
 
     Column(modifier = modifier.fillMaxWidth()) {
 
@@ -676,125 +652,23 @@ fun ThemeCustomizationSection(
         }
         Spacer(Modifier.height(16.dp))
 
-        // =====================================================================
-        // CARD 4: Current Theme & Save Theme
-        // =====================================================================
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .liquidGlassCard(appColors, shape = RoundedCornerShape(22.dp), elevation = 6.dp, translucency = 0.82f, tintAccent = false)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Item 1: Current Theme
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                        .clickable { onOpenPresets() }
-                        .padding(horizontal = 18.dp, vertical = 16.dp)
-                        .testTag("item_current_theme")
-                ) {
-                    Text(
-                        text = "Current Theme",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = appColors.textPrimary
-                    )
-
-                    Text(
-                        text = customState.currentThemeName,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = appColors.textPrimary
-                    )
+        Box(Modifier.fillMaxWidth().liquidGlassCard(appColors, shape = RoundedCornerShape(22.dp),
+            elevation = 6.dp, translucency = 0.82f, tintAccent = false)
+            .bouncyClickable(onClick = onOpenTonalThemes).testTag("open_tonal_themes")) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.Palette, contentDescription = null,
+                    tint = LiquidGlass.lightContentColor(appColors, accentColor), modifier = Modifier.size(24.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Tonal Themes", color = appColors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Colors, styles & album artwork", color = appColors.textMuted, fontSize = 11.5.sp,
+                        modifier = Modifier.padding(top = 3.dp))
                 }
-
-                HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(horizontal = 18.dp))
-
-                // Item 2: Save Theme
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-                            ) {
-                                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                            } else {
-                                exportTheme()
-                            }
-                        }
-                        .padding(horizontal = 18.dp, vertical = 16.dp)
-                        .testTag("item_save_theme")
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Save Theme",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = appColors.textPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Export customtheme.json to backups & storage",
-                            fontSize = 11.5.sp,
-                            color = appColors.textMuted
-                        )
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = "Save Theme",
-                        tint = appColors.primaryAccent,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = "Open Tonal Themes",
+                    tint = appColors.textMuted, modifier = Modifier.size(20.dp))
             }
         }
     }
-
-    // =========================================================================
-    // DIALOGS FOR CUSTOMIZATION
-    // =========================================================================
-
-    // 4. Export Theme Success Dialog
-    if (showExportSuccessDialog && exportedThemeFilePath != null) {
-        ThemeExportSuccessDialog(
-            filePath = exportedThemeFilePath!!,
-            state = customState,
-            onDismiss = { showExportSuccessDialog = false },
-            onShare = {
-                try {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "Xtreme Player Theme - ${customState.currentThemeName}")
-                        putExtra(
-                            Intent.EXTRA_TEXT,
-                            "Xtreme Player Custom Theme: ${customState.currentThemeName}\n" +
-                            "Accent: ${customState.accentName} (${customState.accentColorHex})\n" +
-                            "Shade Weight: ${customState.accentShade}\n" +
-                            "Canvas: ${customState.canvasColorName} (${customState.canvasColorHex})\n" +
-                            "Card: ${customState.cardColorName} (${customState.cardColorHex})\n" +
-                            "Saved location: $exportedThemeFilePath"
-                        )
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share Custom Theme Configuration"))
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Could not open share dialog", Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
-
-
-
-    // 7. Theme Presets Dialog (5 Dark, 5 Light aesthetic presets)
 }
 
 /**

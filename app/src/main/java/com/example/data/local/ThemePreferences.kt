@@ -3,6 +3,8 @@ package com.example.data.local
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
+import com.example.ui.theme.TonalThemeOptions
+import com.example.ui.theme.PaletteStyle
 
 enum class AppThemeMode(
     val storageKey: String,
@@ -887,11 +889,37 @@ data class CustomThemeState(
 )
 
 @Immutable
-data class ThemeSelection(val mode: AppThemeMode, val palette: CustomThemeState)
+data class ThemeSelection(val mode: AppThemeMode, val palette: CustomThemeState,
+    val tonalTheme: TonalThemeOptions? = null)
 
 object ThemePreferences {
     private const val PREFS_NAME = "xtreme_theme_prefs"
     private const val KEY_THEME_MODE = "selected_theme_mode"
+    private const val KEY_TONAL_ENABLED = "tonal_enabled"
+    private const val KEY_TONAL_SEED = "tonal_seed_argb"
+    private const val KEY_TONAL_STYLE = "tonal_style"
+    private const val KEY_TONAL_SYSTEM = "tonal_system_colors"
+    private const val KEY_TONAL_ARTWORK = "tonal_album_art"
+
+    fun getTonalTheme(context: Context): TonalThemeOptions? {
+        val prefs = getPrefs(context)
+        if (!prefs.getBoolean(KEY_TONAL_ENABLED, false)) return null
+        val defaults = TonalThemeOptions()
+        val style = PaletteStyle.entries.find { it.name == prefs.getString(KEY_TONAL_STYLE, null) }
+            ?: PaletteStyle.TONAL_SPOT
+        return TonalThemeOptions(prefs.getInt(KEY_TONAL_SEED, defaults.seedColor), style,
+            prefs.getBoolean(KEY_TONAL_SYSTEM, false), prefs.getBoolean(KEY_TONAL_ARTWORK, false))
+    }
+
+    /** Keep the user's existing palettes intact; publish the new source and mode atomically. */
+    fun saveTonalTheme(context: Context, options: TonalThemeOptions, mode: AppThemeMode) {
+        getPrefs(context).edit().putString(KEY_THEME_MODE, mode.storageKey)
+            .putBoolean(KEY_TONAL_ENABLED, true)
+            .putInt(KEY_TONAL_SEED, options.seedColor)
+            .putString(KEY_TONAL_STYLE, options.style.name)
+            .putBoolean(KEY_TONAL_SYSTEM, options.useSystemDynamicColor)
+            .putBoolean(KEY_TONAL_ARTWORK, options.useAlbumArtwork).apply()
+    }
     
     private const val KEY_PRESET_ID = "custom_preset_id"
     private const val KEY_PRESET_DARK = "custom_preset_is_dark"
@@ -939,7 +967,7 @@ object ThemePreferences {
 
     fun setThemeMode(context: Context, mode: AppThemeMode): CustomThemeState {
         val state = getThemeForDarkMode(context, isDark(context, mode))
-        saveThemeSelection(context, mode, state)
+        saveThemeSelection(context, mode, state, preserveTonal = true)
         return state
     }
 
@@ -992,10 +1020,11 @@ object ThemePreferences {
     }
 
     /** One optimistic update and one serialized disk write for mode, palette, and per-mode history. */
-    fun saveThemeSelection(context: Context, mode: AppThemeMode, state: CustomThemeState) {
+    fun saveThemeSelection(context: Context, mode: AppThemeMode, state: CustomThemeState, preserveTonal: Boolean = false) {
         val prefs = getPrefs(context)
         val previous = readTheme(prefs, "", defaultPreset(isDark(context, getThemeMode(context))))
         val editor = prefs.edit().putString(KEY_THEME_MODE, mode.storageKey)
+        if (!preserveTonal) editor.putBoolean(KEY_TONAL_ENABLED, false)
         writeTheme(editor, previous, modePrefix(previous.isPresetDark))
         writeTheme(editor, state, "")
         writeTheme(editor, state, modePrefix(state.isPresetDark))

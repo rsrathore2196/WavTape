@@ -106,7 +106,7 @@ fun ThemePreviewScreen(
                     PreviewToggle("System wallpaper colors", system, { system = it }, "tonal_system_toggle",
                         enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     PreviewToggle("Match album artwork", artwork, { artwork = it }, "tonal_artwork_toggle",
-                        enabled = !system && artworkBitmap != null && !artworkBitmap.isRecycled)
+                        enabled = !system && (artwork || (artworkBitmap != null && !artworkBitmap.isRecycled)))
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) Text("Wallpaper colors require Android 12 or newer.",
                         color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     if (artworkBitmap == null) Text("Album cover unavailable", color = scheme.onSurfaceVariant,

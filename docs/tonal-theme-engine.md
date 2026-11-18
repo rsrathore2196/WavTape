@@ -4,6 +4,18 @@ The app uses Jetpack Compose Material 3 1.3.0 and minSdk 24. Existing saved them
 AMOLED presets, custom colors, typography, glass effects and navigation remain the default.
 The runtime engine is opt-in; it does not migrate or overwrite the existing 20 presets.
 
+## In-app access
+
+Open **Settings → Appearance → Tonal Themes**, directly below Custom Theme Colors.
+This replaces the previous Current Theme / Save Theme card. Choose colors/style,
+light or dark mode, wallpaper colors, or the current track's album artwork and tap
+**Apply theme**. The app applies and saves the selection, including across restarts
+and app backups. Existing preset/custom editors remain available; applying one
+switches back to its palette. The regular light/dark/System controls preserve an
+active tonal selection. The artwork option uses a cached, small software sample of
+the currently playing cover, and does no artwork work when disabled or overridden
+by System wallpaper colors.
+
 ## Dependencies
 
 `app/build.gradle.kts` already includes the Compose BOM, Material 3 and
@@ -42,7 +54,8 @@ keeps the saved theme path; its existing `dynamicColor = true` parameter now als
 four presets/styles, light/dark switches, wallpaper/album controls, 36 labeled hex swatches,
 the full surface hierarchy and live Material buttons, switch and slider. The optional Apply
 callback lets the host own/persist the choice; preview changes alone do not change settings.
-There are light/dark Android Studio previews. No new app navigation or settings are imposed.
+There are light/dark Android Studio previews. Appearance uses the same screen with
+the app's saved selection and an Apply callback to its theme owner.
 
 ## Mapping contract
 

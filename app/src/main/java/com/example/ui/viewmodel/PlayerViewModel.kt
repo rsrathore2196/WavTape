@@ -365,7 +365,7 @@ class PlayerViewModel(
     private val _settingsReady = MutableStateFlow(preparedSettings != null)
     val settingsReady: StateFlow<Boolean> = _settingsReady.asStateFlow()
     private val initialThemeMode = initialSettings.themeMode
-    private val _themeSelection = MutableStateFlow(com.example.data.local.ThemeSelection(initialThemeMode, initialSettings.customTheme))
+    private val _themeSelection = MutableStateFlow(com.example.data.local.ThemeSelection(initialThemeMode, initialSettings.customTheme, initialSettings.tonalTheme))
     val themeSelection: StateFlow<com.example.data.local.ThemeSelection> = _themeSelection.asStateFlow()
 
     private val _textScale = MutableStateFlow(initialSettings.textScale)
@@ -496,7 +496,7 @@ class PlayerViewModel(
                     // Read the imported snapshot, not the original first-launch settings.
                     com.example.data.local.StartupSettings.read(application)
                 }
-                _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme)
+                _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme, settings.tonalTheme)
                 _textScaleIndex.value = settings.textSizeIndex
                 _textScale.value = settings.textScale
                 _uiScaleIndex.value = settings.uiSizeIndex
@@ -569,7 +569,16 @@ class PlayerViewModel(
     fun setThemeMode(mode: com.example.data.local.AppThemeMode) {
         val palette = com.example.data.local.ThemePreferences.setThemeMode(application, mode)
         _isDarkMode.value = com.example.data.local.ThemePreferences.isDark(application, mode)
-        _themeSelection.value = com.example.data.local.ThemeSelection(mode, palette)
+        _themeSelection.value = com.example.data.local.ThemeSelection(mode, palette,
+            com.example.data.local.ThemePreferences.getTonalTheme(application))
+    }
+
+    fun applyTonalTheme(options: com.example.ui.theme.TonalThemeOptions, dark: Boolean) {
+        val mode = if (dark) com.example.data.local.AppThemeMode.DARK else com.example.data.local.AppThemeMode.LIGHT
+        com.example.data.local.ThemePreferences.saveTonalTheme(application, options, mode)
+        _isDarkMode.value = dark
+        _themeSelection.value = com.example.data.local.ThemeSelection(mode,
+            com.example.data.local.ThemePreferences.getThemeForDarkMode(application, dark), options)
     }
 
     fun setResolvedDarkMode(isDark: Boolean) {
@@ -596,7 +605,7 @@ class PlayerViewModel(
 
     fun updateCustomThemeState(newState: com.example.data.local.CustomThemeState) {
         com.example.data.local.ThemePreferences.saveCustomThemeState(application, newState)
-        _themeSelection.value = _themeSelection.value.copy(palette = newState)
+        _themeSelection.value = _themeSelection.value.copy(palette = newState, tonalTheme = null)
     }
 
     fun applyThemePreset(preset: com.example.data.local.AppThemePreset) {
@@ -648,7 +657,7 @@ class PlayerViewModel(
             try {
                 val settings = (application as? com.example.XtremeMusicApp)?.loadStartupSettings()
                     ?: com.example.data.local.StartupSettings.read(application)
-                _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme)
+                _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme, settings.tonalTheme)
                 _isDarkMode.value = when (settings.themeMode) {
                     com.example.data.local.AppThemeMode.DARK -> true
                     com.example.data.local.AppThemeMode.LIGHT -> false

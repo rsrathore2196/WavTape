@@ -19,7 +19,8 @@ data class StartupSettings(
     val dynamicGlass: Boolean = true,
     val liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     val profile: UserProfile = UserProfile(),
-    val quality: AudioQuality = AudioQuality.EXTREME_320
+    val quality: AudioQuality = AudioQuality.EXTREME_320,
+    val tonalTheme: com.example.ui.theme.TonalThemeOptions? = null
 ) {
     val textScale get() = OtherSettingsPreferences.TEXT_SIZE_OPTIONS[textSizeIndex].scale
     val uiScale get() = OtherSettingsPreferences.UI_SIZE_OPTIONS[uiSizeIndex].scale
@@ -31,7 +32,7 @@ data class StartupSettings(
                 OtherSettingsPreferences.isDynamicGlassEnabled(context),
                 OtherSettingsPreferences.getLiquidGlassProfile(context),
                 UserProfilePreferences.getUserProfile(context),
-                AudioQuality.EXTREME_320
+                AudioQuality.EXTREME_320, ThemePreferences.getTonalTheme(context)
             )
         }
     }
@@ -88,6 +89,14 @@ internal class StartupSettingsCache(private val context: Context) : AutoCloseabl
                 val started = revision.get()
                 val loaded = com.example.performance.BackgroundWorkCoordinator.traceWork("Settings restore") {
                     StartupSettings.read(context)
+                }
+                // Warm a saved seed on a worker before the first app frame. Legacy
+                // themes and Android's wallpaper schemes need no HCT startup work.
+                loaded.tonalTheme?.takeUnless { it.useSystemDynamicColor && android.os.Build.VERSION.SDK_INT >= 31 }?.let { options ->
+                    withContext(AppDispatchers.CpuBounded) {
+                        com.example.ui.theme.ThemePaletteGenerator.generate(options.seedColor,
+                            ThemePreferences.isDark(context, loaded.themeMode), options.style)
+                    }
                 }
                 if (started == revision.get()) {
                     snapshot = Snapshot(started, loaded)

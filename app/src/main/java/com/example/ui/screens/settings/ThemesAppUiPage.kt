@@ -66,7 +66,7 @@ import com.example.ui.theme.liquidGlassSwitchColors
 import com.example.ui.theme.bouncyClickable
 import com.example.ui.theme.contrastingContentColor
 
-private enum class ThemeSettingsPage { OVERVIEW, PRESETS, CUSTOM }
+private enum class ThemeSettingsPage { OVERVIEW, PRESETS, CUSTOM, TONAL }
 
 @Composable
 fun ThemesAppUiPage(
@@ -81,7 +81,10 @@ fun ThemesAppUiPage(
     liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
     modifier: Modifier = Modifier,
-    onNestedPageChanged: (String?, String?, (() -> Boolean)?) -> Unit = { _, _, _ -> }
+    onNestedPageChanged: (String?, String?, (() -> Boolean)?) -> Unit = { _, _, _ -> },
+    tonalTheme: com.example.ui.theme.TonalThemeOptions? = null,
+    onApplyTonalTheme: (com.example.ui.theme.TonalThemeOptions, Boolean) -> Unit = { _, _ -> },
+    tonalArtworkUrl: String? = null
 ) {
     var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ThemeSettingsPage.OVERVIEW) }
     val stateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
@@ -95,6 +98,9 @@ fun ThemesAppUiPage(
                 page = ThemeSettingsPage.OVERVIEW; true
             }
             ThemeSettingsPage.CUSTOM -> currentNavigationCallback("Custom Theme Colors", "Accent, canvas & card colours") {
+                page = ThemeSettingsPage.OVERVIEW; true
+            }
+            ThemeSettingsPage.TONAL -> currentNavigationCallback("Tonal Themes", "Colors that follow your style") {
                 page = ThemeSettingsPage.OVERVIEW; true
             }
         }
@@ -123,10 +129,20 @@ fun ThemesAppUiPage(
                     state, onUpdateCustomThemeState, onApplyPreset, isDynamicGlassEnabled, onToggleDynamicGlass,
                     liquidGlassProfile = liquidGlassProfile,
                     onSelectLiquidGlassProfile = onSelectLiquidGlassProfile,
-                    onOpenPresets = { page = ThemeSettingsPage.PRESETS }, onOpenCustomTheming = { page = ThemeSettingsPage.CUSTOM }
+                    onOpenPresets = { page = ThemeSettingsPage.PRESETS }, onOpenCustomTheming = { page = ThemeSettingsPage.CUSTOM },
+                    onOpenTonalThemes = { page = ThemeSettingsPage.TONAL }
                 )
                 ThemeSettingsPage.PRESETS -> ThemePresetsPage(state, onApplyPreset)
                 ThemeSettingsPage.CUSTOM -> CustomThemingPage(state, onUpdateCustomThemeState)
+                ThemeSettingsPage.TONAL -> {
+                    val image = com.example.ui.theme.rememberTonalArtworkBitmap(tonalArtworkUrl)
+                    // Reopening after another palette was applied must show the saved selection.
+                    androidx.compose.runtime.key(tonalTheme, isDarkMode) {
+                        com.example.ui.theme.ThemePreviewScreen(
+                            initialOptions = tonalTheme ?: com.example.ui.theme.TonalThemeOptions(),
+                            initiallyDark = isDarkMode, artworkBitmap = image, onApply = onApplyTonalTheme)
+                    }
+                }
             }
         }
     }
@@ -146,7 +162,8 @@ private fun ThemesAppUiOverview(
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenPresets: () -> Unit = {},
-    onOpenCustomTheming: () -> Unit = {}
+    onOpenCustomTheming: () -> Unit = {},
+    onOpenTonalThemes: () -> Unit = {}
 ) {
     val appColors = LocalAppColors.current
     val cardBg = appColors.cardBackground
@@ -259,7 +276,8 @@ private fun ThemesAppUiOverview(
             onUpdateCustomThemeState = onUpdateCustomThemeState,
             onApplyPreset = onApplyPreset,
             onOpenPresets = onOpenPresets,
-            onOpenCustomTheming = onOpenCustomTheming
+            onOpenCustomTheming = onOpenCustomTheming,
+            onOpenTonalThemes = onOpenTonalThemes
         )
 
         Spacer(modifier = Modifier.height(16.dp))
