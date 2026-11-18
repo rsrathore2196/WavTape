@@ -31,8 +31,10 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.LocalAppColors
 
 internal val TabHeaderBaseColor = Color(0xFF101013)
-internal fun tabHeaderAccentColor(accent: Color): Color = com.example.ui.theme.LiquidGlass.contrastColor(
-    accent, listOf(TabHeaderBaseColor, Color(0xFF606064)), minimum = 3f)
+internal val TabHeaderLightBaseColor = Color(0xFFF8FAFD)
+internal fun tabHeaderAccentColor(accent: Color, isDark: Boolean = true): Color = com.example.ui.theme.LiquidGlass.contrastColor(
+    accent, if (isDark) listOf(TabHeaderBaseColor, Color(0xFF606064))
+    else listOf(Color(0xFFBFC0C2), Color.White), minimum = 3f)
 private val LocalTabHeaderBackdrop = compositionLocalOf<LiquidGlassBackdrop?> { null }
 
 /** The header samples its scrolling content, never its ancestor's recording of itself. */
@@ -62,33 +64,34 @@ internal fun HomeAppHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = M
     }
 }
 
-/** Dock renderer/profile, with a neutral scrim that keeps white text legible over artwork. */
+/** The docks' neutral glass material, with mode-appropriate content contrast. */
 @Composable
 private fun GlassHeaderSurface(modifier: Modifier = Modifier, headerTag: String,
     content: @Composable () -> Unit) {
     val colors = LocalAppColors.current
-    val surfaceColors = remember(colors) {
-        colors.copy(cardBackground = TabHeaderBaseColor, cardBorder = Color.White.copy(alpha = .18f))
+    val baseColor = if (colors.isDark) TabHeaderBaseColor else TabHeaderLightBaseColor
+    val surfaceColors = remember(colors, baseColor) {
+        colors.copy(cardBackground = baseColor, cardBorder = Color.White.copy(alpha = .18f))
     }
-    com.example.ui.theme.AccentHeaderStatusBar(foreground = Color.White)
+    com.example.ui.theme.AccentHeaderStatusBar(foreground = colors.textPrimary)
     Box(modifier.fillMaxWidth().testTag(headerTag), contentAlignment = Alignment.TopCenter) {
         Box(Modifier.matchParentSize().testTag("${headerTag}_glass")
             .xtremeLiquidGlassBackground(
                 shape = AbsoluteRoundedCornerShape(bottomLeft = 32.dp, bottomRight = 48.dp),
                 floatingDock = true,
-                surfaceTintAlpha = XtremeLiquidGlassDefaults.FloatingDockTintAlpha,
-                tintColor = Color.White,
+                surfaceTintAlpha = 0f,
+                tintColor = Color.Transparent,
                 borderWidth = 0.8.dp,
                 elevation = 6.dp,
                 appColors = surfaceColors,
                 backdrop = LocalTabHeaderBackdrop.current,
-                baseFillColor = TabHeaderBaseColor,
-                baseFillAlpha = 0.72f,
-                neutralFinish = true
+                baseFillAlpha = XtremeLiquidGlassDefaults.FloatingDockDarkFillAlpha,
+                neutralFinish = true,
+                innerWhiteTintAlpha = if (colors.isDark) 0f else .07f
             )
             // Covered rows must not receive taps through the translucent chrome.
             .pointerInput(Unit) { detectTapGestures(onTap = {}) })
-        CompositionLocalProvider(LocalContentColor provides Color.White, content = content)
+        CompositionLocalProvider(LocalContentColor provides colors.textPrimary, content = content)
     }
 }
 
@@ -101,15 +104,15 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         AppDynamicLogo(Modifier.size(48.dp).testTag("home_header_logo"),
-            primaryAccent = tabHeaderAccentColor(colors.primaryAccent),
-            secondaryAccent = tabHeaderAccentColor(colors.secondaryAccent),
-            cutoutColor = TabHeaderBaseColor, showGlow = false)
+            primaryAccent = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
+            secondaryAccent = tabHeaderAccentColor(colors.secondaryAccent, colors.isDark),
+            cutoutColor = if (colors.isDark) TabHeaderBaseColor else TabHeaderLightBaseColor, showGlow = false)
         BoxWithConstraints(Modifier.weight(1f)) {
             // Retain the complete brand at compact widths and larger system text sizes.
             val fontScale = LocalDensity.current.fontScale
             val titleSize = minOf(21f, (maxWidth.value - 12f) / (8.5f * fontScale)).sp
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("XTREME", color = tabHeaderAccentColor(colors.primaryAccent), fontWeight = FontWeight.Black, fontSize = titleSize,
+                Text("XTREME", color = tabHeaderAccentColor(colors.primaryAccent, colors.isDark), fontWeight = FontWeight.Black, fontSize = titleSize,
                     letterSpacing = 1.sp, maxLines = 1)
                 Spacer(Modifier.width(5.dp))
                 Text("PLAYER", color = foreground, fontWeight = FontWeight.ExtraBold, fontSize = titleSize,

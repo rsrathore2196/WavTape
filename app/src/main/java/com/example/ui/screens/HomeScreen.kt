@@ -361,6 +361,7 @@ fun HomeScreenContent(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(start = 8.dp)
                     ) {
                         Text(
                             text = greeting,

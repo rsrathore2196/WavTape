@@ -10,6 +10,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.example.data.local.PlaylistEntity
 import com.example.data.model.MusicTrack
 import com.example.data.model.CollectionPlaybackTarget
@@ -53,7 +56,12 @@ class LibraryDownloadsUiTest {
         "https://example.test/first-song-album-art.jpg", "https://example.test/liked")
     private val playlists = listOf(PlaylistEntity(1, "Road trip"), PlaylistEntity(2, "Evening mix"))
 
-    @Before fun prepare() { store = OfflineDownloads(context); runBlocking { store.load() } }
+    @Before fun prepare() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        store = OfflineDownloads(context)
+        runBlocking { store.load() }
+    }
     @After fun release() { ids.forEach(store::releaseCache) }
 
     private fun save(id: String, time: Long, status: DownloadStatus = DownloadStatus.COMPLETE, audio: Boolean = true) = runBlocking(Dispatchers.IO) {
@@ -169,6 +177,35 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithText("No downloads yet").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Shuffle").assertIsNotEnabled()
+        compose.onNodeWithTag("downloads_delete").assertIsNotEnabled()
+    }
+
+    @Test fun downloadsDeletionUsesCenteredMatchingControlsAndKeepsPendingTransfers() {
+        save("older", 1); save("newer", 2); save("paused", 3, DownloadStatus.PAUSED)
+        showLibrary()
+        compose.onNodeWithTag("open_downloads").performClick()
+        awaitDownloads()
+        compose.onNodeWithTag("downloads_delete").performScrollTo()
+        val shuffle = compose.onNodeWithTag("playlist_shuffle").fetchSemanticsNode().boundsInRoot
+        val play = compose.onNodeWithTag("playlist_play").fetchSemanticsNode().boundsInRoot
+        val delete = compose.onNodeWithTag("downloads_delete").fetchSemanticsNode().boundsInRoot
+        val actions = compose.onNodeWithTag("playlist_actions").fetchSemanticsNode().boundsInRoot
+        assertEquals(shuffle.width, delete.width, .5f)
+        assertEquals(shuffle.height, delete.height, .5f)
+        assertTrue(shuffle.right < play.left && play.right < delete.left)
+        assertEquals(actions.center.x, (shuffle.left + delete.right) / 2f, .5f)
+
+        compose.onNodeWithTag("downloads_delete").performClick()
+        compose.onNodeWithTag("downloads_delete_cancel").performClick()
+        assertEquals(setOf("older", "newer", "paused"), store.records.value.keys)
+        compose.onNodeWithTag("downloads_delete").performClick()
+        compose.onNodeWithTag("downloads_delete_confirm").performClick()
+        compose.waitUntil(5_000) { store.records.value.keys == setOf("paused") }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasTestTag("downloads_delete") and !isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("downloads_delete").performScrollTo().assertIsNotEnabled()
+        assertEquals(DownloadStatus.PAUSED, store.records.value["paused"]?.status)
     }
 
     @Test fun settingsKeepsPreferencesAndStorageControlsWithoutTheSavedTrackBrowser() {

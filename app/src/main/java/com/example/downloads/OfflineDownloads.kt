@@ -246,12 +246,17 @@ class OfflineDownloads internal constructor(
     }
     suspend fun remove(id: String): Unit = removeRecords(setOf(id))
     suspend fun clear(): Unit = removeRecords(null)
+    /** Remove only saved entries from a collection snapshot; pending transfers stay untouched. */
+    suspend fun removeSaved(ids: Set<String>): Unit = removeRecords(ids, savedOnly = true)
 
-    private suspend fun removeRecords(selected: Set<String>?): Unit = withContext(Dispatchers.IO) {
+    private suspend fun removeRecords(selected: Set<String>?, savedOnly: Boolean = false): Unit = withContext(Dispatchers.IO) {
         commands.withLock {
             load()
             val removed = lock.withLock {
-                val ids = selected ?: _records.value.keys.toSet()
+                val candidates = selected ?: _records.value.keys.toSet()
+                val ids = if (savedOnly) candidates.filterTo(mutableSetOf()) { id ->
+                    _records.value[id]?.let { it.status == DownloadStatus.COMPLETE && it.plan != null } == true
+                } else candidates
                 val next = _records.value - ids
                 if (next != _records.value) commitLocked(records = next)
                 synchronized(caches) {

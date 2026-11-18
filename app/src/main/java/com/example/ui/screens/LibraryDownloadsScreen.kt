@@ -7,10 +7,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,12 +32,14 @@ import com.example.data.local.PlaylistEntity
 import com.example.data.local.PlaylistWithTracks
 import com.example.data.local.TrackEntity
 import com.example.data.model.MusicTrack
-import com.example.downloads.DownloadStatus
 import com.example.downloads.OfflineDownloads
 import com.example.downloads.observeSavedRecords
 import com.example.downloads.playableQueue
 import com.example.performance.AppDispatchers
+import com.example.ui.components.CollectionActionSize
+import com.example.ui.components.CollectionActionSurfaceSize
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.theme.liquidGlassButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +70,9 @@ fun LibraryDownloadsScreen(
     val saved by remember(store) { store.observeSavedRecords() }.collectAsStateWithLifecycle(emptyList())
     var loading by remember(store) { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var deletionCandidates by remember(store) { mutableStateOf<Set<String>?>(null) }
+    var deleting by remember(store) { mutableStateOf(false) }
+    val colors = LocalAppColors.current
     val scope = rememberCoroutineScope()
     LaunchedEffect(store) {
         try { store.load() }
@@ -96,7 +105,34 @@ fun LibraryDownloadsScreen(
             catch (_: Exception) { error = "Saved audio could not be opened. Try downloading it again." }
         }
     }
-    Box(Modifier.fillMaxSize().background(LocalAppColors.current.scaffoldBackground).testTag("library_downloads_page")) {
+    deletionCandidates?.let { candidates ->
+        AlertDialog(
+            onDismissRequest = { deletionCandidates = null },
+            title = { Text("Delete downloaded tracks?") },
+            text = { Text("Remove ${candidates.size} downloaded ${if (candidates.size == 1) "track" else "tracks"} from this device? Your liked songs and playlists will be kept.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deletionCandidates = null
+                    deleting = true
+                    scope.launch {
+                        try { store.removeSaved(candidates) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { error = "Downloaded tracks could not be removed. Try again." }
+                        finally { deleting = false }
+                    }
+                }, modifier = Modifier.testTag("downloads_delete_confirm")) { Text("Delete", color = colors.primaryAccent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletionCandidates = null }, modifier = Modifier.testTag("downloads_delete_cancel")) {
+                    Text("Cancel", color = colors.textSecondary)
+                }
+            },
+            containerColor = colors.cardBackground,
+            titleContentColor = colors.textPrimary,
+            textContentColor = colors.textSecondary
+        )
+    }
+    Box(Modifier.fillMaxSize().background(colors.scaffoldBackground).testTag("library_downloads_page")) {
         val ready = collection
         if (loading || ready == null) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -107,7 +143,21 @@ fun LibraryDownloadsScreen(
                 onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = listState,
                 showDownloadAction = false, artworkIcon = Icons.Default.Download,
                 collectionLabel = "OFFLINE COLLECTION", emptyTitle = "No downloads yet",
-                emptyDescription = "Download songs from their track menu to listen here without internet.")
+                emptyDescription = "Download songs from their track menu to listen here without internet.",
+                trailingPlaybackAction = {
+                    val canDelete = saved.isNotEmpty() && !deleting
+                    IconButton(onClick = { deletionCandidates = saved.mapTo(mutableSetOf()) { it.track.id } },
+                        enabled = canDelete, modifier = Modifier.size(CollectionActionSize).testTag("downloads_delete")) {
+                        Box(Modifier.size(CollectionActionSurfaceSize)
+                            .liquidGlassButton(colors, shape = CircleShape, elevation = 3.dp),
+                            contentAlignment = Alignment.Center) {
+                            if (deleting) CircularProgressIndicator(Modifier.size(22.dp), color = colors.primaryAccent, strokeWidth = 2.dp)
+                            else Icon(Icons.Default.DeleteOutline, "Delete downloaded tracks",
+                                tint = if (canDelete) colors.primaryAccent else colors.textMuted,
+                                modifier = Modifier.size(24.dp))
+                        }
+                    }
+                })
         }
         error?.let { message ->
             Snackbar(modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 160.dp),

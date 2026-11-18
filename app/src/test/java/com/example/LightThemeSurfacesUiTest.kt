@@ -132,53 +132,73 @@ class LightThemeSurfacesUiTest {
     @Test @Config(sdk = [31])
     fun lightGlassForegroundAlsoRemainsIntactOnAndroid12() = assertUnmodifiedForeground()
 
-    @Test fun heroKeepsReadableWhiteTextOverBrightDarkAndMissingArtwork() {
+    @Test fun heroUsesLightFallbackUntilArtworkLoadsAndKeepsLoadedCoversReadable() {
         previousLoader = context.imageLoader
-        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val requests = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val pendingImage = kotlinx.coroutines.CompletableDeferred<Unit>()
         testLoader = ImageLoader.Builder(context).components {
             add(Interceptor { chain ->
-                val bright = chain.request.data.toString().contains("bright")
-                val bitmap = Bitmap.createBitmap(400, 240, Bitmap.Config.ARGB_8888).apply {
-                    eraseColor(if (bright) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
+                val source = chain.request.data.toString()
+                requests.add(source)
+                if (source.contains("loading")) pendingImage.await()
+                if (source.contains("failed")) coil.request.ErrorResult(null, chain.request,
+                    IllegalStateException("Artwork is unavailable"))
+                else {
+                    val bitmap = Bitmap.createBitmap(400, 240, Bitmap.Config.ARGB_8888).apply {
+                        eraseColor(if (source.contains("bright")) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
+                    }
+                    SuccessResult(BitmapDrawable(context.resources, bitmap), chain.request, DataSource.MEMORY_CACHE)
                 }
-                requests.incrementAndGet()
-                SuccessResult(BitmapDrawable(context.resources, bitmap), chain.request, DataSource.MEMORY_CACHE)
             })
         }.build().also(Coil::setImageLoader)
-        var track by mutableStateOf<MusicTrack?>(song.copy(id = "bright", coverUrl = "https://lh3.googleusercontent.com/bright=w120-h120"))
+        var track by mutableStateOf<MusicTrack?>(null)
         var glass by mutableStateOf(true)
-        compose.mainClock.autoAdvance = false
+        var playTaps = 0
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides LightAppColors.copy(dynamicGlassEnabled = glass),
                 LocalDynamicGlassEnabled provides glass) {
-                InfiniteRadioHeroCard(track, null, false, onPlayInfiniteRadio = {})
+                InfiniteRadioHeroCard(track, null, false, onPlayInfiniteRadio = { playTaps++ })
             }
         } }
-        compose.mainClock.advanceTimeBy(600)
-        compose.waitForIdle()
-        compose.waitUntil(3_000) { requests.get() > 0 }
-        for (state in listOf("bright", "dark", "missing", "matte")) {
+        val labels = listOf("Infinite Radio", "A fresh random mix · Endless discoveries")
+        fun headingColor(): Color {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(labels.first()).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single().layoutInput.style.color
+        }
+        for (state in listOf("bright", "dark", "missing", "failed", "blank", "loading", "matte")) {
+            val hasArtwork = state == "bright" || state == "dark"
+            val foreground = if (hasArtwork) Color.White else LiquidGlass.lightContentColor(LightAppColors, LightAppColors.textPrimary)
             compose.runOnIdle {
                 track = if (state == "missing" || state == "matte") null
-                    else song.copy(id = state, coverUrl = "https://lh3.googleusercontent.com/$state=w120-h120")
+                    else song.copy(id = state, coverUrl = if (state == "blank") "" else "https://lh3.googleusercontent.com/$state=w120-h120")
                 glass = state != "matte"
             }
             compose.mainClock.advanceTimeBy(600)
             compose.waitForIdle()
-            for (label in listOf("Infinite Radio", "A fresh random mix · Endless discoveries")) {
+            if (state in listOf("bright", "dark", "failed", "loading")) {
+                compose.waitUntil(5_000) { requests.any { it.contains(state) } }
+            }
+            compose.waitUntil(5_000) { headingColor() == foreground }
+            for (label in labels) {
                 val layouts = mutableListOf<TextLayoutResult>()
                 val text = compose.onNodeWithText(label, useUnmergedTree = true)
                 text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                assertEquals(Color.White, layouts.single().layoutInput.style.color)
+                assertEquals(foreground, layouts.single().layoutInput.style.color)
                 val bounds = text.fetchSemanticsNode().boundsInRoot
                 val hero = compose.onNodeWithTag("infinite_radio_hero_card").fetchSemanticsNode().boundsInRoot
                 val image = capture("infinite_radio_hero_card", "light-hero-$state")
                 val backdrop = Color(image.getRGB(image.width - 28,
                     (bounds.center.y - hero.top).toInt().coerceIn(0, image.height - 1)))
-                assertTrue("$state: hero text needs a supporting scrim", 1.05f / (backdrop.luminance() + .05f) >= 4.5f)
+                val contrast = (maxOf(foreground.luminance(), backdrop.luminance()) + .05f) /
+                    (minOf(foreground.luminance(), backdrop.luminance()) + .05f)
+                assertTrue("$state: hero text remains readable", contrast >= 4.5f)
+                if (!hasArtwork) assertTrue("$state: missing artwork must keep a light surface", backdrop.luminance() > .75f)
             }
             compose.onNodeWithTag("hero_play_infinite_radio_button").assertHasClickAction()
         }
+        compose.onNodeWithTag("hero_play_infinite_radio_button").performClick()
+        assertEquals(1, playTaps)
     }
 
     @Test @Config(sdk = [31])

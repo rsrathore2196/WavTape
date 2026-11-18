@@ -73,14 +73,18 @@ class TabHeaderGlassUiTest {
         for (colors in listOf(DarkAppColors, LightAppColors)) {
             for (rendering in listOf(LiquidGlassProfile.PREMIUM, LiquidGlassProfile.BALANCED, LiquidGlassProfile.PERFORMANCE)) {
                 for (tab in 0..2) {
-                    compose.runOnIdle { palette = colors; profile = rendering; page = tab }
+                    compose.runOnIdle {
+                        palette = colors; profile = rendering; page = tab
+                        background = if (colors.isDark) Color.Black else Color.White
+                    }
                     val header = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
                     assertTrue("Normal headers remain compact", header.height <= 80f)
                     val surface = sample("${colors.isDark}-${rendering.name}-$tab")
                     assertEquals(surface.red, surface.green, .035f)
                     assertEquals(surface.green, surface.blue, .035f)
-                    assertTrue("White headings over white artwork retain text contrast", contrast(Color.White, surface) >= 4.5f)
-                    assertTrue("Subtitles retain text contrast", contrast(Color.White.copy(alpha = .9f).compositeOver(surface), surface) >= 4.5f)
+                    assertTrue("Headings follow the mode's neutral glass contrast", contrast(colors.textPrimary, surface) >= 4.5f)
+                    if (!colors.isDark) assertTrue("Light glass must not become a heavy gray slab", surface.luminance() > .5f)
+                    assertTrue("Subtitles retain text contrast", contrast(colors.textPrimary.copy(alpha = .9f).compositeOver(surface), surface) >= 4.5f)
                 }
             }
         }
@@ -114,7 +118,7 @@ class TabHeaderGlassUiTest {
                 palette = colors.copy(primaryAccent = Color.Green, secondaryAccent = Color.Magenta, cardBackground = Color.White)
             }
             val surface = sample("static-${colors.isDark}")
-            assertTrue(contrast(Color.White, surface) >= 4.5f)
+            assertTrue(contrast(colors.textPrimary, surface) >= 4.5f)
             assertEquals(surface.red, surface.green, .025f)
             assertEquals(surface.green, surface.blue, .025f)
         }

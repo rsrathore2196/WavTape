@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassCard
+import com.example.ui.theme.accentBrush
+import com.example.ui.theme.onAccentGradient
 
 import com.example.ui.theme.bouncyClickable
 
@@ -86,7 +88,6 @@ fun SettingsCategoryItemRow(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val appColors = LocalAppColors.current
-    val tones = appColors.accentRoles
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -104,23 +105,23 @@ fun SettingsCategoryItemRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f)
         ) {
-            // Squircle icon container with specular border and theme glass
+            // Keep the selected accent at full strength instead of mixing it into a dark glass fill.
             Box(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(tones?.primaryContainer?.let { androidx.compose.ui.graphics.SolidColor(it) }
-                        ?: LiquidGlass.glassBrush(appColors, translucency = 0.80f, tintAccent = false))
+                    .background(appColors.accentBrush())
                     .border(
                         BorderStroke(1.2.dp, LiquidGlass.specularBorderBrush(appColors, highlightAlpha = 0.55f)),
                         RoundedCornerShape(14.dp)
-                    ),
+                    )
+                    .testTag("${category.tag}_icon_surface"),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = category.icon,
                     contentDescription = category.title,
-                    tint = tones?.onPrimaryContainer ?: appColors.primaryAccent,
+                    tint = appColors.onAccentGradient,
                     modifier = Modifier.size(22.dp)
                 )
             }

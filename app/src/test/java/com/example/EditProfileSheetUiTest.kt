@@ -98,6 +98,13 @@ class EditProfileSheetUiTest {
         } }
         compose.onNodeWithTag("edit_profile_avatar").performScrollTo().performClick()
         compose.onNodeWithTag("avatar_choose_image").performClick()
+        compose.onNodeWithTag("avatar_crop_page").assertIsDisplayed()
+        compose.onNodeWithTag("save_profile_button").assertIsNotEnabled()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("avatar_crop_viewport").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertNull(saved)
+        compose.onNodeWithTag("avatar_crop_submit").assertIsEnabled().performClick()
         compose.waitUntil(5_000) {
             !compose.onNodeWithTag("save_profile_button").fetchSemanticsNode().config
                 .contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)

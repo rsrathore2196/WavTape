@@ -24,6 +24,7 @@ import java.io.File
 import java.io.InputStream
 import java.util.UUID
 import kotlin.math.max
+import kotlin.math.min
 
 /** Small private copies keep avatars independent of gallery providers and their URI grants. */
 internal object AvatarImageStore {
@@ -54,7 +55,7 @@ internal object AvatarImageStore {
         bytes.toByteArray()
     }
 
-    private fun normalizedImage(source: ByteArray, backup: Boolean = false): ByteArray {
+    private fun decodeUprightImage(source: ByteArray, maxEdge: Int, backup: Boolean = false): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
         require(bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth <= 32_768 && bounds.outHeight <= 32_768 &&
@@ -63,12 +64,12 @@ internal object AvatarImageStore {
             "Invalid avatar image in backup"
         }
         var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / sample > MAX_EDGE * 2) sample *= 2
+        while (max(bounds.outWidth, bounds.outHeight) / sample > min(maxEdge * 2, 2_048)) sample *= 2
         val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size,
             BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 })
             ?: throw IllegalArgumentException("The selected image could not be decoded")
-        var resized: Bitmap? = null
         var oriented: Bitmap? = null
+        var output: Bitmap? = null
         try {
             val orientation = if (backup) ExifInterface.ORIENTATION_NORMAL else runCatching {
                 ExifInterface(source.inputStream()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
@@ -87,17 +88,35 @@ internal object AvatarImageStore {
             val upright = if (transform.isIdentity) bitmap else Bitmap.createBitmap(bitmap, 0, 0,
                 bitmap.width, bitmap.height, transform, true).also { oriented = it }
             val largest = max(upright.width, upright.height)
-            val output = if (largest > MAX_EDGE) Bitmap.createScaledBitmap(upright,
-                max(1, upright.width * MAX_EDGE / largest), max(1, upright.height * MAX_EDGE / largest), true)
-                .also { resized = it } else upright
-            val bytes = ByteArrayOutputStream()
-            check(output.compress(Bitmap.CompressFormat.PNG, 100, bytes)) { "Could not prepare avatar image" }
-            return bytes.toByteArray().also { require(it.size <= MAX_IMAGE_BYTES) { "Avatar image is too large" } }
+            output = if (largest > maxEdge) Bitmap.createScaledBitmap(upright,
+                max(1, upright.width * maxEdge / largest), max(1, upright.height * maxEdge / largest), true) else upright
+            return output
         } finally {
-            resized?.takeIf { it !== bitmap && it !== oriented }?.recycle()
-            oriented?.takeIf { it !== bitmap }?.recycle()
-            bitmap.recycle()
+            oriented?.takeIf { it !== bitmap && it !== output }?.recycle()
+            if (bitmap !== output) bitmap.recycle()
         }
+    }
+
+    private fun encodeImage(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().let { bytes ->
+        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes)) { "Could not prepare avatar image" }
+        bytes.toByteArray().also { require(it.size <= MAX_IMAGE_BYTES) { "Avatar image is too large" } }
+    }
+
+    private fun normalizedImage(source: ByteArray, backup: Boolean = false): ByteArray {
+        val bitmap = decodeUprightImage(source, MAX_EDGE, backup)
+        return try { encodeImage(bitmap) } finally { bitmap.recycle() }
+    }
+
+    /** Decode only on IO. Retain enough detail for adjustment without decoding full camera photos. */
+    fun readCropSource(context: Context, uri: Uri): Bitmap {
+        require(uri.scheme == "content") { "Choose an image from the gallery" }
+        val stream = context.contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Image is unavailable")
+        return decodeUprightImage(readBounded(stream, MAX_SOURCE_BYTES), maxEdge = 2_048)
+    }
+
+    fun importCrop(context: Context, source: Bitmap, transform: AvatarCropTransform): String {
+        val cropped = renderAvatarCrop(source, transform)
+        return try { writeImage(context, encodeImage(cropped)) } finally { cropped.recycle() }
     }
 
     /** Call on IO. Each save owns a unique immutable file, so rollback cannot overwrite an old avatar. */
@@ -182,7 +201,12 @@ internal class AvatarDraftSession(
 
     init { initialDraft?.takeIf(AvatarImageStore::isOwned)?.let(drafts::add) }
 
-    suspend fun select(uri: Uri): String {
+    suspend fun select(uri: Uri): String = createDraft { importImage(it, uri) }
+
+    suspend fun selectCropped(source: Bitmap, transform: AvatarCropTransform): String =
+        createDraft { AvatarImageStore.importCrop(it, source, transform) }
+
+    private suspend fun createDraft(createImage: suspend (Context) -> String): String {
         val request = synchronized(this) {
             if (closed) throw CancellationException("Avatar editor was dismissed")
             ++selection
@@ -190,7 +214,7 @@ internal class AvatarDraftSession(
         var created: String? = null
         try {
             val value = withContext(AppDispatchers.Io) {
-                importImage(context, uri).also { image ->
+                createImage(context).also { image ->
                     created = image
                     synchronized(this@AvatarDraftSession) { drafts.add(image) }
                 }

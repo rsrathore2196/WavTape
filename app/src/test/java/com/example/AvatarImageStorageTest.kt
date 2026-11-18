@@ -95,8 +95,16 @@ class AvatarImageStorageTest {
         val exif = listOf(0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0, 0,
             0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0)
             .map { it.toByte() }.toByteArray()
+        val camera = jpeg.copyOfRange(0, 2) + exif + jpeg.copyOfRange(2, jpeg.size)
+        val cropSource = AvatarImageStore.readCropSource(context, document("camera-crop", camera))
+        try {
+            assertEquals(20, cropSource.width)
+            assertEquals(30, cropSource.height)
+            assertTrue(android.graphics.Color.red(cropSource.getPixel(5, 5)) > 200)
+            assertTrue(android.graphics.Color.blue(cropSource.getPixel(5, 25)) > 200)
+        } finally { cropSource.recycle() }
         val session = AvatarDraftSession(context)
-        val value = session.select(document("camera", jpeg.copyOfRange(0, 2) + exif + jpeg.copyOfRange(2, jpeg.size)))
+        val value = session.select(document("camera", camera))
         val decoded = BitmapFactory.decodeFile((AvatarImageStore.imageModel(context, value) as File).path)
         try {
             assertEquals(20, decoded.width)
@@ -104,6 +112,26 @@ class AvatarImageStorageTest {
             assertTrue(android.graphics.Color.red(decoded.getPixel(5, 5)) > 200)
             assertTrue(android.graphics.Color.blue(decoded.getPixel(5, 25)) > 200)
         } finally { decoded.recycle(); session.close().join() }
+    }
+
+    @Test fun openingCropDoesNotWriteAPhotoAndOnlySubmittedCropBecomesACancelableDraft() = runBlocking {
+        val before = directory.listFiles().orEmpty().toSet()
+        val source = AvatarImageStore.readCropSource(context, document("crop", png(2400, 1200)))
+        val session = AvatarDraftSession(context)
+        try {
+            assertTrue(source.width <= 2048 && source.height <= 2048)
+            assertEquals(before, directory.listFiles().orEmpty().toSet())
+            val value = session.selectCropped(source, AvatarCropTransform(quarterTurns = 1, zoom = 2f))
+            val file = AvatarImageStore.imageModel(context, value) as File
+            val decoded = BitmapFactory.decodeFile(file.path)
+            try {
+                assertEquals(512, decoded.width)
+                assertEquals(512, decoded.height)
+                assertFalse(source.isRecycled)
+            } finally { decoded.recycle() }
+            session.close().join()
+            assertFalse(file.exists())
+        } finally { source.recycle(); session.close().join() }
     }
 
     @Test fun aLatePickerResultCannotLeakAnImageAfterTheEditorCloses() = runBlocking {

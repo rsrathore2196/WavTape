@@ -43,7 +43,7 @@ class StatusBarAppearanceUiTest {
         }
     }
 
-    @Test fun headerIconsStayWhiteOnNeutralGlassAcrossThemeChanges() {
+    @Test fun headerIconsFollowNeutralGlassAcrossThemeChanges() {
         var preset by mutableStateOf(ThemePresets.AmoledPureBlack)
         compose.setContent {
             MyApplicationTheme(darkTheme = preset.isDark, customThemeState = preset.toCustomThemeState()) {
@@ -55,8 +55,8 @@ class StatusBarAppearanceUiTest {
         compose.runOnIdle { preset = ThemePresets.StudioNight }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { preset = ThemePresets.CleanDay }
-        // Neutral glass keeps white status icons in either app mode.
-        assertBars(darkStatusIcons = false, darkNavigationIcons = true)
+        // Light glass requires dark icons even when its selected accent is deep blue.
+        assertBars(darkStatusIcons = true, darkNavigationIcons = true)
         compose.runOnIdle { preset = ThemePresets.AmoledPureBlack }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
     }
@@ -89,7 +89,7 @@ class StatusBarAppearanceUiTest {
         compose.runOnIdle { preset = ThemePresets.CleanDay }
         assertBars(darkStatusIcons = true, darkNavigationIcons = true)
         compose.runOnIdle { covered = false }
-        assertBars(darkStatusIcons = false, darkNavigationIcons = true)
+        assertBars(darkStatusIcons = true, darkNavigationIcons = true)
         compose.runOnIdle { covered = true; preset = ThemePresets.AmoledPureBlack }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { covered = false }

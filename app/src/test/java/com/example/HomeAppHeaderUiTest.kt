@@ -53,7 +53,7 @@ class HomeAppHeaderUiTest {
         renderedPalette = colors
         compose.setContent {
             MaterialTheme {
-                CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides false,
+                CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides true,
                     LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false,
                     androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
                         androidx.compose.ui.platform.LocalDensity.current.density, fontScale)) {
@@ -108,15 +108,15 @@ class HomeAppHeaderUiTest {
         capture("scrolled-refreshing")
     }
 
-    @Test fun lightHeaderAlignsGreetingWithHeroAndEnlargesBothLinesByFivePercent() {
+    @Test fun lightHeaderOffsetsGreetingAndUsernameWithoutChangingTheirTypography() {
         show(LightAppColors)
         assertGreetingBelowHeader()
         val greeting = compose.onNodeWithTag("home_greeting_text")
         assertEquals(16.1.sp * 1.05f, layout(greeting).layoutInput.style.fontSize)
         assertEquals(21.sp * 1.05f, layout(compose.onNodeWithText("RS RATHORE")).layoutInput.style.fontSize)
         val hero = bounds("infinite_radio_hero_card")
-        assertEquals(hero.left, bounds("home_greeting_text").left, 1f)
-        assertEquals(hero.left, bounds("home_username_text").left, 1f)
+        assertEquals(hero.left + with(compose.density) { 8.dp.toPx() }, bounds("home_greeting_text").left, 1f)
+        assertEquals(bounds("home_greeting_text").left, bounds("home_username_text").left, 1f)
         capture("light")
         assertBrandFits()
     }
@@ -179,7 +179,7 @@ class HomeAppHeaderUiTest {
     }
 
     private fun capture(name: String) {
-        val file = File("build/reports/home-header-vibrant-review/$name.png").apply { parentFile?.mkdirs() }
+        val file = File("build/reports/home-header-glass-review/$name.png").apply { parentFile?.mkdirs() }
         compose.onNodeWithTag("header_review").captureRoboImage(file.absolutePath,
             roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
         if (name in listOf("dark", "light", "compact-custom-accent")) {
@@ -190,10 +190,11 @@ class HomeAppHeaderUiTest {
             val actual = androidx.compose.ui.graphics.Color(pixels.getRGB(pixels.width / 2, pixels.height * 3 / 4))
             assertEquals("The glass surface stays neutral", actual.red, actual.green, .03f)
             assertEquals(actual.green, actual.blue, .03f)
-            assertTrue("A neutral dark surface supports the white player label", actual.red < .25f)
-            assertEquals(com.example.ui.components.tabHeaderAccentColor(renderedPalette.primaryAccent),
+            if (renderedPalette.isDark) assertTrue("Dark glass remains subtle", actual.red < .25f)
+            else assertTrue("Light glass must not become a heavy gray slab", actual.red > .75f)
+            assertEquals(com.example.ui.components.tabHeaderAccentColor(renderedPalette.primaryAccent, renderedPalette.isDark),
                 layout(compose.onNodeWithText("XTREME")).layoutInput.style.color)
-            assertEquals(androidx.compose.ui.graphics.Color.White, layout(compose.onNodeWithText("PLAYER")).layoutInput.style.color)
+            assertEquals(renderedPalette.textPrimary, layout(compose.onNodeWithText("PLAYER")).layoutInput.style.color)
         }
     }
 }

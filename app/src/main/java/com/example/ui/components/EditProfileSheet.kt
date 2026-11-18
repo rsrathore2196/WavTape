@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.border
-import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
@@ -99,12 +98,12 @@ fun EditProfileSheet(
     var isCountryPickerOpen by remember { mutableStateOf(false) }
     var avatarId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(userProfile.avatarId) }
     var avatarUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(userProfile.avatarUri) }
+    var cropSourceUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var avatarPickerOpen by remember { mutableStateOf(false) }
     var avatarError by remember { mutableStateOf<String?>(null) }
     var avatarPreparing by remember { mutableStateOf(false) }
     var avatarRequest by remember { mutableStateOf(0L) }
     val avatarContext = androidx.compose.ui.platform.LocalContext.current
-    val avatarScope = androidx.compose.runtime.rememberCoroutineScope()
     val avatarDrafts = remember(avatarContext) {
         com.example.data.local.AvatarDraftSession(avatarContext, avatarUri.takeIf { it != userProfile.avatarUri })
     }
@@ -119,19 +118,9 @@ fun EditProfileSheet(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val request = ++avatarRequest
-            avatarPreparing = true
-            avatarScope.launch {
-                try {
-                    avatarUri = avatarDrafts.select(uri)
-                    avatarDrafts.discardExcept(avatarUri)
-                    avatarError = null
-                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                catch (_: Exception) {
-                    if (request == avatarRequest) avatarError = "Could not use this image. Please choose another image."
-                }
-                finally { if (request == avatarRequest) avatarPreparing = false }
-            }
+            avatarRequest++
+            cropSourceUri = uri.toString()
+            avatarError = null
         }
     }
 
@@ -151,7 +140,7 @@ fun EditProfileSheet(
         containerColor = bg,
         dragHandle = null
     ) {
-        androidx.activity.compose.BackHandler(enabled = !isCountryPickerOpen && !avatarPickerOpen) { keyboard?.hide() }
+        androidx.activity.compose.BackHandler(enabled = !isCountryPickerOpen && !avatarPickerOpen && cropSourceUri == null) { keyboard?.hide() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -506,7 +495,7 @@ fun EditProfileSheet(
                         onDismiss()
                     }
                 },
-                enabled = isFormValid && !avatarPreparing,
+                enabled = isFormValid && !avatarPreparing && cropSourceUri == null,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = primaryAccent,
@@ -536,6 +525,30 @@ fun EditProfileSheet(
         },
         onChooseImage = { avatarPickerOpen = false; chooseImage.launch(arrayOf("image/*")) },
         onDismiss = { avatarPickerOpen = false })
+
+    cropSourceUri?.let { source ->
+        androidx.compose.runtime.key(source) {
+            AvatarCropPage(android.net.Uri.parse(source), onDismiss = {
+                avatarRequest++
+                cropSourceUri = null
+                avatarPreparing = false
+            }, onSubmit = { bitmap, transform ->
+                val request = ++avatarRequest
+                avatarPreparing = true
+                try {
+                    val cropped = avatarDrafts.selectCropped(bitmap, transform)
+                    if (request == avatarRequest && cropSourceUri == source) {
+                        avatarUri = cropped
+                        avatarDrafts.discardExcept(cropped)
+                        avatarError = null
+                        cropSourceUri = null
+                    } else {
+                        avatarDrafts.discardExcept(avatarUri)
+                    }
+                } finally { if (request == avatarRequest) avatarPreparing = false }
+            })
+        }
+    }
 
     if (isCountryPickerOpen) {
         CountryPickerBottomSheet(

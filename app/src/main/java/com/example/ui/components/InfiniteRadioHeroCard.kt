@@ -56,10 +56,18 @@ fun InfiniteRadioHeroCard(
     var artworkRequested by remember { mutableStateOf(false) }
     val isDark = appColors.isDark
     val glassEnabled = LocalDynamicGlassEnabled.current
-    // Artwork is not a light-theme surface: a localized dark scrim keeps white
-    // foreground readable regardless of the cover or surrounding app mode.
-    val glassTint = Color(0xFF080D18)
-    val foreground = Color.White
+    var artworkSize by remember { mutableStateOf(IntSize.Zero) }
+    val artworkRequest = if (seedTrack != null && artworkSize.width > 0 && artworkSize.height > 0) {
+        com.example.ui.util.rememberHeroArtworkRequest(seedTrack, artworkSize, artworkResolver,
+            resolveMetadata = artworkRequested).takeIf { (it.data as? String)?.isNotBlank() == true }
+    } else null
+    var artworkReady by remember(artworkRequest) { mutableStateOf(false) }
+    // The supporting dark scrim belongs to real artwork. A missing/loading/failed
+    // cover is a theme surface and must not turn a light card into a dark panel.
+    val lightFallback = !isDark && !artworkReady
+    val glassTint = if (lightFallback) appColors.cardBackground else Color(0xFF080D18)
+    val foreground = if (lightFallback) com.example.ui.theme.LiquidGlass.lightContentColor(appColors, appColors.textPrimary)
+        else Color.White
     val buttonForeground = if (glassEnabled) foreground else com.example.ui.theme.contrastingContentColor(appColors.cardBackground)
     val playbackActive = isPlaying
     val radioLoading = isRadioSession && isLoading && !playbackActive
@@ -67,8 +75,7 @@ fun InfiniteRadioHeroCard(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(), label = "radio_press")
     val shape = RoundedCornerShape(26.dp)
-    var artworkSize by remember { mutableStateOf(IntSize.Zero) }
-    val textShadow = if (!glassEnabled) Shadow.None else Shadow(
+    val textShadow = if (!glassEnabled || lightFallback) Shadow.None else Shadow(
         Color.Black.copy(alpha = 0.85f),
         Offset(0f, 1f), 6f
     )
@@ -84,11 +91,12 @@ fun InfiniteRadioHeroCard(
             .onSizeChanged { if (artworkSize != it) artworkSize = it }
             .testTag("infinite_radio_hero_card")
     ) {
-        if (seedTrack != null && artworkSize.width > 0 && artworkSize.height > 0) {
-            val fullQualityArtwork = com.example.ui.util.rememberHeroArtworkRequest(seedTrack, artworkSize, artworkResolver,
-                resolveMetadata = artworkRequested)
+        if (artworkRequest != null) {
             AsyncImage(
-                model = fullQualityArtwork,
+                model = artworkRequest,
+                onLoading = { artworkReady = false },
+                onSuccess = { artworkReady = true },
+                onError = { artworkReady = false },
                 contentDescription = null,
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize()

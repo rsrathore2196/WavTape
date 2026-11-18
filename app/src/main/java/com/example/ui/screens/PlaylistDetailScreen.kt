@@ -120,7 +120,8 @@ fun PlaylistDetailScreen(
     artworkBrush: Brush? = null,
     collectionLabel: String = "PLAYLIST",
     emptyTitle: String = "Playlist is empty",
-    emptyDescription: String? = null
+    emptyDescription: String? = null,
+    trailingPlaybackAction: (@Composable () -> Unit)? = null
 ) {
     val playlist = playlistWithTracks.playlist
     val tracks = playlistWithTracks.musicTracks
@@ -311,7 +312,8 @@ fun PlaylistDetailScreen(
                 .testTag("playlist_detail_screen")
         ) {
         if (pinPlaybackActions) CollectionPlaybackButtons(tracks, playback::play,
-            onShuffle = { playback.shuffle(tracks) }, download = download)
+            onShuffle = { playback.shuffle(tracks) }, download = download,
+            trailingAction = trailingPlaybackAction)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -390,7 +392,8 @@ fun PlaylistDetailScreen(
 
             if (!pinPlaybackActions) item("playlist_actions") {
                 CollectionPlaybackButtons(tracks, playback::play, tagPrefix = "playlist",
-                    onShuffle = { playback.shuffle(tracks) }, download = download)
+                    onShuffle = { playback.shuffle(tracks) }, download = download,
+                    trailingAction = trailingPlaybackAction)
             }
 
             if (tracks.isEmpty()) {
@@ -459,7 +462,8 @@ private fun PlaylistTitleActions(onRename: () -> Unit, onDelete: () -> Unit) {
 @Composable
 internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicTrack, List<MusicTrack>) -> Unit,
     tagPrefix: String = "liked_songs", onShuffle: (() -> Unit)? = null,
-    download: com.example.ui.components.CollectionDownloadAction? = null) {
+    download: com.example.ui.components.CollectionDownloadAction? = null,
+    trailingAction: (@Composable () -> Unit)? = null) {
     val colors = LocalAppColors.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var preparation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -494,5 +498,6 @@ internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicT
             }
         }
         if (download != null) CollectionDownloadButton(download)
+        trailingAction?.invoke()
     }
 }
