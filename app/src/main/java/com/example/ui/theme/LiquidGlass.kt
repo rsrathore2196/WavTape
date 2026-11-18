@@ -871,13 +871,14 @@ fun liquidGlassSwitchColors(appColors: AppThemeColors): androidx.compose.materia
     val isDark = appColors.isDark
     val checkedTrack = appColors.primaryAccent
     val checkedThumb = appColors.onAccentGradient
+    val tones = appColors.accentRoles
     return androidx.compose.material3.SwitchDefaults.colors(
         checkedThumbColor = checkedThumb,
         checkedTrackColor = checkedTrack,
         checkedBorderColor = if (isDark) appColors.primaryAccent else remember(appColors) { LiquidGlass.lightOutlineColor(appColors, true) },
-        uncheckedThumbColor = appColors.textSecondary,
-        uncheckedTrackColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
-        uncheckedBorderColor = if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.22f)
+        uncheckedThumbColor = tones?.outline ?: appColors.textSecondary,
+        uncheckedTrackColor = tones?.surfaceContainerHighest ?: if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+        uncheckedBorderColor = tones?.outline ?: if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.22f)
     )
 }
 

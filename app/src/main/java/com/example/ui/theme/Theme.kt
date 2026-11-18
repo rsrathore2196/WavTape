@@ -36,6 +36,36 @@ private fun parseColorSafe(hex: String, fallback: Color): Color {
     }
 }
 
+private fun com.example.data.local.ThemeTonePalette.resolved(): TonalThemeColors = TonalThemeColors(
+    primary = parseColorSafe(primary, Color.Unspecified),
+    onPrimary = parseColorSafe(onPrimary, Color.Unspecified),
+    primaryContainer = parseColorSafe(primaryContainer, Color.Unspecified),
+    onPrimaryContainer = parseColorSafe(onPrimaryContainer, Color.Unspecified),
+    secondary = parseColorSafe(secondary, Color.Unspecified),
+    onSecondary = parseColorSafe(onSecondary, Color.Unspecified),
+    secondaryContainer = parseColorSafe(secondaryContainer, Color.Unspecified),
+    onSecondaryContainer = parseColorSafe(onSecondaryContainer, Color.Unspecified),
+    tertiary = parseColorSafe(tertiary, Color.Unspecified),
+    onTertiary = parseColorSafe(onTertiary, Color.Unspecified),
+    tertiaryContainer = parseColorSafe(tertiaryContainer, Color.Unspecified),
+    onTertiaryContainer = parseColorSafe(onTertiaryContainer, Color.Unspecified),
+    background = parseColorSafe(background, Color.Unspecified),
+    onBackground = parseColorSafe(onBackground, Color.Unspecified),
+    surface = parseColorSafe(surface, Color.Unspecified),
+    onSurface = parseColorSafe(onSurface, Color.Unspecified),
+    surfaceVariant = parseColorSafe(surfaceVariant, Color.Unspecified),
+    onSurfaceVariant = parseColorSafe(onSurfaceVariant, Color.Unspecified),
+    surfaceContainerLowest = parseColorSafe(surfaceContainerLowest, Color.Unspecified),
+    surfaceContainerLow = parseColorSafe(surfaceContainerLow, Color.Unspecified),
+    surfaceContainer = parseColorSafe(surfaceContainer, Color.Unspecified),
+    surfaceContainerHigh = parseColorSafe(surfaceContainerHigh, Color.Unspecified),
+    surfaceContainerHighest = parseColorSafe(surfaceContainerHighest, Color.Unspecified),
+    surfaceDim = parseColorSafe(surfaceDim, Color.Unspecified),
+    surfaceBright = parseColorSafe(surfaceBright, Color.Unspecified),
+    outline = parseColorSafe(outline, Color.Unspecified),
+    outlineVariant = parseColorSafe(outlineVariant, Color.Unspecified)
+)
+
 /**
  * Resolves the complete high-performance [AppThemeColors] dynamically from the active [CustomThemeState].
  * Supports instant, smooth transitions across all 20 presets and customized palettes.
@@ -49,6 +79,7 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
         (if (isDark) ThemePresets.StudioNight else ThemePresets.CleanDay).toCustomThemeState()
 
     val neutralSurfaces = ThemePresets.isBuiltIn(effectiveCustom)
+    val tones = ThemePresets.tonalPalette(effectiveCustom)?.resolved()
     val rawPrimaryAccent = parseColorSafe(
         effectiveCustom.accentColorHex,
         if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
@@ -83,7 +114,7 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
 
     fun readable(color: Color, minimum: Double): Color {
         val surfaces = listOf(scaffoldBg, cardBg) + if (neutralSurfaces)
-            listOf(if (isDark) Color(0xFF2A2A2A) else Color(0xFFE8E8E8)) else emptyList()
+            listOf(tones?.surfaceContainerHighest ?: if (isDark) Color(0xFF2A2A2A) else Color(0xFFE8E8E8)) else emptyList()
         fun contrast(value: Color) = surfaces.minOf {
             ColorUtils.calculateContrast(value.copy(alpha = 1f).toArgb(), it.copy(alpha = 1f).toArgb())
         }
@@ -144,7 +175,7 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
         }
     }
 
-    val cardElevated = if (neutralSurfaces) {
+    val cardElevated = if (tones != null) tones.surfaceContainerHighest else if (neutralSurfaces) {
         if (isDark) Color(0xFF242424) else Color(0xFFEEEEEE)
     } else if (isDark) {
         if (isAmoled) Color(0xFF0D0D0D)
@@ -163,7 +194,7 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
         scaffoldBg
     }
 
-    val chipBg = if (isDark) {
+    val chipBg = if (tones != null) tones.surfaceContainerHighest else if (isDark) {
         if (isAmoled) Color(0xFF121212) else cardElevated
     } else {
         if (neutralSurfaces) Color(0xFFEEEEEE) else Color(0xFFF1F5F9)
@@ -193,12 +224,13 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
             Brush.horizontalGradient(listOf(scaffoldBg, cardBg))
         },
         miniPlayerBorder = cardBorder,
-        inputBackground = if (isDark) (if (isAmoled) Color(0xFF0A0A0A) else cardBg) else if (neutralSurfaces) Color(0xFFEEEEEE) else Color(0xFFF1F5F9),
+        inputBackground = tones?.surfaceContainerHighest ?: if (isDark) (if (isAmoled) Color(0xFF0A0A0A) else cardBg) else if (neutralSurfaces) Color(0xFFEEEEEE) else Color(0xFFF1F5F9),
         chipBackground = chipBg,
         chipBorder = cardBorder,
         dividerColor = if (isAmoled) Color(0xFF1A1A1A) else cardBorder.copy(alpha = 0.5f),
         neutralSurfaces = neutralSurfaces,
-        highContrastTypography = highContrastTypography
+        highContrastTypography = highContrastTypography,
+        tonalPalette = tones
     )
 }
 
@@ -206,35 +238,38 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
  * Builds Material 3 ColorScheme from the dynamic AppThemeColors.
  */
 fun resolveColorScheme(darkTheme: Boolean, appColors: AppThemeColors): ColorScheme {
-    val primaryContainer = appColors.primaryAccent.copy(alpha = if (darkTheme) .16f else .10f)
+    val tones = appColors.accentRoles
+    val primaryContainer = tones?.primaryContainer ?: appColors.primaryAccent.copy(alpha = if (darkTheme) .16f else .10f)
         .compositeOver(appColors.cardBackground)
-    val secondaryContainer = appColors.secondaryAccent.copy(alpha = if (darkTheme) .12f else .08f)
+    val secondaryContainer = tones?.secondaryContainer ?: appColors.secondaryAccent.copy(alpha = if (darkTheme) .12f else .08f)
         .compositeOver(appColors.cardBackground)
     val minimumTextContrast = if (appColors.highContrastTypography) 7f else 4.5f
     fun onContainer(background: Color) = LiquidGlass.contrastColor(appColors.textPrimary, listOf(background), minimumTextContrast)
     val scheme = if (darkTheme) darkColorScheme() else lightColorScheme()
     return scheme.copy(
         primary = appColors.primaryAccent, onPrimary = appColors.onPrimaryAccent,
-        primaryContainer = primaryContainer, onPrimaryContainer = onContainer(primaryContainer),
+        primaryContainer = primaryContainer, onPrimaryContainer = tones?.onPrimaryContainer ?: onContainer(primaryContainer),
         secondary = appColors.secondaryAccent, onSecondary = appColors.onSecondaryAccent,
-        secondaryContainer = secondaryContainer, onSecondaryContainer = onContainer(secondaryContainer),
-        tertiary = appColors.secondaryAccent, onTertiary = appColors.onSecondaryAccent,
-        tertiaryContainer = secondaryContainer, onTertiaryContainer = onContainer(secondaryContainer),
+        secondaryContainer = secondaryContainer, onSecondaryContainer = tones?.onSecondaryContainer ?: onContainer(secondaryContainer),
+        tertiary = tones?.tertiary ?: appColors.secondaryAccent, onTertiary = tones?.onTertiary ?: appColors.onSecondaryAccent,
+        tertiaryContainer = tones?.tertiaryContainer ?: secondaryContainer,
+        onTertiaryContainer = tones?.onTertiaryContainer ?: onContainer(secondaryContainer),
         background = appColors.scaffoldBackground, onBackground = appColors.textPrimary,
-        surface = appColors.cardBackground, onSurface = appColors.textPrimary,
-        surfaceVariant = appColors.cardBackgroundElevated, onSurfaceVariant = appColors.textSecondary,
+        surface = if (appColors.isAmoled) Color.Black else tones?.surface ?: appColors.cardBackground,
+        onSurface = appColors.textPrimary,
+        surfaceVariant = tones?.surfaceVariant ?: appColors.cardBackgroundElevated, onSurfaceVariant = appColors.textSecondary,
         // Explicit surface roles prevent library defaults and accent elevation washes leaking into presets.
-        surfaceTint = appColors.cardBackground,
-        surfaceDim = appColors.scaffoldBackground,
-        surfaceBright = appColors.cardBackgroundElevated,
-        surfaceContainerLowest = appColors.scaffoldBackground,
-        surfaceContainerLow = lerp(appColors.scaffoldBackground, appColors.cardBackground, .65f),
-        surfaceContainer = appColors.cardBackground,
-        surfaceContainerHigh = appColors.cardBackgroundElevated,
-        surfaceContainerHighest = lerp(appColors.cardBackgroundElevated, appColors.textPrimary, .025f),
-        outline = LiquidGlass.contrastColor(appColors.cardBorder,
+        surfaceTint = if (appColors.isAmoled) Color.Black else tones?.surface ?: appColors.cardBackground,
+        surfaceDim = if (appColors.isAmoled) Color.Black else tones?.surfaceDim ?: appColors.scaffoldBackground,
+        surfaceBright = tones?.surfaceBright ?: appColors.cardBackgroundElevated,
+        surfaceContainerLowest = if (appColors.isAmoled) Color.Black else tones?.surfaceContainerLowest ?: appColors.scaffoldBackground,
+        surfaceContainerLow = tones?.surfaceContainerLow ?: lerp(appColors.scaffoldBackground, appColors.cardBackground, .65f),
+        surfaceContainer = tones?.surfaceContainer ?: appColors.cardBackground,
+        surfaceContainerHigh = tones?.surfaceContainerHigh ?: appColors.cardBackgroundElevated,
+        surfaceContainerHighest = tones?.surfaceContainerHighest ?: lerp(appColors.cardBackgroundElevated, appColors.textPrimary, .025f),
+        outline = LiquidGlass.contrastColor(tones?.outline ?: appColors.cardBorder,
             listOf(appColors.scaffoldBackground, appColors.cardBackground), 3f),
-        outlineVariant = appColors.cardBorder,
+        outlineVariant = tones?.outlineVariant ?: appColors.cardBorder,
         inverseSurface = appColors.textPrimary, inverseOnSurface = appColors.scaffoldBackground,
         inversePrimary = LiquidGlass.contrastColor(appColors.primaryAccent, listOf(appColors.textPrimary), 4.5f)
     )

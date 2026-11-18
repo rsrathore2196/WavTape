@@ -647,7 +647,7 @@ private object LegacyThemePresets {
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
 object ThemePresets {
-    const val PALETTE_VERSION = 5
+    const val PALETTE_VERSION = 6
 
     private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
         val canvas = if (preset.isDark) { if (preset.isAmoled) "#000000" else "#0B0B0B" } else "#FFFFFF"
@@ -730,7 +730,7 @@ object ThemePresets {
 
     // Distinct base hues across the collection, with tonal stops inside each gradient.
     // AMOLED deliberately uses only white and a neutral white shade.
-    private val accents = mapOf(
+    private val versionFiveAccents = mapOf(
         "dark_studio_night" to AccentPair("Azure Pulse", "#4099FF", "#66ADFF"),
         "dark_amoled_black" to AccentPair("Pure White", "#FFFFFF", "#E0E0E0"),
         "dark_cyberpunk_neon" to AccentPair("Neon Fuchsia", "#FF40F5", "#FF66F7"),
@@ -753,7 +753,7 @@ object ThemePresets {
         "light_sage_mist" to AccentPair("Leaf Green", "#0C7718", "#095F13")
     )
 
-    private fun modernize(preset: AppThemePreset, accent: AccentPair = accents.getValue(preset.id)): AppThemePreset {
+    private fun modernize(preset: AppThemePreset, accent: AccentPair = versionFiveAccents.getValue(preset.id)): AppThemePreset {
         return neutralPalette(preset).copy(
             subtitle = "${accent.name} gradient on ${if (preset.isDark) "deep dark glass" else "crisp light glass"}",
             accentName = accent.name, accentShade = "Vibrant",
@@ -761,7 +761,38 @@ object ThemePresets {
         )
     }
 
-    val allPresets = LegacyThemePresets.allPresets.map { modernize(it) }
+    private val families = mapOf(
+        "dark_studio_night" to "Ocean", "dark_amoled_black" to "Mono",
+        "dark_cyberpunk_neon" to "Violet", "dark_emerald_nebula" to "Sage",
+        "dark_sunset_horizon" to "Crimson", "oceanic_glass" to "Ocean",
+        "nebula_glass" to "Violet", "matrix_glass" to "Sage",
+        "solar_glass" to "Amber", "dark_velvet_noir" to "Rose",
+        "light_clean_day" to "Ocean", "light_minimal_ivory" to "Mono",
+        "light_cherry_blossom" to "Crimson", "light_electric_mint" to "Sage",
+        "light_sunset_peach" to "Amber", "glacier_glass" to "Ocean",
+        "sakura_glass" to "Rose", "light_porcelain_blue" to "Ocean",
+        "light_lavender_linen" to "Violet", "light_sage_mist" to "Sage"
+    )
+
+    private fun curated(preset: AppThemePreset): AppThemePreset {
+        val tones = ThemeTonePalettes.get(families.getValue(preset.id), preset.isDark)
+        val canvas = if (preset.isAmoled) "#000000" else tones.background
+        val card = if (preset.isAmoled) "#000000" else tones.surfaceContainerHigh
+        return preset.copy(
+            subtitle = "${tones.family} tones on ${if (preset.isDark) "soft dark surfaces" else "soft light surfaces"}",
+            accentName = tones.family, accentShade = "Tonal",
+            accentColorHex = tones.primary, secondaryAccentHex = tones.secondary,
+            canvasColorName = if (preset.isAmoled) "AMOLED Black" else "Soft ${if (preset.isDark) "Obsidian" else "Ivory"}",
+            canvasColorHex = canvas, cardColorName = "Tonal Surface", cardColorHex = card,
+            cardBorderHex = tones.outlineVariant, textPrimaryHex = tones.onSurface,
+            textSecondaryHex = tones.onSurfaceVariant, textMutedHex = tones.onSurfaceVariant,
+            bgGradientColorsHex = listOf(canvas, canvas), cardGradientColorsHex = listOf(card, card),
+            bottomSheetGradientColorsHex = listOf(canvas, canvas), bgGradientName = "Tonal Canvas",
+            cardGradientName = "Tonal Surface", bottomSheetGradientName = "Tonal Canvas"
+        )
+    }
+
+    val allPresets = LegacyThemePresets.allPresets.map(::curated)
     val darkPresets = allPresets.filter { it.isDark }
     val lightPresets = allPresets.filterNot { it.isDark }
     private val presetsById = allPresets.associateBy { it.id }
@@ -771,7 +802,7 @@ object ThemePresets {
     private val legacyPalettes by lazy {
         LegacyThemePresets.allPresets.associate { preset -> preset.id to listOf(
             preset, neutralPalette(preset), modernize(preset, versionThreeAccents.getValue(preset.id)),
-            modernize(preset, versionFourAccents.getValue(preset.id))) }
+            modernize(preset, versionFourAccents.getValue(preset.id)), modernize(preset)) }
     }
     private val legacyStates by lazy {
         legacyPalettes.mapValues { (_, presets) -> presets.map { it.toCustomThemeState() } }
@@ -805,7 +836,7 @@ object ThemePresets {
 
     internal fun legacyPreset(id: String, name: String, version: Int = 1): AppThemePreset? =
         (LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName))
-            ?.let { legacyPalettes.getValue(it.id)[if (version in 1..4) version - 1 else 0] }
+            ?.let { legacyPalettes.getValue(it.id)[if (version in 1..5) version - 1 else 0] }
 
     internal fun upgradeLegacy(state: CustomThemeState): CustomThemeState {
         if (statesById[state.presetId] == state) return state
@@ -816,6 +847,9 @@ object ThemePresets {
 
     internal fun isBuiltIn(state: CustomThemeState): Boolean =
         statesById[state.presetId] == state
+
+    internal fun tonalPalette(state: CustomThemeState): ThemeTonePalette? =
+        if (isBuiltIn(state)) ThemeTonePalettes.get(families.getValue(state.presetId), state.isPresetDark) else null
 }
 
 /**
@@ -827,24 +861,24 @@ data class CustomThemeState(
     val currentThemeName: String = "Studio Night",
     val isPresetDark: Boolean = true,
     val isAmoled: Boolean = false,
-    val accentName: String = "Azure Pulse",
-    val accentShade: String = "Vibrant",
-    val accentColorHex: String = "#4099FF",
-    val secondaryAccentHex: String = "#66ADFF",
-    val canvasColorName: String = "Neutral Black",
-    val canvasColorHex: String = "#0B0B0B",
-    val cardColorName: String = "Neutral Charcoal",
-    val cardColorHex: String = "#171717",
-    val cardBorderHex: String = "#3A3A3A",
-    val textPrimaryHex: String = "#F5F5F5",
-    val textSecondaryHex: String = "#CBCBCB",
-    val textMutedHex: String = "#A8A8A8",
-    val bgGradientColorsHex: List<String> = listOf("#0B0B0B", "#0B0B0B"),
-    val cardGradientColorsHex: List<String> = listOf("#171717", "#171717"),
-    val bottomSheetGradientColorsHex: List<String> = listOf("#0B0B0B", "#0B0B0B"),
-    val bgGradientName: String = "Neutral Solid",
-    val cardGradientName: String = "Neutral Surface",
-    val bottomSheetGradientName: String = "Neutral Solid"
+    val accentName: String = "Ocean",
+    val accentShade: String = "Tonal",
+    val accentColorHex: String = "#9FB3C1",
+    val secondaryAccentHex: String = "#AAB1B7",
+    val canvasColorName: String = "Soft Obsidian",
+    val canvasColorHex: String = "#0C0C0E",
+    val cardColorName: String = "Tonal Surface",
+    val cardColorHex: String = "#1C1C20",
+    val cardBorderHex: String = "#3B3B3C",
+    val textPrimaryHex: String = "#E4E2E3",
+    val textSecondaryHex: String = "#B9B8B9",
+    val textMutedHex: String = "#B9B8B9",
+    val bgGradientColorsHex: List<String> = listOf("#0C0C0E", "#0C0C0E"),
+    val cardGradientColorsHex: List<String> = listOf("#1C1C20", "#1C1C20"),
+    val bottomSheetGradientColorsHex: List<String> = listOf("#0C0C0E", "#0C0C0E"),
+    val bgGradientName: String = "Tonal Canvas",
+    val cardGradientName: String = "Tonal Surface",
+    val bottomSheetGradientName: String = "Tonal Canvas"
 )
 
 @Immutable

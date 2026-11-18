@@ -86,6 +86,7 @@ fun SettingsCategoryItemRow(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val appColors = LocalAppColors.current
+    val tones = appColors.accentRoles
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -108,7 +109,8 @@ fun SettingsCategoryItemRow(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(LiquidGlass.glassBrush(appColors, translucency = 0.80f, tintAccent = false))
+                    .background(tones?.primaryContainer?.let { androidx.compose.ui.graphics.SolidColor(it) }
+                        ?: LiquidGlass.glassBrush(appColors, translucency = 0.80f, tintAccent = false))
                     .border(
                         BorderStroke(1.2.dp, LiquidGlass.specularBorderBrush(appColors, highlightAlpha = 0.55f)),
                         RoundedCornerShape(14.dp)
@@ -118,7 +120,7 @@ fun SettingsCategoryItemRow(
                 Icon(
                     imageVector = category.icon,
                     contentDescription = category.title,
-                    tint = appColors.primaryAccent,
+                    tint = tones?.onPrimaryContainer ?: appColors.primaryAccent,
                     modifier = Modifier.size(22.dp)
                 )
             }

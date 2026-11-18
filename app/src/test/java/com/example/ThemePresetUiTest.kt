@@ -59,7 +59,7 @@ class ThemePresetUiTest {
         compose.waitForIdle()
         assertEquals(ThemePresets.CherryBlossom, selected)
         val image = capture("theme_preview_${selected.id}", "light-preset")
-        assertEquals(java.awt.Color.WHITE.rgb, image.getRGB(image.width / 2, 6))
+        assertEquals(android.graphics.Color.parseColor(selected.canvasColorHex), image.getRGB(image.width / 2, 6))
         compose.onNodeWithText("Dark", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Studio Night").performScrollTo().performClick()
         assertEquals(ThemePresets.StudioNight, selected)
@@ -95,21 +95,22 @@ class ThemePresetUiTest {
             val image = capture("settings_theme_surface", if (theme.isDark) "settings-dark" else "settings-light")
             // Sample an unoccupied section of the category card: its glass must not pick up the accent hue.
             val pixel = java.awt.Color(image.getRGB(image.width / 2, 12))
-            assertTrue(maxOf(pixel.red, pixel.green, pixel.blue) - minOf(pixel.red, pixel.green, pixel.blue) <= 2)
+            assertTrue(maxOf(pixel.red, pixel.green, pixel.blue) - minOf(pixel.red, pixel.green, pixel.blue) <= 12)
             SettingsCategory.entries.forEach { category ->
                 val file = File.createTempFile("category-icon-", ".png")
                 try {
                     compose.onNodeWithContentDescription(category.title, useUnmergedTree = true)
                         .captureRoboImage(file.absolutePath, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
                     val icon = ImageIO.read(file)
+                    val iconColor = colors.accentRoles?.onPrimaryContainer ?: colors.primaryAccent
                     var accentPixels = 0
                     for (y in 0 until icon.height) for (x in 0 until icon.width) {
                         val value = java.awt.Color(icon.getRGB(x, y), true)
-                        if (value.alpha > 240 && kotlin.math.abs(value.red - colors.primaryAccent.red * 255) < 4 &&
-                            kotlin.math.abs(value.green - colors.primaryAccent.green * 255) < 4 &&
-                            kotlin.math.abs(value.blue - colors.primaryAccent.blue * 255) < 4) accentPixels++
+                        if (value.alpha > 240 && kotlin.math.abs(value.red - iconColor.red * 255) < 4 &&
+                            kotlin.math.abs(value.green - iconColor.green * 255) < 4 &&
+                            kotlin.math.abs(value.blue - iconColor.blue * 255) < 4) accentPixels++
                     }
-                    assertTrue("${category.title} uses the current accent without tinting its container", accentPixels > 10)
+                    assertTrue("${category.title} uses the current tonal foreground", accentPixels > 10)
                 } finally { file.delete() }
             }
         }

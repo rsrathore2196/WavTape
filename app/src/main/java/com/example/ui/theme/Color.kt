@@ -7,6 +7,38 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
+/** Material accent and surface roles resolved once per selected preset. */
+@Immutable
+data class TonalThemeColors(
+    val primary: Color,
+    val onPrimary: Color,
+    val primaryContainer: Color,
+    val onPrimaryContainer: Color,
+    val secondary: Color,
+    val onSecondary: Color,
+    val secondaryContainer: Color,
+    val onSecondaryContainer: Color,
+    val tertiary: Color,
+    val onTertiary: Color,
+    val tertiaryContainer: Color,
+    val onTertiaryContainer: Color,
+    val background: Color,
+    val onBackground: Color,
+    val surface: Color,
+    val onSurface: Color,
+    val surfaceVariant: Color,
+    val onSurfaceVariant: Color,
+    val surfaceContainerLowest: Color,
+    val surfaceContainerLow: Color,
+    val surfaceContainer: Color,
+    val surfaceContainerHigh: Color,
+    val surfaceContainerHighest: Color,
+    val surfaceDim: Color,
+    val surfaceBright: Color,
+    val outline: Color,
+    val outlineVariant: Color
+)
+
 @Immutable
 data class AppThemeColors(
     val isDark: Boolean,
@@ -35,16 +67,21 @@ data class AppThemeColors(
     val dynamicAlbumGlow: Boolean = true,
     val highContrastTypography: Boolean = false,
     val neutralSurfaces: Boolean = false,
-    val settingsSurface: Boolean = false
+    val settingsSurface: Boolean = false,
+    val tonalPalette: TonalThemeColors? = null
 ) {
+    // Copies that explicitly edit an accent must not inherit another palette's roles.
+    val accentRoles: TonalThemeColors?
+        get() = tonalPalette?.takeIf { it.primary == primaryAccent && it.secondary == secondaryAccent }
+
     val heroGradient: Brush
         get() = accentBrush()
 
     val onPrimaryAccent: Color
-        get() = contrastingContentColor(primaryAccent)
+        get() = accentRoles?.onPrimary ?: contrastingContentColor(primaryAccent)
 
     val onSecondaryAccent: Color
-        get() = contrastingContentColor(secondaryAccent)
+        get() = accentRoles?.onSecondary ?: contrastingContentColor(secondaryAccent)
 
     val bottomSheetBackground: Color
         get() = if (isAmoled) Color.Black else if (isDark) cardBackground else scaffoldBackground
