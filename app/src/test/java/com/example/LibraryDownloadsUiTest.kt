@@ -105,7 +105,9 @@ class LibraryDownloadsUiTest {
         val playlistCard = compose.onNodeWithTag("playlist_card_1").fetchSemanticsNode().boundsInRoot
         assertEquals("Use exactly the custom-playlist width", likedCard.width, playlistCard.width, .5f)
         assertEquals("Use exactly the custom-playlist height", likedCard.height, playlistCard.height, .5f)
-        compose.onNodeWithTag("library_screen").performScrollToNode(hasTestTag("import_playlist_banner_card"))
+        // Restore the initial inset: the import card must be below the fixed
+        // glass header before a physical click, rather than aligned beneath it.
+        compose.onNodeWithTag("library_screen").performScrollToIndex(0)
         compose.onNodeWithTag("import_playlist_banner_card").performClick()
         assertEquals(1, imported)
         val file = File("build/reports/library-downloads/$name.png").apply { parentFile?.mkdirs() }

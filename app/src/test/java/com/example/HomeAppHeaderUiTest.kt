@@ -92,7 +92,11 @@ class HomeAppHeaderUiTest {
         assertEquals(1, settingsOpened)
         compose.runOnIdle { scope.launch { list.scrollToItem(0) } }
         compose.waitForIdle()
-        compose.onNodeWithTag("home_screen").performTouchInput { swipeDown(durationMillis = 500) }
+        val feed = bounds("home_screen")
+        compose.onNodeWithTag("home_screen").performTouchInput {
+            swipe(start = androidx.compose.ui.geometry.Offset(centerX, header.bottom - feed.top + 24f),
+                end = androidx.compose.ui.geometry.Offset(centerX, height - 24f), durationMillis = 500)
+        }
         compose.runOnIdle { assertEquals(1, refreshes) }
         compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
@@ -104,12 +108,15 @@ class HomeAppHeaderUiTest {
         capture("scrolled-refreshing")
     }
 
-    @Test fun lightHeaderKeepsGreetingFifteenPercentLargerAndUsernameUnchanged() {
+    @Test fun lightHeaderAlignsGreetingWithHeroAndEnlargesBothLinesByFivePercent() {
         show(LightAppColors)
         assertGreetingBelowHeader()
         val greeting = compose.onNodeWithTag("home_greeting_text")
-        assertEquals(16.1.sp, layout(greeting).layoutInput.style.fontSize)
-        assertEquals(21.sp, layout(compose.onNodeWithText("RS RATHORE")).layoutInput.style.fontSize)
+        assertEquals(16.1.sp * 1.05f, layout(greeting).layoutInput.style.fontSize)
+        assertEquals(21.sp * 1.05f, layout(compose.onNodeWithText("RS RATHORE")).layoutInput.style.fontSize)
+        val hero = bounds("infinite_radio_hero_card")
+        assertEquals(hero.left, bounds("home_greeting_text").left, 1f)
+        assertEquals(hero.left, bounds("home_username_text").left, 1f)
         capture("light")
         assertBrandFits()
     }
@@ -139,12 +146,16 @@ class HomeAppHeaderUiTest {
 
     private fun assertGreetingBelowHeader() {
         assertTrue(bounds("home_greeting").top >= bounds("home_fixed_header").bottom)
-        assertTrue(bounds("home_screen").top >= bounds("home_fixed_header").bottom)
+        assertEquals("The feed scrolls behind the fixed glass header", bounds("home_fixed_header").top,
+            bounds("home_screen").top, 1f)
         compose.onNodeWithTag("home_fixed_header").onChildren().filter(hasText("RS RATHORE")).assertCountEquals(0)
     }
 
     private fun assertBrandFits() {
         compose.onNodeWithTag("home_header_logo").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
+        compose.onNodeWithTag("top_settings_button_surface", useUnmergedTree = true)
+            .assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
+        compose.onNodeWithTag("top_settings_button").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
         val header = bounds("home_fixed_header")
         val settings = bounds("top_settings_button")
         for (word in listOf("XTREME", "PLAYER")) {
@@ -177,11 +188,12 @@ class HomeAppHeaderUiTest {
                 roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
             val pixels = javax.imageio.ImageIO.read(headerFile)
             val actual = androidx.compose.ui.graphics.Color(pixels.getRGB(pixels.width / 2, pixels.height * 3 / 4))
-            val expected = androidx.compose.ui.graphics.lerp(renderedPalette.primaryAccent, renderedPalette.secondaryAccent, .5f)
-            // The material sheen may add a little light, but cannot invent other hues.
-            assertEquals(expected.red, actual.red, .12f)
-            assertEquals(expected.green, actual.green, .12f)
-            assertEquals(expected.blue, actual.blue, .12f)
+            assertEquals("The glass surface stays neutral", actual.red, actual.green, .03f)
+            assertEquals(actual.green, actual.blue, .03f)
+            assertTrue("A neutral dark surface supports the white player label", actual.red < .25f)
+            assertEquals(com.example.ui.components.tabHeaderAccentColor(renderedPalette.primaryAccent),
+                layout(compose.onNodeWithText("XTREME")).layoutInput.style.color)
+            assertEquals(androidx.compose.ui.graphics.Color.White, layout(compose.onNodeWithText("PLAYER")).layoutInput.style.color)
         }
     }
 }

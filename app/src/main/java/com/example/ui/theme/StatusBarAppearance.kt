@@ -9,9 +9,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
-/** The theme owns the window; a visible accent header supplies only its contrast preference. */
+/** The theme owns the window; a visible header supplies only its contrast preference. */
 @Stable
 internal class StatusBarAppearance {
     var headerDarkIcons: Boolean? by mutableStateOf(null)
@@ -36,11 +37,11 @@ internal val LocalStatusBarAppearance = staticCompositionLocalOf<StatusBarAppear
 internal val LocalAccentHeaderVisible = compositionLocalOf { true }
 
 @Composable
-internal fun AccentHeaderStatusBar() {
+internal fun AccentHeaderStatusBar(foreground: Color = LocalAppColors.current.onAccentGradient) {
     val appearance = LocalStatusBarAppearance.current
     val visible = LocalAccentHeaderVisible.current
     val token = remember { Any() }
-    val darkIcons = LocalAppColors.current.onAccentGradient.luminance() < .5f
+    val darkIcons = foreground.luminance() < .5f
     DisposableEffect(appearance, visible, darkIcons) {
         if (visible) appearance?.showHeader(token, darkIcons)
         onDispose { appearance?.hideHeader(token) }

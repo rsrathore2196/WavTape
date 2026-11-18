@@ -212,7 +212,8 @@ fun LibraryScreen(
     val currentPlayingId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    Column(modifier.fillMaxSize().background(appColors.scaffoldBackground)) {
+    com.example.ui.components.TabHeaderScaffold(
+        modifier.fillMaxSize().background(appColors.scaffoldBackground), header = {
         com.example.ui.components.AccentPageHeader("Your Library",
             "Saved music, custom playlists & liked songs", "library_fixed_header") {
             if (selectedTab == 0) {
@@ -223,7 +224,8 @@ fun LibraryScreen(
                 }
             }
         }
-    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.TopCenter) {
+    }) { headerInsets ->
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.TopCenter) {
         val libraryHeader: @Composable () -> Unit = {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
                 Box(Modifier.fillMaxWidth().testTag("library_tabs")) {
@@ -279,7 +281,7 @@ fun LibraryScreen(
         if (selectedTab == 1) {
             Column(Modifier.fillMaxWidth().widthIn(max = 640.dp)
                 .landscapeContentBounds(landscape, maxWidthDp = null).fillMaxSize()
-                .testTag("library_screen")) {
+                .padding(top = headerInsets.calculateTopPadding()).testTag("library_screen")) {
                 libraryHeader()
                 ListeningStatsScreen(period, { period = it }, { selectedTab = 0 }, onTrackClick, onOpenArtist,
                     statsScroll, embedded = true, modifier = Modifier.weight(1f))
@@ -293,7 +295,7 @@ fun LibraryScreen(
                 .landscapeContentBounds(landscape, maxWidthDp = null)
                 .bouncyOverscroll()
                 .testTag("library_screen"),
-            contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 150.dp)
+            contentPadding = PaddingValues(top = headerInsets.calculateTopPadding(), bottom = if (landscape) 192.dp else 150.dp)
         ) {
         item { libraryHeader() }
 

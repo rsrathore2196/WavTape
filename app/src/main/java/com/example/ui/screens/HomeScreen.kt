@@ -327,14 +327,14 @@ fun HomeScreenContent(
     ObserveHomeScroll(listState)
 
     androidx.compose.runtime.CompositionLocalProvider(com.example.ui.util.LocalHomeThumbnailLoading provides true) {
-    Column(
+    com.example.ui.components.TabHeaderScaffold(
         modifier = modifier.fillMaxSize().background(screenBg),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        HomeAppHeader(onOpenSettings = onOpenSettings)
+        header = { HomeAppHeader(onOpenSettings = onOpenSettings) }
+    ) { headerInsets ->
+        val headerInset = headerInsets.calculateTopPadding()
         HomePullRefreshOverscrollLayout(
             isRefreshing = isRefreshing, onRefresh = onRefresh,
-            modifier = Modifier.weight(1f).clipToBounds()
+            modifier = Modifier.fillMaxSize().clipToBounds(), indicatorTopInset = headerInset
         ) { contentOffset ->
         LazyColumn(
             state = listState,
@@ -347,7 +347,7 @@ fun HomeScreenContent(
                     translationY = contentOffset() + boundaryOffset()
                 }
                 .testTag("home_screen"),
-            contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 180.dp)
+            contentPadding = PaddingValues(top = headerInset, bottom = if (landscape) 192.dp else 180.dp)
         ) {
             // Greeting belongs to the scrolling feed, below the fixed app header.
             item(key = "header_bar", contentType = "greeting") {
@@ -361,25 +361,29 @@ fun HomeScreenContent(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 50.dp)
                     ) {
                         Text(
                             text = greeting,
                             modifier = Modifier.testTag("home_greeting_text"),
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 16.1.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.4.sp,
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                                fontSize = 16.1.sp * 1.05f,
+                                lineHeight = 22.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 0.15.sp,
                                 color = textMutedColor
                             )
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = userName.uppercase(),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 21.sp,
-                                letterSpacing = 1.sp,
+                            modifier = Modifier.testTag("home_username_text"),
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 21.sp * 1.05f,
+                                lineHeight = 28.sp,
+                                letterSpacing = 0.4.sp,
                                 color = textPrimaryColor
                             ),
                             maxLines = 1,

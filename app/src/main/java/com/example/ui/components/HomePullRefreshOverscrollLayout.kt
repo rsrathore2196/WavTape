@@ -25,6 +25,7 @@ fun HomePullRefreshOverscrollLayout(
     maxTopStretchDp: Dp = 135.dp,
     maxBottomStretchDp: Dp = 80.dp,
     refreshRestingHeightDp: Dp = 60.dp,
+    indicatorTopInset: Dp? = null,
     content: @Composable BoxScope.(contentOffset: () -> Float) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -50,7 +51,9 @@ fun HomePullRefreshOverscrollLayout(
         // Tiny pulls and edge flings never reveal refresh UI. Hide it immediately on release.
         if (isRefreshing || showIndicator) {
             Surface(
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 12.dp),
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .then(if (indicatorTopInset == null) Modifier.statusBarsPadding() else Modifier.padding(top = indicatorTopInset))
+                    .padding(top = 12.dp),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 4.dp

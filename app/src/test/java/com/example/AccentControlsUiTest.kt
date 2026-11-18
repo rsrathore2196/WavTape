@@ -32,7 +32,7 @@ import javax.imageio.ImageIO
 class AccentControlsUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun secondaryAccentChangesRepaintHeadersButtonsAndSwitchesWithoutChangingTheirActions() {
+    @Test fun secondaryAccentChangesRepaintControlsWhileHeadersStayNeutral() {
         var palette by mutableStateOf(DarkAppColors.copy(primaryAccent = Color(0xFF25C5FF), secondaryAccent = Color(0xFFBA75FF)))
         var checked by mutableStateOf(true)
         var clicks = 0
@@ -69,7 +69,10 @@ class AccentControlsUiTest {
         val before = samples("first")
         compose.runOnIdle { palette = palette.copy(secondaryAccent = Color(0xFFFF6E95)) }
         val after = samples("second")
-        before.zip(after).forEach { (a, b) -> assertNotEquals("Every filled control must observe both accent endpoints", a, b) }
+        assertEquals("Header glass must not be accent-painted", before.first(), after.first())
+        before.drop(1).zip(after.drop(1)).forEach { (a, b) ->
+            assertNotEquals("Accent-filled controls still observe both endpoints", a, b)
+        }
         val elevated = image("elevated_accent_button", "elevated-button")
         val centerX = elevated.width / 2
         assertEquals("AccentButton must not cast an inner transparent-Surface shadow over its gradient fill",

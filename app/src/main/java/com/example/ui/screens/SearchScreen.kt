@@ -495,22 +495,23 @@ fun SearchScreen(
         return
     }
 
-    Column(
+    com.example.ui.components.TabHeaderScaffold(
         modifier = modifier.fillMaxSize().background(appColors.scaffoldBackground),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        com.example.ui.components.AccentPageHeader("Search Online Music",
-            "Stream millions of Ultra High Quality Tracks", "search_fixed_header")
+        header = {
+            com.example.ui.components.AccentPageHeader("Search Online Music",
+                "Stream millions of Ultra High Quality Tracks", "search_fixed_header")
+        }
+    ) { headerInsets ->
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .weight(1f).fillMaxWidth()
+                .fillMaxSize()
                 .widthIn(max = 640.dp)
                 .landscapeContentBounds(landscape, maxWidthDp = null)
                 .clipToBounds()
                 .bouncyOverscroll()
                 .testTag("search_screen"),
-            contentPadding = PaddingValues(bottom = if (landscape) 192.dp else 150.dp)
+            contentPadding = PaddingValues(top = headerInsets.calculateTopPadding(), bottom = if (landscape) 192.dp else 150.dp)
         ) {
         // SEARCH INPUT BAR
         item(key = "search_input", contentType = "search_input") {

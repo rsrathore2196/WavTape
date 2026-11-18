@@ -43,22 +43,22 @@ class StatusBarAppearanceUiTest {
         }
     }
 
-    @Test fun headerIconsFollowAccentContrastAcrossThemeChangesInsteadOfTheGlobalMode() {
+    @Test fun headerIconsStayWhiteOnNeutralGlassAcrossThemeChanges() {
         var preset by mutableStateOf(ThemePresets.AmoledPureBlack)
         compose.setContent {
             MyApplicationTheme(darkTheme = preset.isDark, customThemeState = preset.toCustomThemeState()) {
                 HomeAppHeader({})
             }
         }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { assertEquals(Color.Transparent.toArgb(), compose.activity.window.statusBarColor) }
         compose.runOnIdle { preset = ThemePresets.StudioNight }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { preset = ThemePresets.CleanDay }
-        // Light mode has a deep blue header, requiring white status icons.
+        // Neutral glass keeps white status icons in either app mode.
         assertBars(darkStatusIcons = false, darkNavigationIcons = true)
         compose.runOnIdle { preset = ThemePresets.AmoledPureBlack }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
     }
 
     @Test fun retainedTabHeadersCannotOverrideSettingsOrPlayerAndRestoreWhenUncovered() {
@@ -81,7 +81,7 @@ class StatusBarAppearanceUiTest {
         }
         for (page in 0..2) {
             compose.runOnIdle { selected = page }
-            assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+            assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         }
         compose.runOnIdle { covered = true }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
@@ -93,7 +93,7 @@ class StatusBarAppearanceUiTest {
         compose.runOnIdle { covered = true; preset = ThemePresets.AmoledPureBlack }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { covered = false }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
     }
 
     @Test fun libraryCollectionDisposalRestoresPageIconsAndBackRestoresHeaderIcons() {
@@ -104,11 +104,11 @@ class StatusBarAppearanceUiTest {
                 else AccentPageHeader("Your Library", "Saved music", "library_header")
             }
         }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { collectionOpen = true }
         assertBars(darkStatusIcons = false, darkNavigationIcons = false)
         compose.runOnIdle { collectionOpen = false }
-        assertBars(darkStatusIcons = true, darkNavigationIcons = false)
+        assertBars(darkStatusIcons = false, darkNavigationIcons = false)
     }
 
     @Test fun outgoingOwnerCannotClearTheIncomingHeadersPreference() {
