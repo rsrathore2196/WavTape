@@ -74,9 +74,14 @@ class EditProfileSheetUiTest {
         assertEquals(1, gallery)
     }
 
-    @Test fun galleryPickerRetainsTheSelectedImageInTheSavedProfile() {
+    @Test fun galleryPickerStoresAPrivateCopyOfTheSelectedImageInTheSavedProfile() {
         var saved: UserProfile? = null
         val image = android.net.Uri.parse("content://avatar-test/personal-image")
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bitmap = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
+        val encoded = java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        bitmap.recycle()
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStream(image, encoded.inputStream())
         val registry = object : androidx.activity.result.ActivityResultRegistry() {
             override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>,
                 input: I, options: androidx.core.app.ActivityOptionsCompat?) {
@@ -98,7 +103,10 @@ class EditProfileSheetUiTest {
                 .contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
         }
         compose.onNodeWithTag("save_profile_button").performClick()
-        assertEquals(image.toString(), saved?.avatarUri)
+        assertTrue(saved?.avatarUri?.startsWith("app-avatar://") == true)
+        val copy = com.example.data.local.AvatarImageStore.imageModel(context, saved!!.avatarUri) as java.io.File
+        assertTrue(copy.isFile)
+        copy.delete()
     }
 
     @Test fun dismissingAvatarPickerKeepsTheExistingAvatarAndUnsavedProfile() {

@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -149,10 +150,22 @@ private fun CustomThemeState.editable(colors: AppThemeColors): CustomThemeState 
         else listOf(colors.scaffoldBackground.hex(), colors.scaffoldBackground.hex()))
 
 private fun CustomThemeState.colorKey() = listOf(presetId, currentThemeName, isPresetDark,
-    accentColorHex, canvasColorName, canvasColorHex, cardColorName, cardColorHex).joinToString("|")
+    accentColorHex, secondaryAccentHex, canvasColorName, canvasColorHex, cardColorName, cardColorHex).joinToString("|")
 
 private fun readableContent(background: Color): Color =
     if (background.luminance() > 0.179f) Color.Black else Color.White
+
+/** Only derive a new stop when the user edits the primary; existing imported pairs stay intact. */
+internal fun tonalSecondaryAccent(primary: Color, isDark: Boolean): Color {
+    val target = if (isDark) Color.White else Color.Black
+    val preferred = lerp(primary, target, .20f)
+    val foreground = readableContent(primary)
+    val contrast = if (foreground == Color.Black) (preferred.luminance() + .05f) / .05f
+        else 1.05f / (preferred.luminance() + .05f)
+    // Near the contrast boundary, use the other tonal direction; white/black still get a visible stop.
+    return if (preferred != primary && contrast >= 4.5f) preferred else
+        lerp(primary, if (target == Color.White) Color.Black else Color.White, .20f)
+}
 
 @Composable
 fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> Unit) {
@@ -187,7 +200,11 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
     }
     val accent = Color.hsv(hue % 360f, saturation.coerceIn(0f, 1f), brightness.coerceIn(0f, 1f))
     val accentHex = accent.hex()
-    val accentChanged = !accentHex.equals(initial.accentColorHex, true)
+    // Compare the picker RGB value, retaining an imported alpha channel until the user edits it.
+    val initialAccent = remember(initial.accentColorHex) { color(initial.accentColorHex) }
+    val accentChanged = !accentHex.equals(initialAccent.hex(), true)
+    val secondaryHex = if (accentChanged) tonalSecondaryAccent(accent, colors.isDark).hex() else initial.secondaryAccentHex
+    val secondaryAccent = remember(secondaryHex) { color(secondaryHex) }
     val canvasChanged = !canvasHex.equals(initial.canvasColorHex, true) || canvasName != initial.canvasColorName
     val cardChanged = !cardHex.equals(initial.cardColorHex, true) || cardName != initial.cardColorName
     val hasChanges = accentChanged || canvasChanged || cardChanged
@@ -203,13 +220,15 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
                     color = colors.textMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             }
             Button(enabled = hasChanges && submittedKey == null, shape = CircleShape,
+                modifier = Modifier.testTag("custom_theme_save"),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = readableContent(accent),
                     disabledContainerColor = colors.cardBackgroundElevated, disabledContentColor = colors.textMuted),
                 onClick = {
                     var updated = initial.copy(isAmoled = canvasHex == "#000000" && cardHex == "#000000")
                     if (accentChanged) updated = updated.copy(accentName = "Custom Accent",
-                        accentShade = (100 + (1f - brightness) * 800).roundToInt().toString(), accentColorHex = accentHex)
+                        accentShade = (100 + (1f - brightness) * 800).roundToInt().toString(),
+                        accentColorHex = accentHex, secondaryAccentHex = secondaryHex)
                     if (canvasChanged) {
                         val foreground = readableContent(canvas)
                         updated = updated.copy(canvasColorName = canvasName, canvasColorHex = canvasHex,
@@ -231,7 +250,7 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            ThemeColorPreview(accent, canvas, card)
+            ThemeColorPreview(if (accentChanged) accent else initialAccent, secondaryAccent, canvas, card)
             Column(Modifier.fillMaxWidth().liquidGlassCard(colors, shape = RoundedCornerShape(24.dp)).padding(18.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
@@ -271,7 +290,12 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
 }
 
 @Composable
-private fun ThemeColorPreview(accent: Color, canvas: Color, card: Color) {
+private fun ThemeColorPreview(accent: Color, secondaryAccent: Color, canvas: Color, card: Color) {
+    val colors = LocalAppColors.current
+    val accentColors = remember(colors, accent, secondaryAccent) {
+        colors.copy(primaryAccent = accent, secondaryAccent = secondaryAccent)
+    }
+    val accentFill = remember(accentColors) { accentColors.heroGradient }
     val canvasText = readableContent(canvas)
     val cardText = readableContent(card)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(canvas)
@@ -280,8 +304,9 @@ private fun ThemeColorPreview(accent: Color, canvas: Color, card: Color) {
             fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
         Row(Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(16.dp)).background(card)
             .padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(accent), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = readableContent(accent), modifier = Modifier.size(24.dp))
+            Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(accentFill)
+                .testTag("custom_theme_preview_accent"), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = accentColors.onAccentGradient, modifier = Modifier.size(24.dp))
             }
             Column(Modifier.weight(1f)) {
                 Text("Your music. Your colors.", color = cardText, fontSize = 14.sp, fontWeight = FontWeight.Bold)

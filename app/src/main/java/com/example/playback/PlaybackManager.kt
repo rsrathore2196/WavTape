@@ -120,7 +120,13 @@ internal fun losslessRecoveryPosition(resumePositionMs: Long, reportedPositionMs
 /** A blank voice request means resume, even if a previously published UI state is stale. */
 internal fun resumeMediaSearchPlayback(player: Player) {
     if (player.mediaItemCount == 0) return
-    if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) player.prepare()
+    resumeCurrentPlayback(player)
+}
+
+/** Media3 prepare() does not leave ENDED; a completed item must first seek back to its start. */
+internal fun resumeCurrentPlayback(player: Player) {
+    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+    else if (player.playbackState == Player.STATE_ENDED && player.mediaItemCount > 0) player.seekToDefaultPosition()
     player.play()
 }
 
@@ -1756,10 +1762,7 @@ class PlaybackManager(
             if (player != null && player.currentMediaItem?.mediaId == track.id) {
                 if (!player.isPlaying) {
                     try {
-                        if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                            player.prepare()
-                        }
-                        player.play()
+                        resumeCurrentPlayback(player)
                     } catch (_: Exception) {}
                 }
                 // Ensure loading flag is kept accurate and not stuck
@@ -2199,10 +2202,7 @@ class PlaybackManager(
             if (player.isPlaying) {
                 player.pause()
             } else {
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
-                }
-                player.play()
+                resumeCurrentPlayback(player)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling play/pause: ${e.message}", e)
@@ -2296,6 +2296,13 @@ class PlaybackManager(
         return true
     }
 
+    /** A same-item restart may emit no item transition, so keep recovery owned by that recording. */
+    internal fun cancelRecoveryForTransport() {
+        recoveryJob?.cancel()
+        recoveryJob = null
+        recoveryGuard.select(_uiState.value.currentTrack?.id, newRequest = true)
+    }
+
     fun skipNext() {
         val player = controller
         if (player == null || !player.isConnected || !controllerReady.isCompleted) {
@@ -2303,9 +2310,7 @@ class PlaybackManager(
             return
         }
         cancelLosslessUpgrade()
-        recoveryJob?.cancel()
-        recoveryJob = null
-        recoveryGuard.select(null, newRequest = true)
+        cancelRecoveryForTransport()
         try {
             if (isCurrentSessionExplicitPlaylist && !player.hasNextMediaItem() && startCollectionRadio()) return
             if (player.hasNextMediaItem()) {
@@ -2340,9 +2345,7 @@ class PlaybackManager(
             return
         }
         cancelLosslessUpgrade()
-        recoveryJob?.cancel()
-        recoveryJob = null
-        recoveryGuard.select(null, newRequest = true)
+        cancelRecoveryForTransport()
 
         try {
             val now = System.currentTimeMillis()

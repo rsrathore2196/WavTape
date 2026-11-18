@@ -54,8 +54,10 @@ internal val DefaultProfileAvatars = listOf(
 internal fun ProfileAvatar(profile: UserProfile?, modifier: Modifier = Modifier) {
     val colors = LocalAppColors.current
     val avatar = DefaultProfileAvatars.firstOrNull { it.id == profile?.avatarId } ?: DefaultProfileAvatars.first()
-    val uri = profile?.avatarUri?.takeIf { it.startsWith("content://") }
-    var failed by remember(uri) { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val selectedImage = profile?.avatarUri.orEmpty()
+    val image = remember(context, selectedImage) { com.example.data.local.AvatarImageStore.imageModel(context, selectedImage) }
+    var failed by remember(selectedImage) { mutableStateOf(false) }
     val background = remember(colors.cardBackground, colors.primaryAccent, colors.secondaryAccent) {
         Brush.linearGradient(listOf(lerp(colors.cardBackground, colors.primaryAccent, .18f),
             lerp(colors.cardBackground, colors.secondaryAccent, .12f)))
@@ -69,8 +71,8 @@ internal fun ProfileAvatar(profile: UserProfile?, modifier: Modifier = Modifier)
                 center = Offset(size.width * .12f, size.height * .12f))
         }
     }, contentAlignment = Alignment.Center) {
-        Image(illustration, if (uri == null || failed) avatar.label + " avatar" else null, modifier = Modifier.fillMaxSize())
-        if (uri != null && !failed) AsyncImage(model = uri, contentDescription = "Custom profile image",
+        Image(illustration, if (image == null || failed) avatar.label + " avatar" else null, modifier = Modifier.fillMaxSize())
+        if (image != null && !failed) AsyncImage(model = image, contentDescription = "Custom profile image",
             contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), onError = { failed = true })
     }
 }

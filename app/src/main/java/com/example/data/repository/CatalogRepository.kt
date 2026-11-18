@@ -267,7 +267,10 @@ class CatalogRepository(context: Context? = null,
             // Keep version text and non-Latin vowel marks; neither is disposable punctuation.
             val key = recordingName(track)
             val fresh = track.id !in ids && key !in metadata && (isrc == null || isrc !in recordings)
-            ids.add(track.id); metadata.add(key); isrc?.let(recordings::add)
+            // A rejected alias must not claim other identities and hide a later, distinct song.
+            if (fresh) {
+                ids.add(track.id); metadata.add(key); isrc?.let(recordings::add)
+            }
             fresh
         }
     }

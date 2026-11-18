@@ -11,6 +11,7 @@ import com.example.playback.PlaybackManager
 import com.example.ui.viewmodel.PlayerViewModel
 import java.util.Collections
 import java.util.concurrent.Executor
+import java.io.IOException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
@@ -25,18 +26,30 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class CoreTabPreparationTest {
     @Test fun dataOnlyPrewarmSharesOnePlaylistReadAndLeavesHistoricalAndLikedListsUnopened() = runBlocking<Unit> {
+        verifyDataOnlyPrewarm(failCategoryCache = false)
+    }
+
+    @Test fun unavailableCategoryCacheDoesNotPreventLocalRecentSearchRestoration() = runBlocking<Unit> {
+        verifyDataOnlyPrewarm(failCategoryCache = true)
+    }
+
+    private suspend fun verifyDataOnlyPrewarm(failCategoryCache: Boolean) {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val app = ApplicationProvider.getApplicationContext<Application>()
         val reads = Collections.synchronizedList(mutableListOf<String>())
         val db = Room.inMemoryDatabaseBuilder(app, MusicDatabase::class.java)
             .setQueryCallback({ sql, _ -> if (sql.trimStart().startsWith("SELECT", ignoreCase = true)) reads.add(sql) }, Executor { it.run() }).build()
         val repository = MusicRepository(db.musicDao(), app)
+        if (failCategoryCache) repository.catalogBrowser.javaClass.getDeclaredField("metadataCache\$delegate")
+            .apply { isAccessible = true }.set(repository.catalogBrowser,
+                lazy<Any?> { throw IOException("Category cache is unavailable") })
         val player = PlaybackManager(app, repository)
         val store = ViewModelStore()
         BackgroundWorkCoordinator.foreground(true)
         try {
             db.musicDao().insertPlaylist(PlaylistEntity(1, "Saved playlist"))
             db.musicDao().insertOrUpdateTrack(TrackEntity("liked", "Liked song", "Singer", "Album", 120_000, "", "", isLiked = true))
+            RecentSearchPreferences.clearRecentSearches(app)
             RecentSearchPreferences.addRecentSearch(app, "Saved search")
             val vm = ViewModelProvider(store, object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T = PlayerViewModel(repository, player, app) as T
@@ -51,9 +64,12 @@ class CoreTabPreparationTest {
             assertEquals(1, reads.count { it.contains("FROM playlists", ignoreCase = true) })
             assertFalse(reads.toList().any { it.contains("FROM listening_", ignoreCase = true) ||
                 it.contains("FROM playlist_tracks", ignoreCase = true) || it.contains("FROM tracks", ignoreCase = true) })
-            assertTrue(vm.searchState.value.exploreCategories.isEmpty())
+            // Observe the lazily derived public flow as the Search UI does; an unobserved
+            // WhileSubscribed StateFlow intentionally retains its original value.
+            val search = withTimeout(5_000) { vm.searchState.first { it.recentSearches.isNotEmpty() } }
+            assertTrue(search.exploreCategories.isEmpty())
             assertEquals("Recent queries are ready before the first Search visit", listOf("Saved search"),
-                vm.searchState.value.recentSearches)
+                search.recentSearches)
         } finally {
             store.clear(); player.release(); db.close(); BackgroundWorkCoordinator.foreground(false); Dispatchers.resetMain()
         }

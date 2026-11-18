@@ -81,6 +81,24 @@ data class SearchResultCategory(
     val catalogPlaylists: List<CatalogPlaylist> = emptyList()
 )
 
+/** Cached catalog metadata never makes a saved favorite flag authoritative. */
+private fun SearchResultCategory.withFavoriteIds(ids: Set<String>): SearchResultCategory {
+    fun track(row: MusicTrack) = if (row.isLiked == (row.id in ids)) row else row.copy(isLiked = row.id in ids)
+    fun tracks(rows: List<MusicTrack>) = if (rows.all { it.isLiked == (it.id in ids) }) rows else rows.map(::track)
+    val top = topResult?.let(::track)
+    val exact = tracks(exactMatches)
+    val recommended = tracks(recommendedTracks)
+    val jio = tracks(jioMatches)
+    val youtube = tracks(ytMatches)
+    val artist = tracks(artistSongs)
+    val similar = tracks(similarTypeSongs)
+    val all = tracks(songs)
+    return if (top === topResult && exact === exactMatches && recommended === recommendedTracks &&
+        jio === jioMatches && youtube === ytMatches && artist === artistSongs && similar === similarTypeSongs && all === songs) this
+    else copy(topResult = top, exactMatches = exact, recommendedTracks = recommended, jioMatches = jio,
+        ytMatches = youtube, artistSongs = artist, similarTypeSongs = similar, songs = all)
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MusicRepository private constructor(
     private val daoProvider: () -> MusicDao,
@@ -428,14 +446,17 @@ class MusicRepository private constructor(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext SearchResultCategory()
         val cacheKey = trimmed.lowercase(java.util.Locale.ROOT)
-        searchCache.get(cacheKey)?.takeIf { System.currentTimeMillis() - it.first < 300_000L }
-            ?.let { return@withContext it.second }
-        val likedIds = try {
-            withContext(AppDispatchers.Database) { musicDao.getFavoriteTracks().first() }.mapTo(mutableSetOf()) { it.id }
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { emptySet<String>() }
+        suspend fun favorites(result: SearchResultCategory): SearchResultCategory {
+            val ids = try {
+                withContext(AppDispatchers.Database) { musicDao.observeFavoriteTrackIds().first() }.toSet()
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { emptySet<String>() }
+            return result.withFavoriteIds(ids)
+        }
+        searchCache.get(cacheKey)?.takeIf { System.currentTimeMillis() - it.first in 0 until 300_000L }
+            ?.let { return@withContext favorites(it.second) }
         val tracks = AudioRoutingService.resolveSearchTracks(context ?: this@MusicRepository.context,
-            trimmed, limit = 25).tracks.map { it.copy(isLiked = it.id in likedIds) }
+            trimmed, limit = 25).tracks
         val exact = tracks.filter { CatalogNames.score(trimmed,
             StreamResolver.extractCleanTitle(it.title, it.artist)) >= 55 }.ifEmpty { tracks.take(10) }
         val result = SearchResultCategory(topResult = tracks.firstOrNull(), exactMatches = exact,
@@ -446,7 +467,7 @@ class MusicRepository private constructor(
             artists = tracks.map { it.artist }.filter { CatalogNames.normalize(it) !in
                 setOf("", "unknown", "unknown artist", "various artists", "online artist", "youtube artist") }.distinct())
         searchCache.put(cacheKey, System.currentTimeMillis() to result)
-        result
+        favorites(result)
     }
 
     /** Apply the active quality tier consistently to every playback entry point. */

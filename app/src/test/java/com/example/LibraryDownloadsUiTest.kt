@@ -250,6 +250,9 @@ class LibraryDownloadsUiTest {
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasContentDescription("Play all") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         compose.waitUntil(5_000) { play != null }
         assertEquals(listOf("available-first"), play!!.second.map { it.id })

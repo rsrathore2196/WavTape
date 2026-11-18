@@ -68,9 +68,9 @@ class ListeningStatsUiTest {
         compose.onNodeWithTag("library_screen").assertDoesNotExist()
         compose.onNodeWithText("Favorite Song").assertExists()
         compose.runOnIdle { assertEquals("Opening liked songs must not start playback", 1, plays) }
-        compose.onNodeWithText("PLAY ALL").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(2, plays); assertEquals(favorites.map { it.id }, queue.map { it.id }) }
-        compose.onNodeWithText("SHUFFLE").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Shuffle").performScrollTo().assertIsDisplayed().performClick()
         compose.waitUntil(5000) { plays == 3 }
         compose.runOnIdle {
             assertEquals(favorites.map { it.id }.toSet(), queue.map { it.id }.toSet())

@@ -140,7 +140,13 @@ data class PlaylistWithTracks(
     val musicTracks: List<MusicTrack> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val byId = tracks.associateBy { it.id }
         if (entries.isEmpty()) tracks.map { it.toMusicTrack() }
-        else entries.sortedWith(compareBy<PlaylistTrackCrossRef> { it.orderIndex }.thenBy { it.entryId })
-            .mapNotNull { entry -> byId[entry.trackId]?.toMusicTrack()?.copy(playlistEntryId = entry.entryId) }
+        else {
+            // Repeated entries retain separate entry IDs without reparsing the same immutable metadata.
+            val prepared = mutableMapOf<TrackEntity, MusicTrack>()
+            entries.sortedWith(compareBy<PlaylistTrackCrossRef> { it.orderIndex }.thenBy { it.entryId })
+                .mapNotNull { entry -> byId[entry.trackId]?.let { row ->
+                    prepared.getOrPut(row) { row.toMusicTrack() }.copy(playlistEntryId = entry.entryId)
+                } }
+        }
     }
 }

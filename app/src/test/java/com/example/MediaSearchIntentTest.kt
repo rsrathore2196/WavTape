@@ -55,10 +55,13 @@ class MediaSearchIntentTest {
     }
 
     @Test fun resumePreparesOnlyStoppedPlayersAndDoesNotStartAnEmptyQueue() {
-        listOf(Player.STATE_IDLE, Player.STATE_ENDED).forEach { state ->
-            assertEquals(listOf("prepare", "play"), resumeCommands(state, itemCount = 1))
-        }
+        assertEquals(listOf("prepare", "play"), resumeCommands(Player.STATE_IDLE, itemCount = 1))
         assertEquals(emptyList<String>(), resumeCommands(Player.STATE_IDLE, itemCount = 0))
+    }
+
+    @Test fun resumeRestartsTheCompletedItemWithoutReplacingItsQueue() {
+        assertEquals(listOf("seekToDefaultPosition", "play"), resumeCommands(Player.STATE_ENDED, itemCount = 1))
+        assertEquals(emptyList<String>(), resumeCommands(Player.STATE_ENDED, itemCount = 0))
     }
 
     private fun resumeCommands(state: Int, itemCount: Int): List<String> {
@@ -67,7 +70,7 @@ class MediaSearchIntentTest {
             when (method.name) {
                 "getMediaItemCount" -> itemCount
                 "getPlaybackState" -> state
-                "play", "prepare" -> { commands += method.name; null }
+                "play", "prepare", "seekToDefaultPosition" -> { commands += method.name; null }
                 else -> throw AssertionError("Unexpected player operation: ${method.name}")
             }
         } as Player

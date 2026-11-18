@@ -379,6 +379,7 @@ object BackupRestoreManager {
                 }
             }
             val userProfile = UserProfilePreferences.getUserProfile(context)
+            val avatarImage = AvatarImageStore.backupImage(context, userProfile.avatarUri)
             val settings = BackupSettings.capture(context)
             require(allTracks.size <= MAX_BACKUP_ITEMS && playlists.size <= MAX_BACKUP_ITEMS && crossRefs.size <= MAX_BACKUP_ITEMS) {
                 "Backup is too large to restore safely"
@@ -390,7 +391,7 @@ object BackupRestoreManager {
             val rootJson = JSONObject()
             rootJson.put("app", "Xtreme Player")
             rootJson.put("version", com.example.BuildConfig.VERSION_NAME)
-            rootJson.put("schemaVersion", 6)
+            rootJson.put("schemaVersion", 7)
             rootJson.put("settings", BackupSettings.encode(settings))
             rootJson.put("listeningStats", ListeningStatsBackup.encode(listeningTotals))
             rootJson.put("listeningIdentityMigrations", ListeningStatsBackup.encodeMigrations(listeningMigrations))
@@ -405,7 +406,8 @@ object BackupRestoreManager {
             profileJson.put("flag", userProfile.flag)
             profileJson.put("appLanguage", userProfile.appLanguage)
             profileJson.put("avatarId", userProfile.avatarId)
-            profileJson.put("avatarUri", userProfile.avatarUri)
+            profileJson.put("avatarUri", if (avatarImage != null) "" else userProfile.avatarUri)
+            avatarImage?.let { profileJson.put("avatarImage", AvatarImageStore.encodeBackup(it)) }
             profileJson.put("isOnboardingCompleted", userProfile.isOnboardingCompleted)
             val langsArray = JSONArray()
             userProfile.languages.forEach { langsArray.put(it) }
@@ -528,7 +530,8 @@ object BackupRestoreManager {
         val listeningMigrations: List<ListeningIdentityMigration> = emptyList(),
         val settings: Map<String, Map<String, Any>> = emptyMap(),
         val listeningHistory: ListeningHistoryBackup? = null,
-        val hasListeningStats: Boolean = false
+        val hasListeningStats: Boolean = false,
+        val avatarImage: ByteArray? = null
     )
 
     private fun normalizeText(text: String): String =
@@ -622,7 +625,7 @@ object BackupRestoreManager {
         val root = JSONObject(text)
         if (root.has("app")) require(stringField(root, "app").equals("Xtreme Player", true)) { "Not an Xtreme Player backup" }
         val schema = longField(root, "schemaVersion", 1L)
-        require(schema in 1L..6L) { "Unsupported backup schema version: $schema" }
+        require(schema in 1L..7L) { "Unsupported backup schema version: $schema" }
         require(listOf("playlists", "libraryTracks", "tracks", "favoriteTracks", "userProfile", "listeningStats").any(root::has)) {
             "No backup data found"
         }
@@ -701,7 +704,7 @@ object BackupRestoreManager {
             require(it is JSONObject) { "Invalid user profile section" }
         } as JSONObject else null
         profile?.let { value ->
-            listOf("name", "country", "countryCode", "flag", "appLanguage").forEach { stringField(value, it) }
+            listOf("name", "country", "countryCode", "flag", "appLanguage", "avatarId", "avatarUri").forEach { stringField(value, it) }
             booleanField(value, "isOnboardingCompleted")
             if (value.has("languages")) arrayField(value, "languages").let { languages ->
                 require(languages.length() <= 100) { "Too many profile languages" }
@@ -718,10 +721,11 @@ object BackupRestoreManager {
             require(root.has("listeningStats")) { "Listening history requires its committed aggregates" }
             ListeningHistoryBackup.decode(root.getJSONObject("listeningHistory"))
         } else null
+        val avatarImage = profile?.takeIf { it.has("avatarImage") }?.let { AvatarImageStore.decodeBackup(it.get("avatarImage")) }
         return ParsedBackup(playlists, tracks, validParentRefs, profile, root.has("playlists"), refs.size - validParentRefs.size,
             if (root.has("listeningStats")) ListeningStatsBackup.decode(root.getJSONArray("listeningStats")) else emptyList(),
             if (root.has("listeningIdentityMigrations")) ListeningStatsBackup.decodeMigrations(root.getJSONArray("listeningIdentityMigrations")) else emptyList(),
-            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history, root.has("listeningStats"))
+            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history, root.has("listeningStats"), avatarImage)
     }
 
     private fun restoredProfile(json: JSONObject, previous: UserProfile): UserProfile = previous.copy(
@@ -785,6 +789,7 @@ object BackupRestoreManager {
             var previousSettings = emptyMap<String, Map<String, Any>>()
             var settingsWriteAttempted = false
             var databaseCommitted = false
+            var stagedAvatarUri: String? = null
             var restoredEventCount = 0
             var verifiedListeningRows = 0
             try {
@@ -798,7 +803,10 @@ object BackupRestoreManager {
                 val backup = withContext(AppDispatchers.CpuBounded) { parseBackup(text) }
                 val beforeProfile = UserProfilePreferences.getUserProfile(context)
                 previousProfile = beforeProfile
-                val importedProfile = backup.profile?.let { restoredProfile(it, beforeProfile) }
+                stagedAvatarUri = backup.avatarImage?.let { AvatarImageStore.writeImage(context, it) }
+                val importedProfile = backup.profile?.let { restoredProfile(it, beforeProfile) }?.let { profile ->
+                    stagedAvatarUri?.let { profile.copy(avatarUri = it) } ?: profile
+                }
                 val needsDetails = finishOnboarding && !hasOnboardingDetails(backup.profile)
                 val profile = if (finishOnboarding) (importedProfile ?: beforeProfile).copy(
                     isOnboardingCompleted = !needsDetails) else importedProfile
@@ -926,7 +934,10 @@ object BackupRestoreManager {
                     }
                     com.example.data.repository.ListeningStatsRepository.invalidateDatabase(musicDatabase)
                     BackupSettings.publish(context, backup.settings)
-                    profile?.let { UserProfilePreferences.publishUserProfile(it) }
+                    profile?.let {
+                        UserProfilePreferences.publishUserProfile(it)
+                        AvatarImageStore.retirePrevious(context, beforeProfile.avatarUri, it.avatarUri)
+                    }
                     restoredCount
                 }
                 android.util.Log.i("BackupRestoreManager", "Listening restore: statsPresent=${backup.hasListeningStats}, importedTotals=${backup.listeningStats.size}, databaseTotals=$verifiedListeningRows, newEvents=$restoredEventCount")
@@ -964,6 +975,9 @@ object BackupRestoreManager {
                             android.util.Log.e("BackupRestoreManager", "Could not roll back user profile after restore failure", error)
                         }
                     }
+                }
+                if (!databaseCommitted) stagedAvatarUri?.let { uri ->
+                    withContext(kotlinx.coroutines.NonCancellable) { AvatarImageStore.discardIfUnreferenced(context, uri) }
                 }
                 if (error is CancellationException) throw error
                 val rollbackWarning = if (profileRollbackFailed || settingsRollbackFailed)

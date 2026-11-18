@@ -764,7 +764,19 @@ object ThemePresets {
     val allPresets = LegacyThemePresets.allPresets.map { modernize(it) }
     val darkPresets = allPresets.filter { it.isDark }
     val lightPresets = allPresets.filterNot { it.isDark }
-    private fun modern(legacy: AppThemePreset) = allPresets.first { it.id == legacy.id }
+    private val presetsById = allPresets.associateBy { it.id }
+    private val statesById = allPresets.associate { it.id to it.toCustomThemeState() }
+    // Historic palettes are immutable. Reuse them instead of rebuilding their colors/lists
+    // on every preference snapshot, current-palette check, and settings observation.
+    private val legacyPalettes by lazy {
+        LegacyThemePresets.allPresets.associate { preset -> preset.id to listOf(
+            preset, neutralPalette(preset), modernize(preset, versionThreeAccents.getValue(preset.id)),
+            modernize(preset, versionFourAccents.getValue(preset.id))) }
+    }
+    private val legacyStates by lazy {
+        legacyPalettes.mapValues { (_, presets) -> presets.map { it.toCustomThemeState() } }
+    }
+    private fun modern(legacy: AppThemePreset) = presetsById.getValue(legacy.id)
     val StudioNight = modern(LegacyThemePresets.StudioNight)
     val AmoledPureBlack = modern(LegacyThemePresets.AmoledPureBlack)
     val CyberpunkNeon = modern(LegacyThemePresets.CyberpunkNeon)
@@ -787,30 +799,23 @@ object ThemePresets {
     val SageMist = modern(LegacyThemePresets.SageMist)
     val CleanFrost = CleanDay
 
-    fun findById(id: String): AppThemePreset? = LegacyThemePresets.findById(id)?.let(::modern)
+    fun findById(id: String): AppThemePreset? = presetsById[id] ?: LegacyThemePresets.findById(id)?.let(::modern)
     fun findByName(name: String): AppThemePreset? = name.takeIf { it.isNotBlank() }
         ?.let(LegacyThemePresets::findByName)?.let(::modern)
 
     internal fun legacyPreset(id: String, name: String, version: Int = 1): AppThemePreset? =
         (LegacyThemePresets.findById(id) ?: name.takeIf { it.isNotBlank() }?.let(LegacyThemePresets::findByName))
-            ?.let { when (version) {
-                2 -> neutralPalette(it)
-                3 -> modernize(it, versionThreeAccents.getValue(it.id))
-                4 -> modernize(it, versionFourAccents.getValue(it.id))
-                else -> it
-            } }
+            ?.let { legacyPalettes.getValue(it.id)[if (version in 1..4) version - 1 else 0] }
 
     internal fun upgradeLegacy(state: CustomThemeState): CustomThemeState {
+        if (statesById[state.presetId] == state) return state
         val legacy = legacyPreset(state.presetId, state.currentThemeName) ?: return state
         // A known ID alone is not proof that a saved/imported palette was never edited.
-        return if (state == legacy.toCustomThemeState() || state == neutralPalette(legacy).toCustomThemeState() ||
-            state == modernize(legacy, versionThreeAccents.getValue(legacy.id)).toCustomThemeState() ||
-            state == modernize(legacy, versionFourAccents.getValue(legacy.id)).toCustomThemeState())
-            modern(legacy).toCustomThemeState() else state
+        return if (state in legacyStates.getValue(legacy.id)) statesById.getValue(legacy.id) else state
     }
 
     internal fun isBuiltIn(state: CustomThemeState): Boolean =
-        findById(state.presetId)?.toCustomThemeState() == state
+        statesById[state.presetId] == state
 }
 
 /**

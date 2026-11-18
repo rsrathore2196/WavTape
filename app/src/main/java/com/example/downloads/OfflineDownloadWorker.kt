@@ -39,7 +39,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -171,24 +170,19 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
         store.update(selected.id) { if (it.status != DownloadStatus.DOWNLOADING) it else it.copy(
             status = DownloadStatus.COMPLETE, bytes = cacheSize, total = cacheSize, error = null, artwork = artwork, track = finalTrack) }
     }
-    private fun saveArtwork(store: OfflineDownloads, track: MusicTrack): String = runCatching {
-        if (!track.coverUrl.startsWith("https://")) return@runCatching ""
-        val target = File(store.directory(track.id), "cover")
-        artworkHttp.newCall(Request.Builder().url(track.coverUrl).build()).execute().use { response ->
-            if (!response.isSuccessful) return@use ""
-            val body = response.body ?: return@use ""
-            if (body.contentLength() > 8 * 1024 * 1024) return@use ""
-            body.byteStream().use { input -> target.outputStream().use { output ->
-                val buffer = ByteArray(16 * 1024); var size = 0L
-                while (true) { val count = input.read(buffer); if (count < 0) break
-                    size += count; if (size > 8 * 1024 * 1024) throw IOException("Artwork too large")
-                    output.write(buffer, 0, count) }
-            } }
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeFile(target.absolutePath, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) { target.delete(); "" } else target.absolutePath
+    private fun saveArtwork(store: OfflineDownloads, track: MusicTrack): String {
+        val directory = store.directory(track.id)
+        if (!track.coverUrl.startsWith("https://")) return OfflineArtwork.existing(directory)
+        return try {
+            artworkHttp.newCall(Request.Builder().url(track.coverUrl).build()).execute().use { response ->
+                val body = response.body
+                if (!response.isSuccessful || body == null) OfflineArtwork.existing(directory)
+                else OfflineArtwork.save(directory, body.contentLength(), body::byteStream)
+            }
+        } catch (_: Exception) {
+            OfflineArtwork.existing(directory)
         }
-    }.getOrDefault("")
+    }
     private fun foreground(title: String, percent: Int, indeterminate: Boolean): ForegroundInfo {
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(

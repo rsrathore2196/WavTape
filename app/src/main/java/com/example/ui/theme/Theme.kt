@@ -24,6 +24,9 @@ import androidx.core.graphics.ColorUtils
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePreferences
 import com.example.data.local.ThemePresets
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private fun parseColorSafe(hex: String, fallback: Color): Color {
     return try {
@@ -84,13 +87,32 @@ fun resolveAppThemeColors(darkTheme: Boolean, custom: CustomThemeState, highCont
         fun contrast(value: Color) = surfaces.minOf {
             ColorUtils.calculateContrast(value.copy(alpha = 1f).toArgb(), it.copy(alpha = 1f).toArgb())
         }
-        if (contrast(color) >= minimum) return color
+        var best = color
+        var bestContrast = contrast(color)
+        if (bestContrast >= minimum) return color
         val fallback = if (contrast(Color.Black) > contrast(Color.White)) Color.Black else Color.White
         for (step in 1..20) {
             val adjusted = Color(ColorUtils.blendARGB(color.toArgb(), fallback.toArgb(), step / 20f))
-            if (contrast(adjusted) >= minimum) return adjusted
+            val score = contrast(adjusted)
+            if (score >= minimum) return adjusted
+            if (score > bestContrast) { best = adjusted; bestContrast = score }
         }
-        return fallback
+        // Opposite-brightness custom surfaces can defeat either black or white.
+        // Between adjacent surface luminances, the best shared contrast is at their geometric mean.
+        // Try its nearest displayable gray values, retaining any better requested/legacy candidate.
+        val luminances = surfaces.map { ColorUtils.calculateLuminance(it.copy(alpha = 1f).toArgb()) }.distinct().sorted()
+        for ((low, high) in luminances.zipWithNext()) {
+            val balanced = sqrt((low + .05) * (high + .05)) - .05
+            val encoded = if (balanced <= .0031308) balanced * 12.92 else 1.055 * balanced.pow(1.0 / 2.4) - .055
+            val channel = (encoded * 255).roundToInt()
+            for (nearby in (channel - 1)..(channel + 1)) {
+                val value = nearby.coerceIn(0, 255)
+                val candidate = Color(android.graphics.Color.rgb(value, value, value))
+                val score = contrast(candidate)
+                if (score > bestContrast) { best = candidate; bestContrast = score }
+            }
+        }
+        return best
     }
 
     val primaryAccent = if (neutralSurfaces) readable(rawPrimaryAccent, 4.5) else rawPrimaryAccent

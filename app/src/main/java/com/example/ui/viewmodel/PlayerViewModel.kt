@@ -334,9 +334,12 @@ class PlayerViewModel(
                             ensureActive()
                             if (categories.isNotEmpty() && userProfile.value.countryCode == profile.countryCode &&
                                 !_searchState.value.exploreIndexReady) _searchState.update { it.copy(exploreCategories = categories) }
-                            restoreRecentSearches()
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { /* A missing category cache is a settled stage. */ }
+                        // Saved local queries do not depend on the optional category cache being readable.
+                        try { restoreRecentSearches() }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* Search can retry restoring its local history on first access. */ }
                     }
                 }
                 com.example.performance.SequentialBackgroundConductor.enqueue(

@@ -102,23 +102,35 @@ fun EditProfileSheet(
     var avatarPickerOpen by remember { mutableStateOf(false) }
     var avatarError by remember { mutableStateOf<String?>(null) }
     var avatarPreparing by remember { mutableStateOf(false) }
+    var avatarRequest by remember { mutableStateOf(0L) }
     val avatarContext = androidx.compose.ui.platform.LocalContext.current
     val avatarScope = androidx.compose.runtime.rememberCoroutineScope()
+    val avatarDrafts = remember(avatarContext) {
+        com.example.data.local.AvatarDraftSession(avatarContext, avatarUri.takeIf { it != userProfile.avatarUri })
+    }
+    androidx.compose.runtime.DisposableEffect(avatarDrafts) {
+        onDispose {
+            val rotating = generateSequence(avatarContext) { (it as? android.content.ContextWrapper)?.baseContext }
+                .filterIsInstance<android.app.Activity>().firstOrNull()?.isChangingConfigurations == true
+            avatarDrafts.close(preserve = avatarUri.takeIf { rotating })
+        }
+    }
     val chooseImage = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            val request = ++avatarRequest
             avatarPreparing = true
             avatarScope.launch {
                 try {
-                    kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.Io) {
-                        avatarContext.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    avatarUri = uri.toString()
+                    avatarUri = avatarDrafts.select(uri)
+                    avatarDrafts.discardExcept(avatarUri)
                     avatarError = null
                 } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                catch (_: Exception) { avatarError = "Could not use this image. Please choose another image." }
-                finally { avatarPreparing = false }
+                catch (_: Exception) {
+                    if (request == avatarRequest) avatarError = "Could not use this image. Please choose another image."
+                }
+                finally { if (request == avatarRequest) avatarPreparing = false }
             }
         }
     }
@@ -490,6 +502,7 @@ fun EditProfileSheet(
                                 avatarId = avatarId, avatarUri = avatarUri
                             )
                         )
+                        avatarDrafts.keep(avatarUri)
                         onDismiss()
                     }
                 },
@@ -516,7 +529,11 @@ fun EditProfileSheet(
     }
 
     if (avatarPickerOpen) AvatarPickerDialog(avatarId, avatarUri.isNotBlank(),
-        onSelect = { avatarId = it; avatarUri = ""; avatarPickerOpen = false; avatarError = null },
+        onSelect = {
+            avatarRequest++
+            avatarId = it; avatarUri = ""; avatarDrafts.discardExcept("")
+            avatarPreparing = false; avatarPickerOpen = false; avatarError = null
+        },
         onChooseImage = { avatarPickerOpen = false; chooseImage.launch(arrayOf("image/*")) },
         onDismiss = { avatarPickerOpen = false })
 

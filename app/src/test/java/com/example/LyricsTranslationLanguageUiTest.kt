@@ -60,6 +60,10 @@ class LyricsTranslationLanguageUiTest {
                 LyricsTranslationLanguagePopup("en", { submitted = true }, { dismissed = true })
             }
         }
+        // Locale labels are prepared asynchronously; start interactions only after the picker is ready.
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("lyrics_language_option_").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("lyrics_language_search").performTextInput("French")
         compose.waitUntil(3_000) { compose.onAllNodesWithTag("lyrics_language_option_fr").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("lyrics_language_option_fr").assertIsDisplayed().performClick()

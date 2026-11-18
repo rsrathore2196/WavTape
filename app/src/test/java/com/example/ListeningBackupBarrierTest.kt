@@ -42,7 +42,7 @@ class ListeningBackupBarrierTest {
         val unrelated = context.getDatabasePath("xtreme_music_db").exists()
         try {
             val json = JSONObject(backup(db))
-            assertEquals(6, json.getInt("schemaVersion"))
+            assertEquals(7, json.getInt("schemaVersion"))
             val totals = ListeningStatsBackup.decode(json.getJSONArray("listeningStats"))
             assertEquals(60_000L, totals.single { it.bucket == "2026-10" && it.kind == "song" }.listenedMs)
             val history = ListeningHistoryBackup.decode(json.getJSONObject("listeningHistory"))

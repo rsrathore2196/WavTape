@@ -424,13 +424,18 @@ object BackgroundWorkCoordinator {
 
     /** Recheck admission after a resource wait, without holding that resource while idling. */
     internal fun isInteractionIdle(requireForeground: Boolean = false, awaitFrameQuiet: Boolean = true): Boolean {
+        val visible = foreground.get()
+        if (requireForeground && !visible || foregroundDrawPending.get()) return false
+        // Explicit gesture/navigation owners still release their own leases. Once released,
+        // headless work has no frame/quiet timer to await, matching nextInteractionDeadline.
+        if (touching.get() || scrolling.get() || navigationJobs.get() != 0) return false
+        if (!visible) return true
         val now = SystemClock.elapsedRealtime()
-        return (!requireForeground || foreground.get()) && !foregroundDrawPending.get() && !touching.get() &&
-            !scrolling.get() && navigationJobs.get() == 0 && now >= navigationUntil.get() &&
+        return now >= navigationUntil.get() &&
             now - lastInteraction.get() >= 250L && (!awaitFrameQuiet || now - lastSlowFrame.get() >= 250L)
     }
     private fun optionalInteractionIdle(now: Long, awaitFrameQuiet: Boolean = true): Boolean =
-        isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet) && now - lastInteraction.get() >= 250L
+        isInteractionIdle(awaitFrameQuiet = awaitFrameQuiet) && (!foreground.get() || now - lastInteraction.get() >= 250L)
 
     private val startedAt = SystemClock.elapsedRealtime()
     private val foreground = AtomicBoolean(false)

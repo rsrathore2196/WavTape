@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.source.*
 import androidx.test.core.app.ApplicationProvider
 import com.example.playback.BitPerfectAudioSink
 import com.example.playback.CrossfadeController
+import com.example.playback.resumeCurrentPlayback
 import com.example.service.PolicyResolvingMediaSource
 import kotlinx.coroutines.*
 import org.junit.*
@@ -171,6 +172,20 @@ class CrossfadeMedia3PlaybackTest {
         assertTrue(player.currentPosition < 130_000)
         assertTrue(pcmOutputs.getValue("primary").get() > 0)
         println("Read-ahead/seek evidence: position=${player.currentPosition}, resolved=$resolutions, opens=$opened, pcm=$pcmOutputs")
+    }
+
+    @Test fun resumeAfterNaturalCompletionReplaysTheSameRecordingAndProducesNewDecodedAudio() = runBlocking {
+        val player = player("resume", factory(mapOf("first" to 1)))
+        player.setMediaItem(item("first"))
+        player.prepare(); player.play()
+        until { player.playbackState == Player.STATE_ENDED }
+        val before = pcmOutputs.getValue("resume").get()
+        assertEquals("first", player.currentMediaItem?.mediaId)
+        resumeCurrentPlayback(player)
+        until { player.isPlaying && pcmOutputs.getValue("resume").get() > before }
+        assertEquals(1, player.mediaItemCount)
+        assertEquals("first", player.currentMediaItem?.mediaId)
+        assertTrue("The recording must restart, not remain pinned to its completed position", player.currentPosition < player.duration)
     }
 
     @Test fun crossfadeRunsTwoRealDecodedPlayersWithBlendedGainsThenKeepsTheSessionPlayerOnTheNextTrack() = runBlocking {

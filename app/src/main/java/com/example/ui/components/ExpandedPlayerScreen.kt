@@ -328,7 +328,10 @@ fun ExpandedPlayerScreen(
     val lyricsOffsetMs by com.example.data.local.LyricsOffsetManager.activeOffsetMs.collectAsStateWithLifecycle()
     LaunchedEffect(track.id, isScreenVisible) {
         if (!isScreenVisible) return@LaunchedEffect
-        com.example.data.local.LyricsOffsetManager.observeOffsetForTrack(context, track.id).collect { }
+        // Keep this UI-owned observation on Main when preference loading returns from IO.
+        kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.Main) {
+            com.example.data.local.LyricsOffsetManager.observeOffsetForTrack(context, track.id).collect { }
+        }
     }
     var isFlipped by remember(track.id) { mutableStateOf(false) }
     var showLyrics by remember(track.id) { mutableStateOf(false) }

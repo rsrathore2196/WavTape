@@ -59,6 +59,7 @@ object AppUpdateManager {
     private var receiver: BroadcastReceiver? = null
     private var polling: Job? = null
     private var checking: Job? = null
+    private var checkListeners = UpdateCheckListeners()
     @Volatile private var manualCheckRequested = false
     private var installing = false
     private data class Session(val id: Long, val info: UpdateInfo, val name: String, val created: Long,
@@ -127,16 +128,18 @@ object AppUpdateManager {
     fun checkForUpdate(context: Context, isManual: Boolean = false, onResult: ((UpdateStatus) -> Unit)? = null) {
         if (checking?.isActive == true) {
             if (isManual) manualCheckRequested = true
+            checkListeners.add(onResult)
             return
         }
         manualCheckRequested = isManual
+        val listeners = UpdateCheckListeners().also { it.add(onResult); checkListeners = it }
         val app = context.applicationContext
         checking = scope.launch {
             try {
                 val recovering = operations.withLock {
                     restore(app)
                     if (session != null) {
-                        inspect(app); startMonitoring(app); onResult?.invoke(_updateStatus.value); true
+                        inspect(app); startMonitoring(app); listeners.complete(_updateStatus.value); true
                     } else false
                 }
                 if (recovering) return@launch
@@ -147,18 +150,21 @@ object AppUpdateManager {
                     else com.example.performance.BackgroundWorkCoordinator.StartupPriority.MAINTENANCE,
                     urgent = { manualCheckRequested }) {
                     operations.withLock {
-                        if (session != null) { inspect(app); startMonitoring(app); return@withLock }
+                        if (session != null) {
+                            inspect(app); startMonitoring(app); listeners.complete(_updateStatus.value)
+                            return@withLock
+                        }
                         _updateStatus.value = UpdateStatus.Checking
                         val result = withContext(Dispatchers.IO) { latestRelease() }
                         _updateStatus.value = result
                         if (manualCheckRequested) _isDismissedForSession.value = false
-                        onResult?.invoke(result)
+                        listeners.complete(result)
                     }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 val error = UpdateStatus.Error(e.message ?: "Could not check for updates.")
-                _updateStatus.value = error; onResult?.invoke(error)
+                _updateStatus.value = error; listeners.complete(error)
             }
         }
     }

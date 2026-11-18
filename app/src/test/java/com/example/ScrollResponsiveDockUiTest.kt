@@ -143,13 +143,23 @@ class ScrollResponsiveDockUiTest {
             compose.onNodeWithTag("nav_tab_home_active").captureRoboImage(indicator.absolutePath,
                 roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
             val image = javax.imageio.ImageIO.read(indicator)
-            val accent = DarkAppColors.primaryAccent
+            val primary = DarkAppColors.primaryAccent
+            val secondary = DarkAppColors.secondaryAccent
+            val start = listOf(primary.red, primary.green, primary.blue).map { it * 255 }
+            val delta = listOf(secondary.red, secondary.green, secondary.blue).mapIndexed { index, value ->
+                value * 255 - start[index]
+            }
+            val squaredLength = delta.sumOf { (it * it).toDouble() }.coerceAtLeast(1.0)
             var left = image.width; var top = image.height; var right = -1; var bottom = -1
             for (y in 0 until image.height) for (x in 0 until image.width) {
                 val pixel = java.awt.Color(image.getRGB(x, y), true)
-                if (kotlin.math.abs(pixel.red - accent.red * 255) < 8 &&
-                    kotlin.math.abs(pixel.green - accent.green * 255) < 8 &&
-                    kotlin.math.abs(pixel.blue - accent.blue * 255) < 8) {
+                // A primary-only match sees a narrow stripe of a correctly circular gradient.
+                val sample = listOf(pixel.red.toFloat(), pixel.green.toFloat(), pixel.blue.toFloat())
+                val amount = start.indices.sumOf { ((sample[it] - start[it]) * delta[it]).toDouble() } / squaredLength
+                val matchesGradient = amount in -.02..1.02 && start.indices.all {
+                    kotlin.math.abs(sample[it] - (start[it] + amount * delta[it])) < 8
+                }
+                if (pixel.alpha > 240 && matchesGradient) {
                     left = minOf(left, x); right = maxOf(right, x)
                     top = minOf(top, y); bottom = maxOf(bottom, y)
                 }
