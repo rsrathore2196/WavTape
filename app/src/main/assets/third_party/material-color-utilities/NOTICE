@@ -1,0 +1,5 @@
+Material Color Utilities — Copyright Google LLC
+Apache License 2.0
+https://github.com/material-foundation/material-color-utilities
+Revision dd62982dfdefdfc9232ce8d76e122fb1c6d188ae
+Changes: Java package names scoped to the app; original algorithms retained.

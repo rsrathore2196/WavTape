@@ -1,6 +1,19 @@
 package com.example.ui.theme
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalConfiguration
+import com.example.performance.AppDispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -17,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -282,6 +296,9 @@ fun MyApplicationTheme(
     dynamicColor: Boolean = false,
     textScale: Float = 0.95f,
     uiScale: Float = 0.94f,
+    tonalTheme: TonalThemeOptions? = null,
+    artworkBitmap: Bitmap? = null,
+    animateTonalColors: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -289,12 +306,16 @@ fun MyApplicationTheme(
     val playerExperience by playerExperienceFlow.collectAsStateWithLifecycle(
         initialValue = OtherSettingsPreferences.playerExperienceSettings(context))
     val custom = customThemeState ?: remember { ThemePreferences.getCustomThemeState(context) }
-    val appColors = remember(darkTheme, custom, playerExperience.dynamicAlbumGlow, playerExperience.highContrastTypography) {
+    val legacyColors = remember(darkTheme, custom, playerExperience.dynamicAlbumGlow, playerExperience.highContrastTypography) {
         resolveAppThemeColors(darkTheme, custom, playerExperience.highContrastTypography)
             .copy(dynamicAlbumGlow = playerExperience.dynamicAlbumGlow)
     }
-    val colorScheme = remember(darkTheme, appColors) {
-        resolveColorScheme(darkTheme, appColors)
+    val legacyScheme = remember(darkTheme, legacyColors) { resolveColorScheme(darkTheme, legacyColors) }
+    val tonalOptions = tonalTheme ?: if (dynamicColor) TonalThemeOptions(useSystemDynamicColor = true) else null
+    val colorScheme = if (tonalOptions == null) legacyScheme else animateTonalColorScheme(
+        rememberTonalColorScheme(tonalOptions, darkTheme, artworkBitmap, legacyScheme), animateTonalColors)
+    val appColors = if (tonalOptions == null) legacyColors else remember(colorScheme, darkTheme, playerExperience) {
+        colorScheme.asAppThemeColors(darkTheme, playerExperience.dynamicAlbumGlow, playerExperience.highContrastTypography)
     }
 
     val statusBarAppearance = remember { StatusBarAppearance() }
@@ -309,8 +330,12 @@ fun MyApplicationTheme(
             window.statusBarColor = statusBarBg.toArgb()
             window.navigationBarColor = navBarBg.toArgb()
             val windowInsetsController = WindowCompat.getInsetsController(window, view)
-            windowInsetsController.isAppearanceLightStatusBars = headerDarkIcons ?: !darkTheme
-            windowInsetsController.isAppearanceLightNavigationBars = !darkTheme
+            // During a tonal light/dark animation, use the visible surface rather than
+            // switching system glyph contrast ahead of the animated background.
+            windowInsetsController.isAppearanceLightStatusBars = headerDarkIcons ?:
+                if (tonalOptions != null) contrastingContentColor(appColors.scaffoldBackground).luminance() < .5f else !darkTheme
+            windowInsetsController.isAppearanceLightNavigationBars =
+                if (tonalOptions != null) contrastingContentColor(navBarBg).luminance() < .5f else !darkTheme
         }
     }
 
@@ -330,3 +355,175 @@ fun MyApplicationTheme(
         MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
     }
 }
+
+
+/**
+ * Standalone Material 3 wrapper for a screen, preview, or a new app host. Existing app
+ * chrome can opt in through MyApplicationTheme(tonalTheme = options) so both the
+ * Material and custom glass components share the very same animated role values.
+ * This wrapper deliberately leaves window bars and density to its host.
+ */
+@Composable
+fun TonalMaterialTheme(
+    options: TonalThemeOptions = TonalThemeOptions(),
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    artworkBitmap: Bitmap? = null,
+    animateColors: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val fallback = remember(darkTheme) { if (darkTheme) darkColorScheme() else lightColorScheme() }
+    val scheme = animateTonalColorScheme(rememberTonalColorScheme(options, darkTheme, artworkBitmap, fallback), animateColors)
+    val colors = remember(scheme, darkTheme) { scheme.asAppThemeColors(darkTheme) }
+    CompositionLocalProvider(LocalAppColors provides colors) {
+        MaterialTheme(colorScheme = scheme, typography = Typography, content = content)
+    }
+}
+
+/** System wallpaper colors take precedence over album colors. API 24–30 uses the seed. */
+@Composable
+private fun rememberTonalColorScheme(
+    options: TonalThemeOptions,
+    darkTheme: Boolean,
+    artwork: Bitmap?,
+    fallback: ColorScheme
+): ColorScheme {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val system = remember(context, configuration, options.useSystemDynamicColor, darkTheme) {
+        if (options.useSystemDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            TonalContrast.protect(if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context))
+        } else null
+    }
+    if (system != null) return system
+    val image = artwork.takeIf { options.useAlbumArtwork && !options.useSystemDynamicColor }
+    val generation = if (image != null && !image.isRecycled) image.generationId else 0
+    // Image quantization depends on the image/base seed only, not on the style or
+    // dark-mode switch. Those changes can reuse the extracted seed directly.
+    val seed = if (image == null) options.seedColor else rememberArtworkSeed(image, generation, options.seedColor)
+    val scheme by produceState(
+        ThemePaletteGenerator.cached(seed, darkTheme, options.style) ?: fallback,
+        seed, options.style, darkTheme
+    ) {
+        value = withContext(AppDispatchers.CpuBounded) { ThemePaletteGenerator.generate(seed, darkTheme, options.style) }
+    }
+    return scheme
+}
+
+@Composable
+private fun rememberArtworkSeed(image: Bitmap, generation: Int, baseSeed: Int): Int {
+    val seed by produceState(baseSeed, image, generation, baseSeed) {
+        value = ThemePaletteGenerator.extractHarmonizedSeed(image, baseSeed)
+    }
+    return seed
+}
+
+/**
+ * HCT/bitmap work never happens per animation frame. Only role colors interpolate.
+ * Compose respects Android's animator-duration scale (including reduced motion).
+ * A role's foreground is guarded again each frame: cross-fading black/white text
+ * across a light/dark change must never pass through an unreadable midpoint.
+ */
+@Composable
+internal fun animateTonalColorScheme(target: ColorScheme, animate: Boolean = true): ColorScheme {
+    @Composable fun role(color: Color, name: String): Color = animateColorAsState(
+        color, if (animate) tween(350, easing = FastOutSlowInEasing) else snap(), label = "tonal_$name").value
+    return TonalContrast.protect(target.copy(
+        primary = role(target.primary, "primary"),
+        onPrimary = role(target.onPrimary, "onPrimary"),
+        primaryContainer = role(target.primaryContainer, "primaryContainer"),
+        onPrimaryContainer = role(target.onPrimaryContainer, "onPrimaryContainer"),
+        inversePrimary = role(target.inversePrimary, "inversePrimary"),
+        secondary = role(target.secondary, "secondary"),
+        onSecondary = role(target.onSecondary, "onSecondary"),
+        secondaryContainer = role(target.secondaryContainer, "secondaryContainer"),
+        onSecondaryContainer = role(target.onSecondaryContainer, "onSecondaryContainer"),
+        tertiary = role(target.tertiary, "tertiary"),
+        onTertiary = role(target.onTertiary, "onTertiary"),
+        tertiaryContainer = role(target.tertiaryContainer, "tertiaryContainer"),
+        onTertiaryContainer = role(target.onTertiaryContainer, "onTertiaryContainer"),
+        background = role(target.background, "background"),
+        onBackground = role(target.onBackground, "onBackground"),
+        surface = role(target.surface, "surface"),
+        onSurface = role(target.onSurface, "onSurface"),
+        surfaceVariant = role(target.surfaceVariant, "surfaceVariant"),
+        onSurfaceVariant = role(target.onSurfaceVariant, "onSurfaceVariant"),
+        surfaceTint = role(target.surfaceTint, "surfaceTint"),
+        inverseSurface = role(target.inverseSurface, "inverseSurface"),
+        inverseOnSurface = role(target.inverseOnSurface, "inverseOnSurface"),
+        error = role(target.error, "error"),
+        onError = role(target.onError, "onError"),
+        errorContainer = role(target.errorContainer, "errorContainer"),
+        onErrorContainer = role(target.onErrorContainer, "onErrorContainer"),
+        outline = role(target.outline, "outline"),
+        outlineVariant = role(target.outlineVariant, "outlineVariant"),
+        scrim = role(target.scrim, "scrim"),
+        surfaceDim = role(target.surfaceDim, "surfaceDim"),
+        surfaceBright = role(target.surfaceBright, "surfaceBright"),
+        surfaceContainerLowest = role(target.surfaceContainerLowest, "surfaceContainerLowest"),
+        surfaceContainerLow = role(target.surfaceContainerLow, "surfaceContainerLow"),
+        surfaceContainer = role(target.surfaceContainer, "surfaceContainer"),
+        surfaceContainerHigh = role(target.surfaceContainerHigh, "surfaceContainerHigh"),
+        surfaceContainerHighest = role(target.surfaceContainerHighest, "surfaceContainerHighest")
+    ))
+}
+
+/** Adapter for the app's existing glass controls; no separate competing accent palette. */
+internal fun ColorScheme.asAppThemeColors(
+    dark: Boolean,
+    dynamicAlbumGlow: Boolean = true,
+    highContrastTypography: Boolean = false
+): AppThemeColors = AppThemeColors(
+    isDark = dark,
+    screenBackground = Brush.verticalGradient(listOf(background, background)),
+    scaffoldBackground = background,
+    cardBackground = surfaceContainer,
+    cardBackgroundElevated = surfaceContainerHigh,
+    cardBorder = outlineVariant,
+    textPrimary = onSurface,
+    textSecondary = onSurfaceVariant,
+    textMuted = onSurfaceVariant,
+    primaryAccent = primary,
+    secondaryAccent = secondary,
+    bottomBarBackground = surfaceContainer,
+    bottomBarIndicator = primaryContainer,
+    bottomBarSelectedIcon = primary,
+    bottomBarUnselectedIcon = onSurfaceVariant,
+    miniPlayerBackground = Brush.horizontalGradient(listOf(surfaceContainer, surfaceContainerHigh)),
+    miniPlayerBorder = outlineVariant,
+    inputBackground = surfaceContainerHighest,
+    chipBackground = surfaceContainerHigh,
+    chipBorder = outlineVariant,
+    dividerColor = outlineVariant,
+    dynamicAlbumGlow = dynamicAlbumGlow,
+    highContrastTypography = highContrastTypography,
+    neutralSurfaces = true,
+    tonalPalette = TonalThemeColors(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        tertiary = tertiary,
+        onTertiary = onTertiary,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceVariant,
+        surfaceContainerLowest = surfaceContainerLowest,
+        surfaceContainerLow = surfaceContainerLow,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        surfaceDim = surfaceDim,
+        surfaceBright = surfaceBright,
+        outline = outline,
+        outlineVariant = outlineVariant
+    )
+)
