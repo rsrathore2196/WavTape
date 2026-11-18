@@ -52,8 +52,15 @@ class AvatarCropPageUiTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("avatar_crop_viewport").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("avatar_crop_viewport").performTouchInput { swipeLeft() }
         assertNull(submitted)
-        compose.onNodeWithTag("avatar_crop_rotate").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("avatar_crop_submit").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("avatar_crop_rotate").assertIsDisplayed()
+        compose.onNodeWithTag("avatar_crop_submit").assertIsDisplayed()
+        val pageBottom = compose.onNodeWithTag("avatar_crop_page").getBoundsInRoot().bottom
+        val rotateBottom = compose.onNodeWithTag("avatar_crop_rotate").getBoundsInRoot().bottom
+        val submitBottom = compose.onNodeWithTag("avatar_crop_submit").getBoundsInRoot().bottom
+        assertTrue("Expected Rotate bottom clearance >= 28dp, was ${pageBottom - rotateBottom}", (pageBottom - rotateBottom).value >= 27.5f)
+        assertTrue("Expected Submit bottom clearance >= 28dp, was ${pageBottom - submitBottom}", (pageBottom - submitBottom).value >= 27.5f)
+        compose.onNodeWithTag("avatar_crop_rotate").performClick()
+        compose.onNodeWithTag("avatar_crop_submit").performClick()
         compose.waitUntil(5_000) { submitted != null }
         assertEquals(1, submitted!!.quarterTurns)
         compose.onNodeWithTag("avatar_crop_page").assertDoesNotExist()
@@ -71,6 +78,11 @@ class AvatarCropPageUiTest {
         compose.onNodeWithTag("avatar_crop_viewport").assertIsDisplayed()
         compose.onNodeWithTag("avatar_crop_rotate").assertIsDisplayed()
         compose.onNodeWithTag("avatar_crop_submit").assertIsDisplayed()
+        val pageBottom = compose.onNodeWithTag("avatar_crop_page").getBoundsInRoot().bottom
+        val rotateBottom = compose.onNodeWithTag("avatar_crop_rotate").getBoundsInRoot().bottom
+        val submitBottom = compose.onNodeWithTag("avatar_crop_submit").getBoundsInRoot().bottom
+        assertTrue("Expected landscape Rotate bottom clearance >= 28dp, was ${pageBottom - rotateBottom}", (pageBottom - rotateBottom).value >= 27.5f)
+        assertTrue("Expected landscape Submit bottom clearance >= 28dp, was ${pageBottom - submitBottom}", (pageBottom - submitBottom).value >= 27.5f)
         compose.onNodeWithTag("avatar_crop_cancel").assertIsDisplayed().performClick()
         compose.onNodeWithTag("avatar_crop_page").assertDoesNotExist()
         assertEquals(0, submitted)

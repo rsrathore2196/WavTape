@@ -1,7 +1,10 @@
 package com.example.ui.components
 
+import android.app.Activity
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -24,11 +27,18 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.example.data.local.AvatarCropTransform
 import com.example.data.local.AvatarImageStore
 import com.example.performance.AppDispatchers
@@ -91,10 +101,57 @@ internal fun AvatarCropPage(
     DisposableEffect(sourceState) {
         onDispose { sourceState.value?.release() }
     }
+    val hostWindow = remember(context) {
+        generateSequence(context) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<Activity>().firstOrNull()?.window
+    }
+    val hostSafePadding = WindowInsets.safeDrawing.asPaddingValues()
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        DisposableEffect(dialogWindow) {
+            dialogWindow?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                ViewCompat.requestApplyInsets(window.decorView)
+            }
+            onDispose { }
+        }
+        val density = LocalDensity.current
+        val layoutDirection = LocalLayoutDirection.current
+        val dialogSafePadding = WindowInsets.safeDrawing.asPaddingValues()
+        val activityInsets = hostWindow?.decorView?.let { decor ->
+            ViewCompat.getRootWindowInsets(decor)?.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+        }
+        val safeStart = maxOf(
+            dialogSafePadding.calculateStartPadding(layoutDirection),
+            hostSafePadding.calculateStartPadding(layoutDirection),
+            with(density) { (activityInsets?.left ?: 0).toDp() }
+        )
+        val safeTop = maxOf(
+            dialogSafePadding.calculateTopPadding(),
+            hostSafePadding.calculateTopPadding(),
+            with(density) { (activityInsets?.top ?: 0).toDp() }
+        )
+        val safeEnd = maxOf(
+            dialogSafePadding.calculateEndPadding(layoutDirection),
+            hostSafePadding.calculateEndPadding(layoutDirection),
+            with(density) { (activityInsets?.right ?: 0).toDp() }
+        )
+        val safeBottom = maxOf(
+            dialogSafePadding.calculateBottomPadding(),
+            hostSafePadding.calculateBottomPadding(),
+            with(density) { (activityInsets?.bottom ?: 0).toDp() }
+        )
         Surface(color = colors.scaffoldBackground, modifier = Modifier.fillMaxSize().testTag("avatar_crop_page")) {
-            Column(Modifier.fillMaxSize().systemBarsPadding().padding(20.dp)) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(start = safeStart, top = safeTop, end = safeEnd, bottom = safeBottom)
+                    .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 28.dp)
+            ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Adjust your photo", style = MaterialTheme.typography.titleLarge,
