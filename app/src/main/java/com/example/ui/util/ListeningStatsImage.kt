@@ -93,7 +93,7 @@ internal object ListeningStatsImage {
             val directory = File(context.cacheDir, "listening-stats").apply { check(isDirectory || mkdirs()) }
             val expiry = System.currentTimeMillis() - 86_400_000L
             directory.listFiles()?.filter { it.isFile && it.lastModified() < expiry }?.forEach { it.delete() }
-            file = File.createTempFile("Xtreme-Player-" + request.period.label + "-", ".png", directory)
+            file = File.createTempFile("WavTape-" + request.period.label + "-", ".png", directory)
             file.outputStream().use { check(checkNotNull(bitmap).compress(Bitmap.CompressFormat.PNG, 100, it)) { "Stats image could not be saved" } }
             ensureActive()
             file
@@ -124,7 +124,7 @@ internal object ListeningStatsImage {
             put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             if (Build.VERSION.SDK_INT >= 29) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Xtreme Player")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/WavTape")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -208,30 +208,23 @@ internal object ListeningStatsImage {
     }
 
     private fun drawOriginalBrand(canvas: Canvas, context: Context, accent: Int) {
-        // Use the onboarding drawable itself, without cropping or replacing its artwork.
-        context.getDrawable(R.drawable.ic_onboarding_logo)?.mutate()?.let {
-            // Recolour its existing shading, rather than flattening the hollow logo with a solid tint.
-            val r = Color.red(accent) / (255f * .65f)
-            val g = Color.green(accent) / (255f * .65f)
-            val b = Color.blue(accent) / (255f * .65f)
-            it.colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-                .2126f * r, .7152f * r, .0722f * r, 0f, 0f,
-                .2126f * g, .7152f * g, .0722f * g, 0f, 0f,
-                .2126f * b, .7152f * b, .0722f * b, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f
-            )))
-            it.setBounds(428, 68, 556, 196)
-            canvas.save()
-            canvas.scale(.9f, .9f, 492f, 132f)
-            it.draw(canvas)
-            canvas.restore()
+        // Preserve the supplied WavTape ribbon's colors and transparent cutouts.
+        context.getDrawable(R.drawable.wavtape_logo)?.let { logo ->
+            val aspect = logo.intrinsicWidth.toFloat() / logo.intrinsicHeight.coerceAtLeast(1)
+            val width = minOf(128f, 128f * aspect)
+            val height = width / aspect.coerceAtLeast(.01f)
+            val left = 492f - width / 2f
+            val top = 132f - height / 2f
+            logo.setBounds(left.toInt(), top.toInt(), (left + width).toInt(), (top + height).toInt())
+            logo.draw(canvas)
         }
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = 26f; typeface = brandTypeface; letterSpacing = 1f / 26f; color = accent
         }
-        canvas.drawText("XTREME", 547f, 130f, paint)
+        canvas.drawText("Wav", 559f, 143f, paint)
+        val second = 559f + paint.measureText("Wav")
         paint.color = Color.WHITE
-        canvas.drawText("PLAYER", 547f, 157f, paint)
+        canvas.drawText("Tape", second, 143f, paint)
     }
 
     internal fun wrappedFeatureName(value: String): StaticLayout = wrappedText(value, 22f, Color.WHITE, true)

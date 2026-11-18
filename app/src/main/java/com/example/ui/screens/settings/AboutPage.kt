@@ -113,14 +113,14 @@ fun AboutPage(
                     primaryAccent = accentColor,
                     secondaryAccent = appColors.secondaryAccent,
                     cutoutColor = appColors.cardBackground,
-                    contentDescriptionText = "Xtreme Player Logo",
+                    contentDescriptionText = "WavTape Logo",
                     showGlow = false
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Xtreme Player",
+                    text = "WavTape",
                     fontWeight = FontWeight.Black,
                     fontSize = 26.sp,
                     letterSpacing = (-0.5).sp,
@@ -267,7 +267,7 @@ fun AboutPage(
                                     if (result is com.example.updater.UpdateStatus.UpToDate) {
                                         Toast.makeText(
                                             context,
-                                            "Xtreme Player is up to date (v$APP_VERSION)",
+                                            "WavTape is up to date (v$APP_VERSION)",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     } else if (result is com.example.updater.UpdateStatus.Error) {
@@ -907,7 +907,7 @@ fun SupportDonationCard(
                             }
                             val amountInt = amountDigits.toIntOrNull()
 
-                            val baseUpiUrl = "upi://pay?pa=$upiId&pn=Xtreme%20Player&tn=Support%20Xtreme%20Player%20Development&cu=INR"
+                            val baseUpiUrl = "upi://pay?pa=$upiId&pn=WavTape&tn=Support%20WavTape%20Development&cu=INR"
                             val finalUpiUrl = if (amountInt != null && amountInt > 0) {
                                 "$baseUpiUrl&am=$amountInt"
                             } else {

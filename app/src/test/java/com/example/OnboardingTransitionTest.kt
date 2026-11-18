@@ -92,7 +92,7 @@ class OnboardingTransitionTest {
         var completedName: String? = null
         compose.setContent { OnboardingScreen(onComplete = { name, _, _, _, _ -> completedName = name }) }
         compose.onNodeWithTag("onboarding_brand_logo").assertIsDisplayed()
-            .assertContentDescriptionEquals("Xtreme Player Logo")
+            .assertContentDescriptionEquals("WavTape Logo")
         compose.onNodeWithText("Real Time Synced Lyrics").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("start_listening_button").performScrollTo().assertIsDisplayed()
         compose.mainClock.autoAdvance = false

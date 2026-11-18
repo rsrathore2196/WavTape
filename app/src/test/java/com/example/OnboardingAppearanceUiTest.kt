@@ -37,32 +37,36 @@ class OnboardingAppearanceUiTest {
     @Test fun blackOnboardingRetainsTheDarkThemesAccentAndProfileChoices() = verify(false)
     @Test fun blackOnboardingRetainsTheLightThemesAccentAndProfileChoices() = verify(true)
 
-    @Test fun bothLogosFollowChangesToTheActiveAccent() {
+    @Test fun bothLogosKeepTheSuppliedCyanBlueBrandAcrossThemeChanges() {
         val purple = DarkAppColors.copy(primaryAccent = Color(0xFFDD44EE), secondaryAccent = Color(0xFFB52CD1))
         val green = DarkAppColors.copy(primaryAccent = Color(0xFF33DD77), secondaryAccent = Color(0xFF22BB66))
         var colors by mutableStateOf(purple)
         compose.setContent { MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors) {
             OnboardingScreen(onComplete = { _, _, _, _, _ -> })
         } } }
-        fun assertHue(tag: String, greenAccent: Boolean) {
-            val file = File("/tmp/$tag-${if (greenAccent) "green" else "purple"}.png")
+        fun logoPixels(tag: String, name: String): IntArray {
+            val file = File("/tmp/$tag-$name.png")
             compose.onNodeWithTag(tag).captureRoboImage(file.absolutePath, RoborazziOptions(taskType = RoborazziTaskType.Record))
             val image = ImageIO.read(file)
-            var matched = 0
+            var blue = 0
+            var cyan = 0
             for (y in 0 until image.height) for (x in 0 until image.width) {
                 val pixel = java.awt.Color(image.getRGB(x, y))
-                if (if (greenAccent) pixel.green > pixel.red * 1.5 && pixel.green > pixel.blue * 1.2
-                    else pixel.red > pixel.green * 1.5 && pixel.blue > pixel.green * 1.5) matched++
+                if (pixel.blue > pixel.red + 35 && pixel.blue > pixel.green + 20) blue++
+                if (pixel.green > pixel.red + 40 && pixel.blue > pixel.red + 40) cyan++
             }
-            assertTrue("The actual logo pixels must follow the current accent", matched > 30)
+            assertTrue("WavTape's supplied blue and cyan colors must remain visible", blue > 30 && cyan > 30)
+            return image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
         }
-        assertHue("onboarding_brand_logo", false)
+        val welcome = logoPixels("onboarding_brand_logo", "purple-theme")
         compose.runOnIdle { colors = green }
-        assertHue("onboarding_brand_logo", true)
+        assertArrayEquals("Theme accents must not recolor the supplied logo", welcome,
+            logoPixels("onboarding_brand_logo", "green-theme"))
         compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
-        assertHue("onboarding_details_logo", true)
+        val details = logoPixels("onboarding_details_logo", "green-theme")
         compose.runOnIdle { colors = purple }
-        assertHue("onboarding_details_logo", false)
+        assertArrayEquals("Both onboarding pages use the same brand artwork", details,
+            logoPixels("onboarding_details_logo", "purple-theme"))
     }
 
     private fun verify(light: Boolean) {
@@ -93,12 +97,12 @@ class OnboardingAppearanceUiTest {
         compose.onNodeWithText("Redefining High Fidelity").assertIsDisplayed()
         compose.onNodeWithText("WELCOME TO YOUR MUSIC").assertDoesNotExist()
         compose.onNodeWithTag("onboarding_brand_logo").assertIsDisplayed()
-        assertEquals("Brand accent must be inherited, not substituted", inherited.primaryAccent, textColor("Xtreme"))
+        assertEquals("Brand accent must be inherited, not substituted", inherited.primaryAccent, textColor("WavTape"))
         assertCanvas("welcome")
         compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
         compose.onNodeWithText("Make it yours.").assertDoesNotExist()
         compose.onNodeWithTag("onboarding_details_logo").assertWidthIsEqualTo(70.4.dp).assertHeightIsEqualTo(70.4.dp)
-        for (brand in listOf("Xtreme", "Player")) {
+        for (brand in listOf("WavTape")) {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(brand).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertEquals(26.4.sp, layouts.single().layoutInput.style.fontSize)

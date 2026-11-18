@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Xtreme Player</string>
+    <string name="app_name">WavTape</string>
     <string name="lyrics_offset">Lyrics Offset</string>
     <string name="lyrics_offset_desc">Adjust lyrics sync timing to match vocals</string>
     <string name="lyrics_offset_reset">Reset</string>

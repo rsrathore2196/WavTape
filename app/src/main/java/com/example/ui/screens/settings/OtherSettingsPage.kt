@@ -691,7 +691,7 @@ fun OtherSettingsPage(
             onDismissRequest = { showHighPerformanceConfirmation = false },
             title = { Text("Enable High Performance?") },
             text = {
-                Text("Xtreme Player will request your selected display refresh rate and disable Android's frame-rate power-saving balance where supported. Higher refresh rates can increase battery use, heat and CPU/GPU load. Android may still reduce the rate for thermal, battery or system limits.")
+                Text("WavTape will request your selected display refresh rate and disable Android's frame-rate power-saving balance where supported. Higher refresh rates can increase battery use, heat and CPU/GPU load. Android may still reduce the rate for thermal, battery or system limits.")
             },
             confirmButton = {
                 TextButton(onClick = {

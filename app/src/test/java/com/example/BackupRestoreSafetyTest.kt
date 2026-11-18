@@ -48,6 +48,14 @@ class BackupRestoreSafetyTest {
             .put("libraryTracks", JSONArray(tracks)).put("playlists", JSONArray(playlists))
             .put("playlistTrackRefs", JSONArray(refs))
 
+    @Test fun wavTapeProducerBackupsRestoreWithTheSameValidationAsLegacyBackups() = runBlocking {
+        val json = backup(listOf(song("wavtape-track")), refs = listOf(ref(99, "wavtape-track", 0)))
+            .put("app", "WavTape").put("version", "2.1")
+        val result = BackupRestoreManager.restoreBackup(context, db, rawJson = json.toString())
+        assertTrue(result.message, result.success)
+        assertEquals("Song", db.musicDao().getTrackById("wavtape-track")?.title)
+    }
+
     @Test fun remappedPlaylistIdsCannotConsumeAnotherImportedId() = runBlocking {
         val dao = db.musicDao()
         dao.insertOrUpdateTrack(local)

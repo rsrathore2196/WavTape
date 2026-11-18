@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -111,13 +114,12 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
             // Retain the complete brand at compact widths and larger system text sizes.
             val fontScale = LocalDensity.current.fontScale
             val titleSize = minOf(21f, (maxWidth.value - 12f) / (8.5f * fontScale)).sp
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("XTREME", color = tabHeaderAccentColor(colors.primaryAccent, colors.isDark), fontWeight = FontWeight.Black, fontSize = titleSize,
-                    letterSpacing = 1.sp, maxLines = 1)
-                Spacer(Modifier.width(5.dp))
-                Text("PLAYER", color = foreground, fontWeight = FontWeight.ExtraBold, fontSize = titleSize,
-                    letterSpacing = 1.sp, maxLines = 1)
-            }
+            Text(buildAnnotatedString {
+                withStyle(SpanStyle(color = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
+                    fontWeight = FontWeight.Black)) { append("Wav") }
+                append("Tape")
+            }, color = foreground, fontWeight = FontWeight.ExtraBold, fontSize = titleSize,
+                letterSpacing = 1.sp, maxLines = 1)
         }
         Box(Modifier.size(48.dp)
             .clickable { onOpenSettings?.invoke() }.testTag("top_settings_button"),

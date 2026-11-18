@@ -103,8 +103,12 @@ object BackupRestoreManager {
     // Auto backup location (phone storage path)
     fun getAutoBackupLocation(context: Context): String {
         val downloadFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val defaultPath = "${downloadFolder.absolutePath}/XtremeBackup"
-        return getPrefs(context).getString(KEY_AUTO_BACKUP_LOCATION, defaultPath) ?: defaultPath
+        val defaultPath = "${downloadFolder.absolutePath}/WavTapeBackup"
+        val selected = getPrefs(context).getString(KEY_AUTO_BACKUP_LOCATION, defaultPath) ?: defaultPath
+        // The old automatic public folder required no SAF grant. Treat it as the
+        // renamed default, while keeping explicitly chosen folders/URIs intact.
+        val legacyDefault = File(downloadFolder, "XtremeBackup").absolutePath
+        return if (selected == legacyDefault) defaultPath else selected
     }
 
     fun setAutoBackupLocation(context: Context, location: String) {
@@ -164,7 +168,7 @@ object BackupRestoreManager {
             writeBackupDocument(context, uri, bytes)
             return uri.toString() to uri.toString()
         }
-        val defaultPath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "XtremeBackup").absolutePath
+        val defaultPath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WavTapeBackup").absolutePath
         if (destination != defaultPath) {
             val directory = File(destination).canonicalFile
             val allowed = listOf(context.filesDir, context.getExternalFilesDir(null)).filterNotNull()
@@ -176,7 +180,7 @@ object BackupRestoreManager {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/XtremeBackup")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/WavTapeBackup")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -194,11 +198,14 @@ object BackupRestoreManager {
         val dirs = mutableListOf<File>()
         try {
             val pubDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            dirs.add(File(pubDownloads, "WavTapeBackup"))
             dirs.add(File(pubDownloads, "XtremeBackup"))
         } catch (e: Exception) {}
 
         try {
             val extDir = Environment.getExternalStorageDirectory()
+            dirs.add(File(extDir, "Download/WavTapeBackup"))
+            dirs.add(File(extDir, "download/WavTapeBackup"))
             dirs.add(File(extDir, "Download/XtremeBackup"))
             dirs.add(File(extDir, "download/XtremeBackup"))
         } catch (e: Exception) {}
@@ -215,11 +222,14 @@ object BackupRestoreManager {
         return dirs.distinctBy { it.absolutePath }
     }
 
+    private fun isSupportedBackupApp(name: String): Boolean =
+        name.equals("WavTape", true) || name.equals("Xtreme Player", true)
+
     /** Read the same bounded preview for physical files, MediaStore and selected folders.
      * Full row/schema validation still belongs to restore, before any mutation. */
     private fun backupCounts(open: () -> java.io.InputStream?): Pair<Int, Int>? = try {
         val root = open()?.let { JSONObject(readBackupText(it)) }
-        if (root == null || root.has("app") && !root.optString("app").equals("Xtreme Player", true)) null
+        if (root == null || root.has("app") && !isSupportedBackupApp(root.optString("app"))) null
         else {
             val arrays = listOf("playlists", "libraryTracks", "tracks", "favoriteTracks", "listeningStats")
             val hasData = arrays.any { root.optJSONArray(it) != null } || root.optJSONObject("userProfile") != null
@@ -249,7 +259,7 @@ object BackupRestoreManager {
             val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             if (downloadDir.exists()) {
                 val dlFiles = downloadDir.listFiles { f ->
-                    f.extension.equals("json", ignoreCase = true) && f.name.startsWith("Xtreme", ignoreCase = true)
+                    f.extension.equals("json", ignoreCase = true) && (f.name.startsWith("WavTape", ignoreCase = true) || f.name.startsWith("Xtreme", ignoreCase = true))
                 }
                 if (dlFiles != null) candidateFiles.addAll(dlFiles)
             }
@@ -284,7 +294,8 @@ object BackupRestoreManager {
                     MediaStore.MediaColumns.SIZE,
                     MediaStore.MediaColumns.DATE_MODIFIED
                 )
-                val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'XtremePlayer_Backup%.json'"
+                val selection = "(${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'WavTape_Backup%.json' OR " +
+                    "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'XtremePlayer_Backup%.json')"
                 val cursor = context.contentResolver.query(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     projection,
@@ -389,7 +400,7 @@ object BackupRestoreManager {
             val favoriteTracks = allTracks.filter { it.isLiked }
 
             val rootJson = JSONObject()
-            rootJson.put("app", "Xtreme Player")
+            rootJson.put("app", "WavTape")
             rootJson.put("version", com.example.BuildConfig.VERSION_NAME)
             rootJson.put("schemaVersion", 7)
             rootJson.put("settings", BackupSettings.encode(settings))
@@ -478,7 +489,7 @@ object BackupRestoreManager {
             }
             val timestamp = System.currentTimeMillis()
             val timeFormatted = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date(timestamp))
-            val backupFileName = "XtremePlayer_Backup_$timeFormatted.json"
+            val backupFileName = "WavTape_Backup_$timeFormatted.json"
 
             val bytes = jsonContent.toByteArray(Charsets.UTF_8)
             val (filePath, contentUriString) = saveBackupContent(context, backupFileName, bytes)
@@ -623,7 +634,7 @@ object BackupRestoreManager {
         require(text.isNotBlank()) { "Backup file not found or empty" }
         require(text.length <= MAX_BACKUP_CHARS) { "Backup file is too large" }
         val root = JSONObject(text)
-        if (root.has("app")) require(stringField(root, "app").equals("Xtreme Player", true)) { "Not an Xtreme Player backup" }
+        if (root.has("app")) require(isSupportedBackupApp(stringField(root, "app"))) { "Not a WavTape backup" }
         val schema = longField(root, "schemaVersion", 1L)
         require(schema in 1L..7L) { "Unsupported backup schema version: $schema" }
         require(listOf("playlists", "libraryTracks", "tracks", "favoriteTracks", "userProfile", "listeningStats").any(root::has)) {
@@ -694,7 +705,7 @@ object BackupRestoreManager {
         val validParentRefs = refs.filter { it.playlistId in playlistIds }
         require(refs.isEmpty() || root.has("playlists")) { "Backup relationships require a playlists section" }
         require(validParentRefs.size == refs.size ||
-            (root.optString("app").equals("Xtreme Player", true) && root.has("version"))) {
+            (isSupportedBackupApp(root.optString("app")) && root.has("version"))) {
             "Backup contains references to missing playlists"
         }
         require(validParentRefs.all { it.trackId in trackIds }) {

@@ -37,7 +37,7 @@ object ThemeExportManager {
         try {
             val json = JSONObject().apply {
                 put("formatVersion", 1)
-                put("appName", "Xtreme Player")
+                put("appName", "WavTape")
                 put("themeName", state.currentThemeName)
                 put("presetId", state.presetId)
                 put("isPresetDark", state.isPresetDark)
@@ -87,14 +87,14 @@ object ThemeExportManager {
             var savedPath = "backups/$THEME_FILE_NAME"
             ensureActive()
 
-            // 2. Android 10+ MediaStore public Downloads/XtremeBackup mirror
+            // 2. Android 10+ MediaStore public Downloads/WavTapeBackup mirror
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     val resolver = context.contentResolver
                     val contentValues = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, THEME_FILE_NAME)
                         put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/XtremeBackup")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/WavTapeBackup")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                     val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -108,7 +108,7 @@ object ThemeExportManager {
                                 put(MediaStore.MediaColumns.IS_PENDING, 0)
                             }, null, null) > 0) { "Theme could not be published" }
                             published = true
-                            savedPath = "Downloads/XtremeBackup/$THEME_FILE_NAME"
+                            savedPath = "Downloads/WavTapeBackup/$THEME_FILE_NAME"
                         } finally {
                             if (!published) runCatching { resolver.delete(uri, null, null) }
                         }
@@ -120,12 +120,12 @@ object ThemeExportManager {
                 }
             } else {
                 // Pre-Android 10 public directory
-                val publicDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "XtremeBackup")
+                val publicDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WavTapeBackup")
                 try {
                     if (!publicDir.exists()) publicDir.mkdirs()
                     if (publicDir.exists()) {
                         File(publicDir, THEME_FILE_NAME).writeText(jsonString)
-                        savedPath = "Download/XtremeBackup/$THEME_FILE_NAME"
+                        savedPath = "Download/WavTapeBackup/$THEME_FILE_NAME"
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Public dir export skipped: ${e.message}")

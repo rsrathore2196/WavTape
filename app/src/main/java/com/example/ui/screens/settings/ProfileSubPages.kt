@@ -148,7 +148,7 @@ fun EditProfileNameSubPage(
 
                     Column {
                         Text(
-                            text = nameInput.ifBlank { "XTREME LISTENER" }.trim().uppercase(),
+                            text = nameInput.ifBlank { "WAVTAPE LISTENER" }.trim().uppercase(),
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = FontFamily.SansSerif,
                             fontSize = 19.sp,
@@ -690,7 +690,7 @@ fun EditAppLanguageSubPage(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Select the language used for interface text, navigation, and settings throughout Xtreme Player.",
+                    text = "Select the language used for interface text, navigation, and settings throughout WavTape.",
                     fontSize = 12.sp,
                     color = appColors.textMuted
                 )

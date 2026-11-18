@@ -87,7 +87,7 @@ fun ProfileDetailPage(
             ?: CountryData.allCountries.first()
     }
 
-    val displayName = userProfile?.name?.trim()?.ifBlank { "Xtreme Listener" } ?: "Xtreme Listener"
+    val displayName = userProfile?.name?.trim()?.ifBlank { "WavTape Listener" } ?: "WavTape Listener"
     val displayLanguages = userProfile?.languages?.takeIf { it.isNotEmpty() } ?: listOf("English", "Hindi", "Punjabi")
 
     // Dynamic contrast & theme management:

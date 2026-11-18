@@ -172,7 +172,7 @@ fun UpdateNotificationBar(
                 ) {
                     // Top Centre: App Name
                     Text(
-                        text = "Xtreme Player",
+                        text = "WavTape",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.ExtraBold,
                         color = appColors.textPrimary

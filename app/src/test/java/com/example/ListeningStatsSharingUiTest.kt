@@ -172,7 +172,7 @@ class ListeningStatsSharingUiTest {
         org.robolectric.shadows.ShadowContentResolver.registerProviderInternal("media", gallery)
         compose.onNodeWithTag("save_stats_image").performClick()
         compose.waitUntil(5_000) { gallery.published != null }
-        assertEquals("Xtreme-Player-Monthly-Stats.png", gallery.inserted!!.getAsString(android.provider.MediaStore.Images.Media.DISPLAY_NAME))
+        assertEquals("WavTape-Monthly-Stats.png", gallery.inserted!!.getAsString(android.provider.MediaStore.Images.Media.DISPLAY_NAME))
         assertTrue(gallery.bytes.size() > 0)
         assertFalse(gallery.deleted)
         var next = shadowOf(compose.activity).nextStartedActivityForResult

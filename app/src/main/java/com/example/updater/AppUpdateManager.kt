@@ -254,7 +254,7 @@ object AppUpdateManager {
                 session = s
                 persist(app, s) // Reserve the destination before enqueue, allowing recovery of the crash window.
                 val id = withContext(Dispatchers.IO) { manager(app).enqueue(DownloadManager.Request(Uri.parse(updateInfo.apkDownloadUrl))
-                    .setTitle("Xtreme Player v${updateInfo.versionName}").setDescription("Downloading app update")
+                    .setTitle("WavTape v${updateInfo.versionName}").setDescription("Downloading app update")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationUri(Uri.fromFile(external(app, s))).setMimeType("application/vnd.android.package-archive")) }
                 s = s.copy(id = id); session = s; persist(app, s)

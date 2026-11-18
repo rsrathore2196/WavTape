@@ -30,8 +30,18 @@ class BackupDiscoveryTest {
         File(directory, "unrelated.json").writeText("""{"name":"Other data"}""")
         File(directory, "broken.json").writeText("""{"playlists":[""")
         File(directory, "valid.json").writeText("""{"app":"Xtreme Player","schemaVersion":6,"playlists":[],"libraryTracks":[]}""")
+        File(directory, "wavtape.json").writeText("""{"app":"WavTape","schemaVersion":7,"playlists":[],"libraryTracks":[]}""")
         val names = BackupRestoreManager.getAvailableBackups(context).map { it.fileName }
-        assertEquals(listOf("valid.json"), names)
+        assertEquals(setOf("valid.json", "wavtape.json"), names.toSet())
+    }
+
+    @Test fun legacyDefaultFolderUsesTheNewNameWithoutChangingSelectedCustomFolders() {
+        val downloads = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        BackupRestoreManager.setAutoBackupLocation(context, File(downloads, "XtremeBackup").absolutePath)
+        assertEquals(File(downloads, "WavTapeBackup").absolutePath, BackupRestoreManager.getAutoBackupLocation(context))
+        val custom = File(context.filesDir, "my-music-backups").absolutePath
+        BackupRestoreManager.setAutoBackupLocation(context, custom)
+        assertEquals(custom, BackupRestoreManager.getAutoBackupLocation(context))
     }
 
     @Test fun renamedLegacyBackupsRetainTheirTrackAndPlaylistCounts() {

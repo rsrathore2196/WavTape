@@ -122,7 +122,7 @@ class HomeSilentLoadingUiTest {
             compose.onAllNodesWithTag("home_feed_notice").assertCountEquals(0)
             compose.onAllNodesWithText("Retry").assertCountEquals(0)
             compose.onAllNodesWithTag("home_shelf_heading_loading").assertCountEquals(0)
-            compose.onNodeWithText("XTREME").assertExists()
+            compose.onNodeWithText("WavTape").assertExists()
         } finally { compose.runOnUiThread { store.clear(); player.release() }; db.close() }
     }
 }

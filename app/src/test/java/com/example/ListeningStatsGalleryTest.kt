@@ -67,10 +67,10 @@ class ListeningStatsGalleryTest {
         ShadowContentResolver.registerProviderInternal("media", provider)
         val source = image()
         try {
-            val saved = ListeningStatsImage.saveToGallery(app, source, "Xtreme-Player-Monthly-Stats.png")
+            val saved = ListeningStatsImage.saveToGallery(app, source, "WavTape-Monthly-Stats.png")
             assertEquals(provider.destination, saved)
             assertEquals("image/png", provider.inserted!!.getAsString(MediaStore.Images.Media.MIME_TYPE))
-            assertEquals("Pictures/Xtreme Player", provider.inserted!!.getAsString(MediaStore.Images.Media.RELATIVE_PATH))
+            assertEquals("Pictures/WavTape", provider.inserted!!.getAsString(MediaStore.Images.Media.RELATIVE_PATH))
             assertEquals(1, provider.inserted!!.getAsInteger(MediaStore.Images.Media.IS_PENDING))
             assertEquals(0, provider.published!!.getAsInteger(MediaStore.Images.Media.IS_PENDING))
             assertArrayEquals(source.readBytes(), provider.bytes.toByteArray())

@@ -413,8 +413,8 @@ class ExampleUnitTest {
         assertFalse(manager.isAutoBackupEnabled(context))
 
         // Custom backup location configuration
-        manager.setAutoBackupLocation(context, "/storage/emulated/0/Download/XtremeBackup")
-        assertEquals("/storage/emulated/0/Download/XtremeBackup", manager.getAutoBackupLocation(context))
+        manager.setAutoBackupLocation(context, "/storage/emulated/0/Download/MyMusicBackups")
+        assertEquals("/storage/emulated/0/Download/MyMusicBackups", manager.getAutoBackupLocation(context))
     }
 
     @Test
@@ -470,7 +470,7 @@ class ExampleUnitTest {
         val backupFile = java.io.File(backupInfo!!.filePath)
         assertTrue(backupFile.exists())
         val jsonContent = backupFile.readText()
-        assertTrue(jsonContent.contains("Xtreme Player"))
+        assertTrue(jsonContent.contains("WavTape"))
         assertTrue(jsonContent.contains("Kesariya"))
         assertTrue(jsonContent.contains("My Roadtrip Hits"))
 

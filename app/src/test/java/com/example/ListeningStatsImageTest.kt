@@ -113,38 +113,41 @@ class ListeningStatsImageTest {
         } finally { poster.recycle() }
     }
 
-    @Test fun sharedLogoUsesTheOnboardingDrawableAndTheAppNameUsesAccentAndWhite() {
+    @Test fun sharedLogoRetainsTheSuppliedWavTapeColorsAndFitsThePosterBrand() {
         val request = ListeningStatsImageRequest(ListeningSummary(0, 0, emptyList(), emptyList()), ListeningPeriod.WEEKLY, Color.MAGENTA)
         val poster = ListeningStatsImage.render(context, request, "Maya")
-        val expected = Bitmap.createBitmap(174, 174, Bitmap.Config.ARGB_8888)
+        val expected = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888)
         try {
-            val logo = context.getDrawable(R.drawable.ic_onboarding_logo)!!
-            logo.setBounds(0, 0, 192, 192)
+            val logo = context.getDrawable(R.drawable.wavtape_logo)!!
+            val aspect = logo.intrinsicWidth.toFloat() / logo.intrinsicHeight.coerceAtLeast(1)
+            val width = minOf(128f, 128f * aspect)
+            val height = width / aspect.coerceAtLeast(.01f)
+            logo.setBounds((492f - width / 2).toInt(), (132f - height / 2).toInt(),
+                (492f + width / 2).toInt(), (132f + height / 2).toInt())
             android.graphics.Canvas(expected).apply {
-                translate(.6f, .6f); scale(.9f, .9f); logo.draw(this)
+                scale(1.5f, 1.5f); translate(-428f, -68f); logo.draw(this)
             }
             var compared = 0
-            for (y in 1 until 173) for (x in 1 until 168) {
+            for (y in 1 until 191) for (x in 1 until 191) {
                 val color = expected.getPixel(x, y)
-                if (Color.alpha(color) == 255 && Color.alpha(expected.getPixel(x - 1, y)) == 255 &&
-                    Color.alpha(expected.getPixel(x + 1, y)) == 255) {
-                    val actual = poster.getPixel(651 + x, 111 + y)
-                    val shade = ((.2126f * Color.red(color) + .7152f * Color.green(color) + .0722f * Color.blue(color)) / .65f)
-                        .coerceIn(0f, 255f).toInt()
-                    assertTrue("The original logo's shaded artwork must use the selected accent",
-                        kotlin.math.abs(shade - Color.red(actual)) <= 4 && Color.green(actual) <= 3 &&
-                            kotlin.math.abs(shade - Color.blue(actual)) <= 4)
+                if (Color.alpha(color) >= 252 && Color.alpha(expected.getPixel(x - 1, y)) >= 252 &&
+                    Color.alpha(expected.getPixel(x + 1, y)) >= 252) {
+                    val actual = poster.getPixel(642 + x, 102 + y)
+                    assertTrue("The supplied logo retains its original blue/cyan shading without accent tinting",
+                        kotlin.math.abs(Color.red(color) - Color.red(actual)) <= 3 &&
+                            kotlin.math.abs(Color.green(color) - Color.green(actual)) <= 3 &&
+                            kotlin.math.abs(Color.blue(color) - Color.blue(actual)) <= 3)
                     compared++
                 }
             }
-            assertTrue("The smaller onboarding logo must retain its original shape at export resolution", compared > 700)
-            fun countColor(top: Int, bottom: Int, color: Int): Int {
+            assertTrue("The logo remains visible at export resolution", compared > 700)
+            fun countColor(color: Int): Int {
                 var count = 0
-                for (y in top until bottom) for (x in 822 until 1018) if (poster.getPixel(x, y) == color) count++
+                for (y in 170 until 216) for (x in 838 until 1018) if (poster.getPixel(x, y) == color) count++
                 return count
             }
-            assertTrue("XTREME uses the selected accent", countColor(150, 199, Color.MAGENTA) > 100)
-            assertTrue("PLAYER remains white", countColor(203, 243, Color.WHITE) > 100)
+            assertTrue("Wav uses the selected accent", countColor(Color.MAGENTA) > 100)
+            assertTrue("Tape remains white", countColor(Color.WHITE) > 100)
             File("/tmp/listening-stats-updated-brand.png").outputStream().use { poster.compress(Bitmap.CompressFormat.PNG, 100, it) }
         } finally { poster.recycle(); expected.recycle() }
     }

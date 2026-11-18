@@ -605,7 +605,7 @@ fun BackupRestorePage(
 
                 if (availableBackups.isEmpty()) {
                     Text(
-                        text = "No automatic backup files detected in Downloads/XtremeBackup. You can tap the button above to pick a backup file from anywhere in phone storage, or create a backup first.",
+                        text = "No automatic backup files detected in Downloads/WavTapeBackup. You can tap the button above to pick a backup file from anywhere in phone storage, or create a backup first.",
                         fontSize = 12.sp,
                         color = appColors.textMuted,
                         lineHeight = 16.sp
@@ -732,7 +732,7 @@ fun BackupRestorePage(
             },
             text = {
                 Text(
-                    text = "To save backup files directly to your phone storage (in Downloads/XtremeBackup) and restore your music library, Xtreme Player requires storage permission.",
+                    text = "To save backup files directly to your phone storage (in Downloads/WavTapeBackup) and restore your music library, WavTape requires storage permission.",
                     fontSize = 13.sp,
                     color = appColors.textMuted,
                     lineHeight = 18.sp

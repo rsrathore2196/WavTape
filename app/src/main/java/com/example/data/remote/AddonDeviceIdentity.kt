@@ -96,7 +96,7 @@ internal object AddonDeviceIdentity {
         require(payload.isNotEmpty()) { "Request proof payload must not be empty" }
         val keyStore = loadKeyStore()
         val privateKey = keyStore.getKey(KEY_ALIAS, null) as? PrivateKey
-            ?: throw GeneralSecurityException("Xtreme addon device key is not enrolled on this device")
+            ?: throw GeneralSecurityException("WavTape addon device key is not enrolled on this device")
 
         return Signature.getInstance("SHA256withECDSA").run {
             initSign(privateKey)

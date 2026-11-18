@@ -97,6 +97,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -287,7 +290,7 @@ private fun OnboardingContent(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Centered logo in the active theme's accents and app title.
+                        // Centered app logo and title.
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -302,31 +305,19 @@ private fun OnboardingContent(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // App Name "Xtreme Player"
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "Xtreme",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.sp,
-                                        fontSize = 26.4.sp,
-                                        color = primaryAccent
-                                    )
+                            // App Name "WavTape"
+                            Text(
+                                text = buildAnnotatedString {
+                                    append("Wav")
+                                    withStyle(SpanStyle(color = textPrimary)) { append("Tape") }
+                                },
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp,
+                                    fontSize = 26.4.sp,
+                                    color = primaryAccent
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Player",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.sp,
-                                        fontSize = 26.4.sp,
-                                        color = textPrimary
-                                    )
-                                )
-                            }
+                            )
 
                             Spacer(modifier = Modifier.height(4.dp))
 
@@ -894,8 +885,8 @@ internal fun RetainedOnboardingPages(step: OnboardingStep, content: @Composable 
 }
 
 /**
- * Initial startup page shown the first time a user opens Xtreme Player.
- * Displays the big dynamic app logo, the app name "Xtreme Player" directly under the logo,
+ * Initial startup page shown the first time a user opens WavTape.
+ * Displays the big dynamic app logo, the app name "WavTape" directly under the logo,
  * rich studio-quality audio highlights, and new-user/restore actions.
  */
 @Composable
@@ -928,38 +919,26 @@ fun OnboardingStartupPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Keep the launcher geometry, colored with the active theme's accents.
+            // Keep the supplied logo at the existing launcher-sized placement.
             com.example.ui.components.AppDynamicLogo(
                 modifier = Modifier.size(136.dp).testTag("onboarding_brand_logo"),
                 cutoutColor = Color.Black, showGlow = false)
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // App name "Xtreme Player" directly under the logo
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Xtreme",
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp,
-                        fontSize = 34.sp,
-                        color = primaryAccent
-                    )
+            // App name "WavTape" directly under the logo
+            Text(
+                text = buildAnnotatedString {
+                    append("Wav")
+                    withStyle(SpanStyle(color = textPrimary)) { append("Tape") }
+                },
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp,
+                    fontSize = 34.sp,
+                    color = primaryAccent
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Player",
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp,
-                        fontSize = 34.sp,
-                        color = textPrimary
-                    )
-                )
-            }
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 

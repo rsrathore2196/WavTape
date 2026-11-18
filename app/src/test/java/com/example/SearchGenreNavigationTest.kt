@@ -82,7 +82,7 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("search_screen").performTouchInput { swipeUp() }
         assertEquals(header, compose.onNodeWithTag("search_fixed_header").fetchSemanticsNode().boundsInRoot)
         compose.onNodeWithTag("top_settings_button").assertDoesNotExist()
-        compose.onNodeWithText("XTREME").assertDoesNotExist()
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
         compose.onNodeWithText("Search Online Music").assertIsDisplayed()
         val preview = java.io.File("build/reports/accent-adaptation/search-header.png").apply { parentFile.mkdirs() }
         compose.onRoot().captureRoboImage(preview.absolutePath, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))

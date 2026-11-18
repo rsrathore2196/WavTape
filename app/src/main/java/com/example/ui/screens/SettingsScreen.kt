@@ -461,7 +461,7 @@ private fun MainProfilePreviewBar(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = userProfile?.name?.ifBlank { "XTREME LISTENER" }?.trim()?.uppercase() ?: "XTREME LISTENER",
+                    text = userProfile?.name?.ifBlank { "WAVTAPE LISTENER" }?.trim()?.uppercase() ?: "WAVTAPE LISTENER",
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.SansSerif,
                     fontSize = 17.sp,

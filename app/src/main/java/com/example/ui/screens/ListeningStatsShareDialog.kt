@@ -56,7 +56,7 @@ internal fun ListeningStatsShareDialog(request: ListeningStatsImageRequest, onDi
         saving = true; error = null
         scope.launch {
             try {
-                ListeningStatsImage.saveToGallery(app, source, "Xtreme-Player-" + request.period.label + "-Stats.png")
+                ListeningStatsImage.saveToGallery(app, source, "WavTape-" + request.period.label + "-Stats.png")
                 Toast.makeText(context, "Stats image saved to Gallery", Toast.LENGTH_SHORT).show()
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { error = "The image couldn't be saved to Gallery. Please retry." }

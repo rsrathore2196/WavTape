@@ -158,7 +158,7 @@ class HomeAppHeaderUiTest {
         compose.onNodeWithTag("top_settings_button").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
         val header = bounds("home_fixed_header")
         val settings = bounds("top_settings_button")
-        for (word in listOf("XTREME", "PLAYER")) {
+        for (word in listOf("WavTape")) {
             val node = compose.onNodeWithText(word).assertIsDisplayed()
             val measured = layout(node)
             assertEquals(1, measured.lineCount)
@@ -192,9 +192,10 @@ class HomeAppHeaderUiTest {
             assertEquals(actual.green, actual.blue, .03f)
             if (renderedPalette.isDark) assertTrue("Dark glass remains subtle", actual.red < .25f)
             else assertTrue("Light glass must not become a heavy gray slab", actual.red > .75f)
+            val brand = layout(compose.onNodeWithText("WavTape")).layoutInput
             assertEquals(com.example.ui.components.tabHeaderAccentColor(renderedPalette.primaryAccent, renderedPalette.isDark),
-                layout(compose.onNodeWithText("XTREME")).layoutInput.style.color)
-            assertEquals(renderedPalette.textPrimary, layout(compose.onNodeWithText("PLAYER")).layoutInput.style.color)
+                brand.text.spanStyles.single { it.start == 0 && it.end == 3 }.item.color)
+            assertEquals(renderedPalette.textPrimary, brand.style.color)
         }
     }
 }

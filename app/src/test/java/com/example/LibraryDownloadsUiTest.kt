@@ -132,7 +132,7 @@ class LibraryDownloadsUiTest {
         val preview = File("build/reports/accent-adaptation/library-header.png").apply { parentFile.mkdirs() }
         compose.onRoot().captureRoboImage(preview.absolutePath, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
         compose.onNodeWithTag("top_settings_button").assertDoesNotExist()
-        compose.onNodeWithText("XTREME").assertDoesNotExist()
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
         compose.onNodeWithTag("create_playlist_button").assertIsDisplayed().performClick()
         assertEquals(1, creations)
     }

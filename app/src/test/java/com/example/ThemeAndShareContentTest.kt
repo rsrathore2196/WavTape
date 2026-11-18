@@ -36,7 +36,7 @@ class ThemeAndShareContentTest {
     }
     @Test fun shareTextKeepsTrackIdentityExactBulletCopyAndTheUnversionedLatestReleaseLink() {
         val text = buildTrackShareText(MusicTrack("id", "My Song", "My Artist", "", 0, "", ""))
-        assertTrue(text.startsWith("Listening to \"My Song\" by My Artist on Xtreme Player!"))
+        assertTrue(text.startsWith("Listening to \"My Song\" by My Artist on WavTape!"))
         assertEquals(listOf("• Hi Res Lossless Audio Support",
             "• Personalized Home and Recommendations according to your Mood",
             "• Beautiful Liquid Glass Interface with Custom themes",

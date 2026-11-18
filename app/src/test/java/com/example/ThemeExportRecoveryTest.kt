@@ -49,10 +49,11 @@ class ThemeExportRecoveryTest {
 
     @Test fun successfulExportPublishesThePublicRowOnlyAfterWritingTheCompleteTheme() = runTest {
         val result = ThemeExportManager.exportCustomTheme(context, theme).getOrThrow()
-        assertEquals("Downloads/XtremeBackup/customtheme.json", result)
+        assertEquals("Downloads/WavTapeBackup/customtheme.json", result)
         assertEquals(1, provider.inserted!!.getAsInteger(MediaStore.MediaColumns.IS_PENDING))
         assertEquals(0, provider.published!!.getAsInteger(MediaStore.MediaColumns.IS_PENDING))
         assertEquals(theme.currentThemeName, JSONObject(provider.file.readText()).getString("themeName"))
+        assertEquals("WavTape", JSONObject(provider.file.readText()).getString("appName"))
         assertFalse(provider.deleted)
         assertPrivateCopyIntact()
     }
