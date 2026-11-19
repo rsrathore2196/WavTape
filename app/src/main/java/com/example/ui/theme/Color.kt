@@ -100,8 +100,8 @@ fun contrastingContentColor(background: Color): Color {
 }
 
 // Defaults use exactly the same resolver as saved presets and their previews.
-val DarkAppColors = resolveAppThemeColors(true, com.example.data.local.ThemePresets.StudioNight.toCustomThemeState())
-val LightAppColors = resolveAppThemeColors(false, com.example.data.local.ThemePresets.CleanDay.toCustomThemeState())
+val DarkAppColors = resolveAppThemeColors(true, com.example.data.local.ThemePresets.default(true).toCustomThemeState())
+val LightAppColors = resolveAppThemeColors(false, com.example.data.local.ThemePresets.default(false).toCustomThemeState())
 
 val LocalAppColors = compositionLocalOf { DarkAppColors }
 

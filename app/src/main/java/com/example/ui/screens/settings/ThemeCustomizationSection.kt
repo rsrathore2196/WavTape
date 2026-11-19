@@ -94,7 +94,6 @@ import com.example.data.local.ThemeExportManager
 import com.example.data.local.AppThemePreset
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePreferences
-import com.example.data.local.ThemePresets
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassCard
@@ -540,8 +539,7 @@ fun ThemeCustomizationSection(
     onApplyPreset: (AppThemePreset) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenPresets: () -> Unit = {},
-    onOpenCustomTheming: () -> Unit = {},
-    onOpenTonalThemes: () -> Unit = {}
+    onOpenCustomTheming: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -559,7 +557,7 @@ fun ThemeCustomizationSection(
     Column(modifier = modifier.fillMaxWidth()) {
 
         // =====================================================================
-        // CARD 1: Choose Theme Preset (5 Dark & 5 Light Curated Aesthetic Themes)
+        // One palette choice follows the app's selected light/dark appearance.
         // =====================================================================
         Box(
             modifier = Modifier
@@ -609,7 +607,7 @@ fun ThemeCustomizationSection(
                         )
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = "${ThemePresets.allPresets.size} aesthetic presets (${ThemePresets.darkPresets.size} Dark, ${ThemePresets.lightPresets.size} Light)",
+                            text = "9 Material palettes + AMOLED",
                             fontSize = 11.5.sp,
                             color = appColors.textMuted
                         )
@@ -647,24 +645,6 @@ fun ThemeCustomizationSection(
                         modifier = Modifier.padding(top = 3.dp))
                 }
                 Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = "Open Custom Theme Colors",
-                    tint = appColors.textMuted, modifier = Modifier.size(20.dp))
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-
-        Box(Modifier.fillMaxWidth().liquidGlassCard(appColors, shape = RoundedCornerShape(22.dp),
-            elevation = 6.dp, translucency = 0.82f, tintAccent = false)
-            .bouncyClickable(onClick = onOpenTonalThemes).testTag("open_tonal_themes")) {
-            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Default.Palette, contentDescription = null,
-                    tint = LiquidGlass.lightContentColor(appColors, accentColor), modifier = Modifier.size(24.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Tonal Themes", color = appColors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text("Colors, styles & album artwork", color = appColors.textMuted, fontSize = 11.5.sp,
-                        modifier = Modifier.padding(top = 3.dp))
-                }
-                Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = "Open Tonal Themes",
                     tint = appColors.textMuted, modifier = Modifier.size(20.dp))
             }
         }
@@ -1468,332 +1448,6 @@ private fun GradientSelectionDialog(
                                         tint = LiquidGlass.lightContentColor(appColors, accentColor),
                                         modifier = Modifier.size(18.dp)
                                     )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Dialog for choosing Full Theme Presets
- */
-@Composable
-private fun ThemePresetsDialog(
-    currentPresetId: String,
-    currentTheme: String,
-    isDarkMode: Boolean,
-    onDismiss: () -> Unit,
-    onSelectPreset: (AppThemePreset) -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-    val appColors = com.example.ui.theme.LocalAppColors.current
-    val cardBg = appColors.cardBackground
-    val cardBorder = appColors.cardBorder
-    val accentColor = appColors.primaryAccent
-
-    var selectedFilterTab by remember { mutableIntStateOf(0) } // 0: All (10), 1: Dark (5), 2: Light (5)
-
-    val displayedPresets = remember(selectedFilterTab) {
-        when (selectedFilterTab) {
-            1 -> ThemePresets.darkPresets
-            2 -> ThemePresets.lightPresets
-            else -> ThemePresets.allPresets
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = cardBg,
-            border = BorderStroke(1.2.dp, cardBorder),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                // Header
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(accentColor.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Palette,
-                                contentDescription = "Theme Presets",
-                                tint = LiquidGlass.lightContentColor(appColors, accentColor),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Theme Presets",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = appColors.textPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "${ThemePresets.allPresets.size} Curated Aesthetic Studio & Liquid Glass Themes",
-                                fontSize = 11.5.sp,
-                                color = appColors.textMuted
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(appColors.cardBackgroundElevated)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = appColors.textSecondary,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Segmented Filter Tabs: All | Dark | Light
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    val tabs = listOf(
-                        "All (${ThemePresets.allPresets.size})",
-                        "🌙 Dark (${ThemePresets.darkPresets.size})",
-                        "☀️ Light (${ThemePresets.lightPresets.size})"
-                    )
-                    tabs.forEachIndexed { index, label ->
-                        val isTabSelected = selectedFilterTab == index
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isTabSelected) accentColor else appColors.cardBackgroundElevated,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isTabSelected) accentColor else cardBorder
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    selectedFilterTab = index
-                                }
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isTabSelected) appColors.onPrimaryAccent else appColors.textPrimary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                ) {
-                    items(displayedPresets, key = { it.id }) { preset ->
-                        val isSelected = preset.name == currentTheme || preset.id == currentPresetId
-
-                        val presetAccent = remember(preset.accentColorHex) {
-                            try {
-                                Color(android.graphics.Color.parseColor(preset.accentColorHex))
-                            } catch (_: Exception) {
-                                accentColor
-                            }
-                        }
-
-                        val presetCanvas = remember(preset.canvasColorHex) {
-                            try {
-                                Color(android.graphics.Color.parseColor(preset.canvasColorHex))
-                            } catch (_: Exception) {
-                                Color.Black
-                            }
-                        }
-
-                        val presetCard = remember(preset.cardColorHex) {
-                            try {
-                                Color(android.graphics.Color.parseColor(preset.cardColorHex))
-                            } catch (_: Exception) {
-                                Color.DarkGray
-                            }
-                        }
-
-                        val gradientColors = remember(preset.bgGradientColorsHex) {
-                            preset.bgGradientColorsHex.mapNotNull { hex ->
-                                try {
-                                    Color(android.graphics.Color.parseColor(hex))
-                                } catch (_: Exception) {
-                                    null
-                                }
-                            }
-                        }
-
-                        // Card container background adapts to the currently active theme
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) {
-                                    accentColor.copy(alpha = 0.10f)
-                                } else {
-                                    appColors.cardBackgroundElevated
-                                }
-                            ),
-                            border = BorderStroke(
-                                width = if (isSelected) 1.8.dp else 1.dp,
-                                color = if (isSelected) accentColor else cardBorder
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onSelectPreset(preset)
-                                }
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    // Clean Theme Name with NO tint behind/around it
-                                    Text(
-                                        text = preset.name,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) accentColor else appColors.textPrimary,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    if (isSelected) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .clip(CircleShape)
-                                                .background(accentColor),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = "Selected",
-                                                tint = appColors.onPrimaryAccent,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(3.dp))
-
-                                Text(
-                                    text = preset.subtitle,
-                                    fontSize = 11.5.sp,
-                                    color = appColors.textMuted,
-                                    lineHeight = 15.sp
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Modern Visual Palette Preview Row
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    // Swatches
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Canvas color preview
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(presetCanvas)
-                                                .border(1.dp, cardBorder, CircleShape)
-                                        )
-
-                                        // Card color preview
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(presetCard)
-                                                .border(1.dp, cardBorder, CircleShape)
-                                        )
-
-                                        // Accent color preview
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(presetAccent)
-                                                .border(1.dp, cardBorder, CircleShape)
-                                        )
-                                    }
-
-                                    // Gradient preview bar
-                                    if (gradientColors.isNotEmpty()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(10.dp)
-                                                .clip(RoundedCornerShape(5.dp))
-                                                .background(Brush.horizontalGradient(gradientColors))
-                                                .border(0.5.dp, cardBorder, RoundedCornerShape(5.dp))
-                                        )
-                                    }
-
-                                    // Mode label cleanly styled with cardBorder, no dark/light tint overlay
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, cardBorder)
-                                    ) {
-                                        Text(
-                                            text = if (preset.isAmoled) "AMOLED" else if (preset.isDark) "DARK" else "LIGHT",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = appColors.textMuted,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
                                 }
                             }
                         }

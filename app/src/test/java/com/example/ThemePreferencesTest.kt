@@ -34,148 +34,145 @@ class ThemePreferencesTest {
         }
     }
 
-    @Test fun lightAndDarkSelectionsSurviveModeChangesAndRepositoryRecreation() = runBlocking {
-        val dark = ThemePresets.EmeraldNebula.toCustomThemeState()
-        val light = ThemePresets.CherryBlossom.toCustomThemeState()
+    @Test fun selectedThemeKeepsItsIdentityThroughModeChangesAndRepositoryRecreation() = runBlocking {
+        val preset = ThemePresets.allPresets[1]
+        val dark = ThemePresets.forMode(preset, true).toCustomThemeState()
+        val light = ThemePresets.forMode(preset, false).toCustomThemeState()
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
             ThemePreferences.saveThemeSelection(context, AppThemeMode.DARK, dark)
-            assertEquals(ThemePresets.CleanDay.toCustomThemeState(), ThemePreferences.setThemeMode(context, AppThemeMode.LIGHT))
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, light)
+            assertEquals(light, ThemePreferences.setThemeMode(context, AppThemeMode.LIGHT))
             assertEquals(dark, ThemePreferences.setThemeMode(context, AppThemeMode.DARK))
             assertEquals(light, ThemePreferences.setThemeMode(context, AppThemeMode.LIGHT))
+            assertEquals(dark.presetId, light.presetId)
             repository.awaitPendingWrites()
         }
         ReactiveSettingsRepository(app).use { reopened ->
             reopened.preload()
             val context = client(reopened)
+            assertEquals(AppThemeMode.LIGHT, ThemePreferences.getThemeMode(context))
             assertEquals(light, ThemePreferences.getCustomThemeState(context))
             assertEquals(dark, ThemePreferences.setThemeMode(context, AppThemeMode.DARK))
             reopened.awaitPendingWrites()
         }
     }
 
-    @Test fun systemModeUsesTheSavedPaletteForEachBrightnessWithoutOverwritingEither() = runBlocking {
+    @Test fun systemBrightnessChangesUseTheSameThemeWithoutOverwritingTheSelection() = runBlocking {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val day = client(repository)
             val night = client(repository, true)
-            val dark = ThemePresets.VelvetNoir.toCustomThemeState()
-            val light = ThemePresets.SageMist.toCustomThemeState()
-            ThemePreferences.saveThemeSelection(day, AppThemeMode.DARK, dark)
-            ThemePreferences.saveThemeSelection(day, AppThemeMode.LIGHT, light)
-            ThemePreferences.setThemeMode(day, AppThemeMode.SYSTEM)
-            assertEquals(light, ThemePreferences.getCustomThemeState(day))
-            assertEquals(dark, ThemePreferences.getCustomThemeState(night))
-            assertEquals(light, ThemePreferences.getCustomThemeState(day))
-            assertEquals(AppThemeMode.SYSTEM, ThemePreferences.getThemeMode(night))
-            repository.awaitPendingWrites()
-        }
-    }
-
-    @Test fun unchangedLegacyPresetsUpgradeButEditedAndImportedPalettesKeepTheirValues() = runBlocking {
-        ReactiveSettingsRepository(app).use { repository ->
-            repository.preload()
-            val context = client(repository)
             for (preset in ThemePresets.allPresets) {
-                val legacy = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name)).toCustomThemeState()
-                ThemePreferences.saveThemeSelection(context, if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT, legacy)
-                // Old backups predate both per-mode selections and palette versioning.
-                repository.preferences("xtreme_theme_prefs").edit().remove("palette_version").apply()
-                assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
-                val edited = legacy.copy(canvasColorHex = "#121218", bgGradientColorsHex = listOf("#121218", "#121218"))
-                ThemePreferences.saveCustomThemeState(context, edited)
-                assertEquals(edited, ThemePreferences.getCustomThemeState(context))
-                assertEquals(edited, ThemePresets.upgradeLegacy(edited))
-            }
-            val imported = ThemePresets.MinimalIvory.toCustomThemeState().copy(presetId = "imported-palette",
-                currentThemeName = "Imported", canvasColorHex = "#FFF9F0")
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, imported)
-            assertEquals(imported, ThemePreferences.getCustomThemeState(context))
-            assertNull(ThemePresets.findByName(""))
-            repository.awaitPendingWrites()
-        }
-    }
-
-    @Test fun previousNeutralPresetsUpgradeWhileEditedAccentsSurviveReload() = runBlocking {
-        ReactiveSettingsRepository(app).use { repository ->
-            repository.preload()
-            val context = client(repository)
-            for (preset in ThemePresets.allPresets) {
-                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 2)).toCustomThemeState()
-                val mode = if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
-                ThemePreferences.saveThemeSelection(context, mode, previous)
-                repository.preferences("xtreme_theme_prefs").edit().putInt("palette_version", 2).apply()
-                assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
-                val edited = previous.copy(accentColorHex = "#1257E9")
-                ThemePreferences.saveThemeSelection(context, mode, edited)
-                assertEquals(edited, ThemePreferences.getCustomThemeState(context))
-                assertEquals(edited, ThemePresets.upgradeLegacy(edited))
+                val dark = ThemePresets.forMode(preset, true).toCustomThemeState()
+                val light = ThemePresets.forMode(preset, false).toCustomThemeState()
+                ThemePreferences.saveThemeSelection(day, AppThemeMode.SYSTEM, dark)
+                assertEquals(light, ThemePreferences.getCustomThemeState(day))
+                assertEquals(dark, ThemePreferences.getCustomThemeState(night))
+                assertEquals(light, ThemePreferences.getCustomThemeState(day))
+                assertEquals(AppThemeMode.SYSTEM, ThemePreferences.getThemeMode(night))
             }
             repository.awaitPendingWrites()
         }
     }
 
-    @Test fun previousAccentPresetsUpgradeWhileCustomColorsAndSavedModesSurviveReload() = runBlocking {
-        val dark = ThemePresets.StudioNight
-        val light = ThemePresets.CleanDay
-        val previousDark = checkNotNull(ThemePresets.legacyPreset(dark.id, dark.name, version = 6)).toCustomThemeState()
-        val previousLight = checkNotNull(ThemePresets.legacyPreset(light.id, light.name, version = 6)).toCustomThemeState()
+    @Test fun choosingAPresetRetainsTheExistingAppearanceMode() = runBlocking {
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            val preset = ThemePresets.allPresets[4]
+            for (mode in AppThemeMode.entries) {
+                ThemePreferences.setThemeMode(context, mode)
+                ThemePreferences.saveCustomThemeState(context, preset.toCustomThemeState())
+                assertEquals(mode, ThemePreferences.getThemeMode(context))
+                val expected = ThemePresets.forMode(preset, ThemePreferences.isDark(context, mode)).toCustomThemeState()
+                assertEquals(expected, ThemePreferences.getCustomThemeState(context))
+            }
+            repository.awaitPendingWrites()
+        }
+    }
+
+    @Test fun partialCurrentVersionLightSelectionUsesTheLightVariantDefaults() = runBlocking {
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            val preset = ThemePresets.allPresets[3]
+            repository.preferences("xtreme_theme_prefs").edit()
+                .putString("selected_theme_mode", AppThemeMode.LIGHT.storageKey)
+                .putInt("palette_version", ThemePresets.PALETTE_VERSION)
+                .putString("custom_preset_id", preset.id)
+                .putBoolean("custom_preset_is_dark", false)
+                .apply()
+            val expected = ThemePresets.forMode(preset, false).toCustomThemeState()
+            assertEquals(expected, ThemePreferences.getCustomThemeState(context))
+            assertEquals(ThemePresets.forMode(preset, true).toCustomThemeState(),
+                ThemePreferences.setThemeMode(context, AppThemeMode.DARK))
+            repository.awaitPendingWrites()
+        }
+    }
+
+    @Test fun retiredTonalOptionsAreIgnoredAndRemovedOnTheNextThemeSelection() = runBlocking {
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            val palette = ThemePresets.forMode(ThemePresets.allPresets[1], false).toCustomThemeState()
+            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, palette)
+            val preferences = repository.preferences("xtreme_theme_prefs")
+            preferences.edit().putBoolean("tonal_enabled", true)
+                .putInt("tonal_seed_argb", 0xFFFF0000.toInt())
+                .putString("tonal_style", "VIBRANT")
+                .putBoolean("tonal_system_colors", true)
+                .putBoolean("tonal_album_art", true).apply()
+            assertEquals(palette, ThemePreferences.getCustomThemeState(context))
+            assertEquals(AppThemeMode.LIGHT, ThemePreferences.getThemeMode(context))
+
+            val next = ThemePresets.forMode(ThemePresets.allPresets[6], false).toCustomThemeState()
+            ThemePreferences.saveCustomThemeState(context, next)
+            assertEquals(next, ThemePreferences.getCustomThemeState(context))
+            assertEquals(AppThemeMode.LIGHT, ThemePreferences.getThemeMode(context))
+            for (key in listOf("tonal_enabled", "tonal_seed_argb", "tonal_style", "tonal_system_colors", "tonal_album_art")) {
+                assertFalse("Retired option $key must not survive a theme save", preferences.contains(key))
+            }
+            repository.awaitPendingWrites()
+        }
+    }
+
+    @Test fun untouchedPublishedPalettesMigrateButEditedPalettesKeepTheirValues() = runBlocking {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
             val preferences = repository.preferences("xtreme_theme_prefs")
-            for (version in listOf(3, 4, 5, 6)) for (preset in ThemePresets.allPresets) {
-                val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version))
-                assertEquals(previous.id, preset.id)
-                assertEquals(previous.name, preset.name)
-                assertEquals(previous.isDark, preset.isDark)
-                assertEquals(previous.isAmoled, preset.isAmoled)
-                val mode = if (preset.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
-                ThemePreferences.saveThemeSelection(context, mode, previous.toCustomThemeState())
-                preferences.edit().putInt("palette_version", version).apply()
-                assertEquals(preset.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
-                assertEquals(preset.toCustomThemeState(), ThemePresets.upgradeLegacy(previous.toCustomThemeState()))
-                assertNotNull(ThemePresets.tonalPalette(ThemePreferences.getCustomThemeState(context)))
+            for (version in 1..7) for (published in HistoricalThemePresets.allPresets) {
+                val old = checkNotNull(ThemePresets.legacyPreset(published.id, published.name, version))
+                val previous = old.toCustomThemeState()
+                val expected = (if (old.isAmoled) {
+                    checkNotNull(MaterialThemePresets.findById(MaterialThemePresets.AMOLED_ID, old.isDark))
+                } else ThemePresets.default(old.isDark)).toCustomThemeState()
+                val mode = if (old.isDark) AppThemeMode.DARK else AppThemeMode.LIGHT
+                ThemePreferences.saveThemeSelection(context, mode, previous)
+                // Model installations and backups written before the new catalog existed.
+                preferences.edit().apply {
+                    if (version == 1) remove("palette_version") else putInt("palette_version", version)
+                }.apply()
+                assertEquals("${old.name} version $version", expected, ThemePreferences.getCustomThemeState(context))
+                assertEquals(expected, ThemePresets.upgradeLegacy(previous))
+                assertNotNull(ThemePresets.tonalPalette(expected))
+                assertNull(ThemePresets.findById(old.id))
 
-                val edited = previous.toCustomThemeState().copy(secondaryAccentHex = "#F07DE1")
+                val edited = previous.copy(accentColorHex = "#1257E9", secondaryAccentHex = "#F07DE1")
                 ThemePreferences.saveThemeSelection(context, mode, edited)
                 preferences.edit().putInt("palette_version", version).apply()
                 assertEquals(edited, ThemePreferences.getCustomThemeState(context))
                 assertEquals(edited, ThemePresets.upgradeLegacy(edited))
                 assertNull(ThemePresets.tonalPalette(edited))
             }
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.DARK, previousDark)
-            val previousDarkValues = preferences.all.filterKeys { it.startsWith("saved_dark_") }
-            ThemePreferences.saveThemeSelection(context, AppThemeMode.LIGHT, previousLight)
-            // Saving the second mode upgrades the active preset before writing its history.
-            // Restore the complete old snapshot to model a real installation with both modes on v6.
-            val editor = preferences.edit()
-            previousDarkValues.forEach { (key, value) ->
-                when (value) {
-                    is String -> editor.putString(key, value)
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Int -> editor.putInt(key, value)
-                    else -> error("Unexpected theme preference value for $key")
-                }
-            }
-            editor.putInt("palette_version", 6).putInt("saved_dark_palette_version", 6)
-                .putInt("saved_light_palette_version", 6).apply()
+            assertNull(ThemePresets.findByName(""))
             repository.awaitPendingWrites()
-        }
-        ReactiveSettingsRepository(app).use { reopened ->
-            reopened.preload()
-            val context = client(reopened)
-            assertEquals(light.toCustomThemeState(), ThemePreferences.getCustomThemeState(context))
-            assertEquals(dark.toCustomThemeState(), ThemePreferences.setThemeMode(context, AppThemeMode.DARK))
-            assertEquals(light.toCustomThemeState(), ThemePreferences.setThemeMode(context, AppThemeMode.LIGHT))
-            reopened.awaitPendingWrites()
         }
     }
 
     @Test fun versionFiveSnapshotsRetainTheirPublishedValuesForMigration() {
-        for (preset in ThemePresets.allPresets) {
+        for (preset in HistoricalThemePresets.allPresets) {
             val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 5))
             assertEquals("Vibrant", previous.accentShade)
             assertEquals(if (preset.isDark) {
@@ -185,26 +182,26 @@ class ThemePreferencesTest {
                 if (preset.isAmoled) "#000000" else "#171717"
             } else "#F5F5F5", previous.cardColorHex)
         }
-        val dark = checkNotNull(ThemePresets.legacyPreset(ThemePresets.StudioNight.id, "", 5))
+        val dark = checkNotNull(ThemePresets.legacyPreset("dark_studio_night", "", 5))
         assertEquals("Azure Pulse", dark.accentName)
         assertEquals("#4099FF", dark.accentColorHex)
         assertEquals("#66ADFF", dark.secondaryAccentHex)
-        val light = checkNotNull(ThemePresets.legacyPreset(ThemePresets.CleanDay.id, "", 5))
+        val light = checkNotNull(ThemePresets.legacyPreset("light_clean_day", "", 5))
         assertEquals("Cobalt Rush", light.accentName)
         assertEquals("#183FED", light.accentColorHex)
         assertEquals("#1332BE", light.secondaryAccentHex)
-        val amoled = checkNotNull(ThemePresets.legacyPreset(ThemePresets.AmoledPureBlack.id, "", 5))
+        val amoled = checkNotNull(ThemePresets.legacyPreset("dark_amoled_black", "", 5))
         assertEquals("#FFFFFF", amoled.accentColorHex)
         assertEquals("#E0E0E0", amoled.secondaryAccentHex)
     }
 
-    @Test fun editedVersionFiveAndImportedPalettesKeepTheirValuesAndModeHistoryAfterRecreation() = runBlocking {
-        val previous = checkNotNull(ThemePresets.legacyPreset(
-            ThemePresets.StudioNight.id, ThemePresets.StudioNight.name, version = 5)).toCustomThemeState()
+    @Test fun editedHistoricalAndImportedPalettesKeepTheirValuesAndModeHistoryAfterRecreation() = runBlocking {
+        val previous = checkNotNull(ThemePresets.legacyPreset("dark_studio_night", "Studio Night", version = 5))
+            .toCustomThemeState()
         val editedDark = previous.copy(accentColorHex = "#804099FF", secondaryAccentHex = "#40FFAA88",
             canvasColorHex = "#121218", cardColorHex = "#191820",
             bgGradientColorsHex = listOf("#121218", "#16121A"))
-        val importedLight = ThemePresets.CleanDay.toCustomThemeState().copy(
+        val importedLight = ThemePresets.default(false).toCustomThemeState().copy(
             presetId = "imported-palette", currentThemeName = "Imported",
             accentColorHex = "#804A7590", secondaryAccentHex = "#40807068",
             canvasColorHex = "#FFF9F0", cardColorHex = "#FFF2E6",
@@ -241,7 +238,7 @@ class ThemePreferencesTest {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
-            val palette = ThemePresets.CyberpunkNeon.toCustomThemeState()
+            val palette = ThemePresets.allPresets[4].toCustomThemeState()
             val prefs = repository.preferences("xtreme_theme_prefs")
             var mismatches = 0
             val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->

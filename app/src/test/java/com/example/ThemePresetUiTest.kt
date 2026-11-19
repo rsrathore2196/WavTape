@@ -10,15 +10,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.ColorUtils
 import com.example.data.local.ThemePresets
 import com.example.ui.screens.settings.*
 import com.example.ui.theme.*
+import com.example.ui.theme.colorutilities.hct.Hct
 import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -45,9 +48,13 @@ class ThemePresetUiTest {
     }
 
     @Test fun presetSelectionUpdatesTheRenderedPreviewWithoutChangingTheGridNavigation() {
-        var selected by mutableStateOf(ThemePresets.StudioNight)
+        val initial = ThemePresets.allPresets.first()
+        val alternate = ThemePresets.allPresets[4]
+        var selected by mutableStateOf(initial)
+        var dark by mutableStateOf(false)
         compose.setContent {
-            val colors = resolveAppThemeColors(selected.isDark, selected.toCustomThemeState())
+            val active = ThemePresets.forMode(selected, dark)
+            val colors = resolveAppThemeColors(dark, active.toCustomThemeState())
             MaterialTheme(colorScheme = resolveColorScheme(colors.isDark, colors)) {
                 CompositionLocalProvider(LocalAppColors provides LiquidGlass.settingsColors(colors)) {
                     Box(Modifier.fillMaxSize().background(colors.scaffoldBackground)) {
@@ -56,19 +63,39 @@ class ThemePresetUiTest {
                 }
             }
         }
-        compose.onNodeWithText("Light", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("Cherry Blossom").performScrollTo().performClick()
+        compose.onNodeWithText("A palette for every mood").assertDoesNotExist()
+        compose.onNodeWithText("Choose a preset to apply it. Your selection is saved automatically.").assertDoesNotExist()
+        for (filter in listOf("All", "Dark", "Light")) {
+            compose.onNodeWithText(filter, useUnmergedTree = true).assertDoesNotExist()
+        }
+        compose.onNodeWithText(alternate.name).performScrollTo().performClick()
         compose.waitForIdle()
-        assertEquals(ThemePresets.CherryBlossom, selected)
+        assertEquals(ThemePresets.forMode(alternate, false), selected)
         val image = capture("theme_preview_${selected.id}", "light-preset")
-        assertEquals(android.graphics.Color.parseColor(selected.canvasColorHex), image.getRGB(image.width / 2, 6))
-        compose.onNodeWithText("Dark", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("Studio Night").performScrollTo().performClick()
-        assertEquals(ThemePresets.StudioNight, selected)
+        val lightColors = resolveAppThemeColors(false, selected.toCustomThemeState())
+        assertEquals(lightColors.scaffoldBackground.toArgb(), image.getRGB(image.width / 2, 6))
+
+        // Changing appearance mode retains the same selected tile and refreshes its palette.
+        compose.runOnIdle { dark = true }
+        compose.onNodeWithText(alternate.name).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Selected theme", useUnmergedTree = true).assertIsDisplayed()
+        val darkImage = capture("theme_preview_${selected.id}", "dark-preset")
+        val darkVariant = ThemePresets.forMode(alternate, true)
+        val darkColors = resolveAppThemeColors(true, darkVariant.toCustomThemeState())
+        assertEquals(darkColors.scaffoldBackground.toArgb(), darkImage.getRGB(darkImage.width / 2, 6))
+        assertNotEquals(image.getRGB(image.width / 2, 6), darkImage.getRGB(darkImage.width / 2, 6))
+
+        compose.onNodeWithText(initial.name).performScrollTo().performClick()
+        assertEquals(ThemePresets.forMode(initial, true), selected)
     }
 
-    @Test fun settingsUsesNeutralGlassWithReadableLabelsAndFunctionalAccentControls() {
-        var preset by mutableStateOf(ThemePresets.EmeraldNebula)
+    @Test fun settingsUsesTonalGlassWithReadableLabelsAndFunctionalAccentControls() {
+        val themes = listOf(
+            ThemePresets.forMode(ThemePresets.allPresets[1], true),
+            ThemePresets.forMode(ThemePresets.allPresets[3], false),
+            ThemePresets.forMode(ThemePresets.allPresets.last(), true)
+        )
+        var preset by mutableStateOf(themes.first())
         var checked by mutableStateOf(true)
         var opens = 0
         compose.setContent {
@@ -88,7 +115,7 @@ class ThemePresetUiTest {
                 }
             }
         }
-        for (theme in listOf(ThemePresets.EmeraldNebula, ThemePresets.CherryBlossom, ThemePresets.AmoledPureBlack)) {
+        for (theme in themes) {
             compose.runOnIdle { preset = theme }
             val colors = resolveAppThemeColors(theme.isDark, theme.toCustomThemeState())
             val layouts = mutableListOf<TextLayoutResult>()
@@ -99,9 +126,11 @@ class ThemePresetUiTest {
                 theme.isDark -> "settings-dark"
                 else -> "settings-light"
             })
-            // Sample an unoccupied section of the category card: its glass must not pick up the accent hue.
+            // Material neutrals retain a subtle seed tint, without becoming accent-filled cards.
             val pixel = java.awt.Color(image.getRGB(image.width / 2, 12))
-            assertTrue(maxOf(pixel.red, pixel.green, pixel.blue) - minOf(pixel.red, pixel.green, pixel.blue) <= 12)
+            assertTrue("${theme.name}: settings surface keeps low chroma", Hct.fromInt(pixel.rgb).chroma <= 12.0)
+            assertTrue("${theme.name}: labels remain readable on rendered glass",
+                ColorUtils.calculateContrast(colors.textPrimary.toArgb(), pixel.rgb) >= 4.5)
             SettingsCategory.entries.forEach { category ->
                 val file = File.createTempFile("category-icon-", ".png")
                 try {

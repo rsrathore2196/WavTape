@@ -15,24 +15,31 @@ class ThemeAndShareContentTest {
             .map { if (it <= 0.04045) it / 12.92 else ((it + 0.055) / 1.055).pow(2.4) }
         return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
     }
-    @Test fun twentyUniquePresetsSplitEvenlyAndKeepReadableTextAcrossTheirGradients() {
-        assertEquals(20, ThemePresets.allPresets.size)
-        assertEquals(10, ThemePresets.darkPresets.size)
-        assertEquals(10, ThemePresets.lightPresets.size)
-        assertEquals(20, ThemePresets.allPresets.map { it.id }.distinct().size)
-        ThemePresets.allPresets.forEach { theme ->
-            assertSame(theme, ThemePresets.findById(theme.id))
-            val surfaces = listOf(theme.cardColorHex, theme.canvasColorHex) + theme.bgGradientColorsHex +
-                theme.cardGradientColorsHex + theme.bottomSheetGradientColorsHex
-            for (text in listOf(theme.textPrimaryHex, theme.textSecondaryHex, theme.textMutedHex)) for (surface in surfaces) {
-                val a = luminance(text); val b = luminance(surface)
-                val ratio = (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
-                assertTrue("${theme.name}: $text on $surface has contrast $ratio", ratio >= 4.5)
+    @Test fun tenThemeIdentitiesHavePairedReadableDarkAndLightPalettes() {
+        assertEquals(10, ThemePresets.allPresets.size)
+        assertEquals(10, ThemePresets.allPresets.map { it.id }.distinct().size)
+        assertEquals(10, ThemePresets.allPresets.map { it.name }.distinct().size)
+        ThemePresets.allPresets.forEach { canonical ->
+            assertSame(canonical, ThemePresets.findById(canonical.id))
+            for (dark in listOf(false, true)) {
+                val theme = ThemePresets.forMode(canonical, dark)
+                assertEquals(canonical.id, theme.id)
+                assertEquals(canonical.name, theme.name)
+                assertEquals(dark, theme.isDark)
+                val surfaces = listOf(theme.cardColorHex, theme.canvasColorHex) + theme.bgGradientColorsHex +
+                    theme.cardGradientColorsHex + theme.bottomSheetGradientColorsHex
+                for (text in listOf(theme.textPrimaryHex, theme.textSecondaryHex, theme.textMutedHex)) for (surface in surfaces) {
+                    val a = luminance(text); val b = luminance(surface)
+                    val ratio = (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
+                    assertTrue("${theme.name}: $text on $surface has contrast $ratio", ratio >= 4.5)
+                }
+                assertEquals(theme.accentColorHex, theme.toCustomThemeState().accentColorHex)
             }
-            assertEquals(theme.accentColorHex, theme.toCustomThemeState().accentColorHex)
         }
-        assertEquals("#000000", ThemePresets.AmoledPureBlack.canvasColorHex)
-        assertEquals("#000000", ThemePresets.AmoledPureBlack.cardColorHex)
+        val amoled = ThemePresets.allPresets.single { it.isAmoled }
+        assertEquals("#000000", amoled.canvasColorHex)
+        assertEquals("#000000", amoled.cardColorHex)
+        assertFalse(ThemePresets.forMode(amoled, false).isAmoled)
     }
     @Test fun shareTextKeepsTrackIdentityExactBulletCopyAndTheUnversionedLatestReleaseLink() {
         val text = buildTrackShareText(MusicTrack("id", "My Song", "My Artist", "", 0, "", ""))

@@ -112,6 +112,7 @@ class HomeAppHeaderUiTest {
         show(LightAppColors)
         assertGreetingBelowHeader()
         val greeting = compose.onNodeWithTag("home_greeting_text")
+        assertEquals(21.sp * 1.1f, layout(compose.onNodeWithText("WavTape")).layoutInput.style.fontSize)
         assertEquals(16.1.sp * 1.05f, layout(greeting).layoutInput.style.fontSize)
         assertEquals(21.sp * 1.05f, layout(compose.onNodeWithText("RS RATHORE")).layoutInput.style.fontSize)
         val hero = bounds("infinite_radio_hero_card")

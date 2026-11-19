@@ -83,22 +83,15 @@ private fun PaletteFilters(selected: Int, onSelect: (Int) -> Unit) {
 @Composable
 fun ThemePresetsPage(state: CustomThemeState, onApplyPreset: (AppThemePreset) -> Unit) {
     val colors = LocalAppColors.current
-    var filter by rememberSaveable { mutableIntStateOf(0) }
-    val presets = remember(filter) {
-        when (filter) { 1 -> ThemePresets.darkPresets; 2 -> ThemePresets.lightPresets; else -> ThemePresets.allPresets }
+    val presets = remember(colors.isDark) {
+        ThemePresets.allPresets.map { ThemePresets.forMode(it, colors.isDark) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Text("A palette for every mood", color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 8.dp))
-        Text("Choose a preset to apply it. Your selection is saved automatically.", color = colors.textMuted,
-            fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp, bottom = 16.dp))
-        PaletteFilters(filter) { filter = it }
-        Spacer(Modifier.height(16.dp))
         LazyVerticalGrid(columns = GridCells.Adaptive(156.dp), modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(presets, key = { it.id }, contentType = { "theme_preset" }) { preset ->
-                val selected = state.presetId == preset.id && state.currentThemeName == preset.name
+                val selected = state.presetId == preset.id
                 val preview = remember(preset) { resolveAppThemeColors(preset.isDark, preset.toCustomThemeState()) }
                 val accent = preview.primaryAccent
                 val canvas = preview.scaffoldBackground
@@ -112,7 +105,6 @@ fun ThemePresetsPage(state: CustomThemeState, onApplyPreset: (AppThemePreset) ->
                         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Box(Modifier.size(20.dp).clip(CircleShape).background(accent))
-                                Text(if (preset.isDark) "DARK" else "LIGHT", color = foreground.copy(alpha = 0.7f), fontSize = 9.sp)
                             }
                             Row(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)).background(card).padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

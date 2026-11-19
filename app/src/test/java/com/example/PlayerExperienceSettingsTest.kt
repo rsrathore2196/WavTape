@@ -74,17 +74,21 @@ class PlayerExperienceSettingsTest {
         }
     }
     @Test fun highContrastActuallyImprovesTextWithoutChangingPresetSurfaces() {
-        for (preset in ThemePresets.allPresets) {
+        for (preset in ThemePresets.allPresets.flatMap { preset ->
+            listOf(ThemePresets.forMode(preset, false), ThemePresets.forMode(preset, true))
+        }) {
             val normal = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             val enabled = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState(), highContrastTypography = true)
             assertEquals(normal.scaffoldBackground, enabled.scaffoldBackground)
             assertEquals(normal.cardBackground, enabled.cardBackground)
+            assertEquals(normal.cardBackgroundElevated, enabled.cardBackgroundElevated)
             assertEquals(normal.primaryAccent, enabled.primaryAccent)
             assertFalse(normal.highContrastTypography)
             assertTrue(enabled.highContrastTypography)
             for (text in listOf(enabled.textPrimary, enabled.textSecondary, enabled.textMuted)) {
-                for (surface in listOf(enabled.scaffoldBackground, enabled.cardBackground)) {
-                    assertTrue("${preset.name} contrast", ColorUtils.calculateContrast(text.toArgb(), surface.toArgb()) >= 7.0)
+                for (surface in listOf(enabled.scaffoldBackground, enabled.cardBackground, enabled.cardBackgroundElevated)) {
+                    assertTrue("${preset.name} (${if (preset.isDark) "dark" else "light"}) contrast",
+                        ColorUtils.calculateContrast(text.toArgb(), surface.toArgb()) >= 7.0)
                 }
             }
         }

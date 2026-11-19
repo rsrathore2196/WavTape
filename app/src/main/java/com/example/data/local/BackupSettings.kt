@@ -6,6 +6,11 @@ import org.json.JSONObject
 
 /** Portable user preferences only. File grants, cache inventories and active deadlines belong to the device. */
 internal object BackupSettings {
+    // Earlier backups may contain these removed appearance options. Discard them
+    // during import; they are neither exported nor restored as active settings.
+    private val retiredThemeKeys = setOf("tonal_enabled", "tonal_seed_argb", "tonal_style",
+        "tonal_system_colors", "tonal_album_art")
+
     private val fields = mapOf(
         AudioEffectsPreferences.STORE to mapOf(AudioEffectsPreferences.KEY to "string"),
         "xtreme_other_settings" to buildMap {
@@ -29,11 +34,6 @@ internal object BackupSettings {
         "lyrics_offset_preferences" to mapOf("global_lyrics_offset_ms" to "int"),
         "xtreme_theme_prefs" to buildMap {
             put("selected_theme_mode", "string")
-            put("tonal_enabled", "boolean")
-            put("tonal_seed_argb", "int")
-            put("tonal_style", "string")
-            put("tonal_system_colors", "boolean")
-            put("tonal_album_art", "boolean")
             for (prefix in listOf("", "saved_dark_", "saved_light_")) {
                 listOf("custom_preset_is_dark", "custom_is_amoled").forEach { put(prefix + it, "boolean") }
                 put(prefix + "palette_version", "int")
@@ -84,29 +84,31 @@ internal object BackupSettings {
             require(store in fields) { "Unknown settings group" }
             val values = json.getJSONObject(store)
             require(values.length() <= 100_000) { "Too many settings" }
-            values.keys().asSequence().associateWith { key ->
-                val expected = type(store, key) ?: error("Unknown setting: $key")
-                val entry = values.getJSONObject(key)
-                require(entry.getString("type") == expected) { "Invalid setting type: $key" }
-                val raw = entry.get("value")
-                when (expected) {
-                    "boolean" -> { require(raw is Boolean) { "Invalid setting: $key" }; raw }
-                    "string" -> {
-                        require(raw is String) { "Invalid setting: $key" }
-                        if (store == AudioEffectsPreferences.STORE) AudioEffectsPreferences.decode(raw,
-                            com.example.playback.AudioEffectsManager.effectsState.value)
-                        raw
+            values.keys().asSequence()
+                .filterNot { store == "xtreme_theme_prefs" && it in retiredThemeKeys }
+                .associateWith { key ->
+                    val expected = type(store, key) ?: error("Unknown setting: $key")
+                    val entry = values.getJSONObject(key)
+                    require(entry.getString("type") == expected) { "Invalid setting type: $key" }
+                    val raw = entry.get("value")
+                    when (expected) {
+                        "boolean" -> { require(raw is Boolean) { "Invalid setting: $key" }; raw }
+                        "string" -> {
+                            require(raw is String) { "Invalid setting: $key" }
+                            if (store == AudioEffectsPreferences.STORE) AudioEffectsPreferences.decode(raw,
+                                com.example.playback.AudioEffectsManager.effectsState.value)
+                            raw
+                        }
+                        "int" -> {
+                            require(raw is Int || raw is Long) { "Invalid setting: $key" }
+                            val number = (raw as Number).toLong()
+                            require(number in Int.MIN_VALUE..Int.MAX_VALUE) { "Invalid setting: $key" }
+                            number.toInt()
+                        }
+                        "long" -> { require(raw is Int || raw is Long) { "Invalid setting: $key" }; (raw as Number).toLong() }
+                        else -> error("Invalid setting type")
                     }
-                    "int" -> {
-                        require(raw is Int || raw is Long) { "Invalid setting: $key" }
-                        val number = (raw as Number).toLong()
-                        require(number in Int.MIN_VALUE..Int.MAX_VALUE) { "Invalid setting: $key" }
-                        number.toInt()
-                    }
-                    "long" -> { require(raw is Int || raw is Long) { "Invalid setting: $key" }; (raw as Number).toLong() }
-                    else -> error("Invalid setting type")
                 }
-            }
         }
     }
 

@@ -7,7 +7,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.unit.dp
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePresets
-import com.example.data.local.ThemeTonePalettes
+import com.example.data.local.MaterialThemePresets
 import com.example.ui.theme.*
 import com.example.ui.util.playerAppearanceColors
 import org.junit.Assert.*
@@ -27,25 +27,26 @@ class ThemePaletteTest {
         assertEquals(color.green, color.blue, .001f)
     }
 
-    private fun color(hex: String): Color = Color(android.graphics.Color.parseColor(hex))
+    private fun variants() = ThemePresets.allPresets.flatMap { preset ->
+        listOf(ThemePresets.forMode(preset, false), ThemePresets.forMode(preset, true))
+    }
 
-    @Test fun everyPresetUsesItsExactTonalMaterialRolesWithReadableContent() {
-        ThemePresets.allPresets.forEach { preset ->
+    @Test fun everyPairedPresetUsesItsMaterialRolesWithReadableContent() {
+        variants().forEach { preset ->
             val state = preset.toCustomThemeState()
-            val tones = if (preset.id == ThemePresets.StudioNight.id) ThemeTonePalettes.studioNight
-                else ThemeTonePalettes.get(preset.accentName, preset.isDark)
+            val tones = checkNotNull(MaterialThemePresets.roles(preset.id, preset.isDark))
             assertEquals(tones, ThemePresets.tonalPalette(state))
             val colors = resolveAppThemeColors(preset.isDark, state)
             assertTrue(colors.neutralSurfaces)
-            assertEquals(if (preset.isAmoled) Color.Black else color(tones.background), colors.scaffoldBackground)
-            assertEquals(if (preset.isAmoled) Color.Black else color(tones.surfaceContainerHigh), colors.cardBackground)
-            assertEquals(color(tones.surfaceContainerHighest), colors.cardBackgroundElevated)
-            assertEquals(color(tones.surfaceContainerHighest), colors.inputBackground)
-            assertEquals(color(tones.surfaceContainerHighest), colors.chipBackground)
-            assertEquals(color(tones.primary), colors.primaryAccent)
-            assertEquals(color(tones.secondary), colors.secondaryAccent)
+            assertEquals(tones.background, colors.scaffoldBackground)
+            assertEquals(tones.surfaceContainerHigh, colors.cardBackground)
+            assertEquals(tones.surfaceContainerHighest, colors.cardBackgroundElevated)
+            assertEquals(tones.surfaceContainerHighest, colors.inputBackground)
+            assertEquals(tones.surfaceContainerHighest, colors.chipBackground)
+            assertEquals(tones.primary, colors.primaryAccent)
+            assertEquals(tones.secondary, colors.secondaryAccent)
             val scheme = resolveColorScheme(preset.isDark, colors)
-            val accentRoles = listOf(
+            val roles = listOf(
                 Triple("primary", tones.primary, scheme.primary),
                 Triple("onPrimary", tones.onPrimary, scheme.onPrimary),
                 Triple("primaryContainer", tones.primaryContainer, scheme.primaryContainer),
@@ -57,30 +58,24 @@ class ThemePaletteTest {
                 Triple("tertiary", tones.tertiary, scheme.tertiary),
                 Triple("onTertiary", tones.onTertiary, scheme.onTertiary),
                 Triple("tertiaryContainer", tones.tertiaryContainer, scheme.tertiaryContainer),
-                Triple("onTertiaryContainer", tones.onTertiaryContainer, scheme.onTertiaryContainer)
-            )
-            accentRoles.forEach { (role, expected, actual) ->
-                assertEquals("${preset.name}: $role", color(expected), actual)
-            }
-            val surfaceRoles = listOf(
-                Triple("background", if (preset.isAmoled) "#000000" else tones.background, scheme.background),
+                Triple("onTertiaryContainer", tones.onTertiaryContainer, scheme.onTertiaryContainer),
+                Triple("background", tones.background, scheme.background),
                 Triple("onBackground", tones.onBackground, scheme.onBackground),
-                Triple("surface", if (preset.isAmoled) "#000000" else tones.surface, scheme.surface),
+                Triple("surface", tones.surface, scheme.surface),
                 Triple("onSurface", tones.onSurface, scheme.onSurface),
                 Triple("surfaceVariant", tones.surfaceVariant, scheme.surfaceVariant),
                 Triple("onSurfaceVariant", tones.onSurfaceVariant, scheme.onSurfaceVariant),
-                Triple("surfaceContainerLowest", if (preset.isAmoled) "#000000" else tones.surfaceContainerLowest, scheme.surfaceContainerLowest),
+                Triple("surfaceContainerLowest", tones.surfaceContainerLowest, scheme.surfaceContainerLowest),
                 Triple("surfaceContainerLow", tones.surfaceContainerLow, scheme.surfaceContainerLow),
                 Triple("surfaceContainer", tones.surfaceContainer, scheme.surfaceContainer),
                 Triple("surfaceContainerHigh", tones.surfaceContainerHigh, scheme.surfaceContainerHigh),
                 Triple("surfaceContainerHighest", tones.surfaceContainerHighest, scheme.surfaceContainerHighest),
-                Triple("surfaceDim", if (preset.isAmoled) "#000000" else tones.surfaceDim, scheme.surfaceDim),
+                Triple("surfaceDim", tones.surfaceDim, scheme.surfaceDim),
                 Triple("surfaceBright", tones.surfaceBright, scheme.surfaceBright),
-                Triple("outline", tones.outline, scheme.outline),
                 Triple("outlineVariant", tones.outlineVariant, scheme.outlineVariant)
             )
-            surfaceRoles.forEach { (role, expected, actual) ->
-                assertEquals("${preset.name}: $role", color(expected), actual)
+            roles.forEach { (role, expected, actual) ->
+                assertEquals("${preset.name} (${preset.isDark}): $role", expected, actual)
             }
             val surfaces = listOf(scheme.background, scheme.surface, scheme.surfaceVariant,
                 scheme.surfaceDim, scheme.surfaceBright, scheme.surfaceContainerLowest,
@@ -93,7 +88,7 @@ class ThemePaletteTest {
                 }
             }
             for (elevation in listOf(0, 1, 6, 24)) {
-                assertEquals("${preset.name}: elevation must preserve the neutral surface role",
+                assertEquals("${preset.name}: elevation must preserve the chosen surface role",
                     scheme.surface, scheme.surfaceColorAtElevation(elevation.dp))
             }
             for ((background, content) in listOf(scheme.primary to scheme.onPrimary,
@@ -109,81 +104,57 @@ class ThemePaletteTest {
         }
     }
 
-    @Test fun allSevenMutedFamiliesAreAvailableInBothModesAndReplaceVersionFiveAccents() {
-        val families = setOf("Crimson", "Violet", "Ocean", "Sage", "Amber", "Rose", "Mono")
-        for (presets in listOf(ThemePresets.darkPresets, ThemePresets.lightPresets)) {
-            assertEquals(families, presets.map { it.accentName }.toSet())
+    @Test fun resolvingAnOppositeBrightnessVariantKeepsTheSelectedThemeIdentity() {
+        for (preset in ThemePresets.allPresets) for (dark in listOf(false, true)) {
+            val matching = ThemePresets.forMode(preset, dark).toCustomThemeState()
+            val opposite = ThemePresets.forMode(preset, !dark).toCustomThemeState()
+            val expected = resolveAppThemeColors(dark, matching)
+            val actual = resolveAppThemeColors(dark, opposite)
+            assertEquals(matching.presetId, opposite.presetId)
+            assertEquals(expected.isAmoled, actual.isAmoled)
+            assertEquals(expected.primaryAccent, actual.primaryAccent)
+            assertEquals(expected.secondaryAccent, actual.secondaryAccent)
+            assertEquals(expected.cardBackground, actual.cardBackground)
+            assertEquals(expected.tonalPalette, actual.tonalPalette)
+            assertEquals(expected.scaffoldBackground, actual.scaffoldBackground)
+            assertEquals(expected.cardBackgroundElevated, actual.cardBackgroundElevated)
+            assertEquals(expected.inputBackground, actual.inputBackground)
+            assertEquals(expected.chipBackground, actual.chipBackground)
+            assertEquals(expected.textPrimary, actual.textPrimary)
+            assertEquals(expected.textSecondary, actual.textSecondary)
+            assertEquals(expected.textMuted, actual.textMuted)
         }
-        val expectedAccents = mapOf(
-            "Crimson" to ("#D0A7A3" to "#775653"),
-            "Violet" to ("#B4ADC5" to "#615B71"),
-            "Ocean" to ("#9FB3C1" to "#4E616D"),
-            "Sage" to ("#A3B69F" to "#526350"),
-            "Amber" to ("#C5AD8C" to "#6F5B40"),
-            "Rose" to ("#CDA7AD" to "#75565C"),
-            "Mono" to ("#B0B0B0" to "#5E5E5E")
-        )
-        for (preset in ThemePresets.allPresets) {
-            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, version = 5))
-            assertEquals(previous.id, preset.id)
-            assertEquals(previous.name, preset.name)
-            assertEquals(previous.isDark, preset.isDark)
-            assertEquals(previous.isAmoled, preset.isAmoled)
-            assertNotEquals(previous.accentColorHex, preset.accentColorHex)
-            assertNotEquals(previous.secondaryAccentHex, preset.secondaryAccentHex)
-            val expected = expectedAccents.getValue(preset.accentName)
-            assertEquals(if (preset.id == ThemePresets.StudioNight.id) "#95B0ED"
-                else if (preset.isDark) expected.first else expected.second, preset.accentColorHex)
-            assertEquals("Tonal", preset.accentShade)
-            val tones = checkNotNull(ThemePresets.tonalPalette(preset.toCustomThemeState()))
-            assertEquals(tones.secondary, preset.secondaryAccentHex)
-            val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
-            assertEquals(color(preset.accentColorHex), colors.primaryAccent)
-            assertEquals(color(preset.secondaryAccentHex), colors.secondaryAccent)
-        }
-        assertEquals(ThemePresets.StudioNight.toCustomThemeState(), CustomThemeState())
+        assertEquals(MaterialThemePresets.DEFAULT_ID, CustomThemeState().presetId)
+        assertEquals(ThemePresets.default(true).toCustomThemeState(), CustomThemeState())
     }
 
-    @Test fun studioNightUpdatesOnlyItsAccentsAndLeavesEveryOtherPresetUntouched() {
-        for (preset in ThemePresets.allPresets) {
-            val previous = checkNotNull(ThemePresets.legacyPreset(preset.id, preset.name, 6))
-            if (preset.id == ThemePresets.StudioNight.id) {
-                assertEquals("#9FB3C1", previous.accentColorHex)
-                assertEquals("#AAB1B7", previous.secondaryAccentHex)
-                assertEquals(previous.copy(accentColorHex = "#95B0ED", secondaryAccentHex = "#77BBC5"), preset)
-                val tones = checkNotNull(ThemePresets.tonalPalette(preset.toCustomThemeState()))
-                assertEquals(ThemeTonePalettes.get("Ocean", true).copy(
-                    primary = "#95B0ED", onPrimary = "#001A42", primaryContainer = "#123368", onPrimaryContainer = "#C3D4FF",
-                    secondary = "#77BBC5", onSecondary = "#001F23", secondaryContainer = "#003B41", onSecondaryContainer = "#9BE0EA",
-                    tertiary = "#95B0ED", onTertiary = "#001A42", tertiaryContainer = "#123368", onTertiaryContainer = "#C3D4FF"
-                ), tones)
+    @Test fun nightInkKeepsNeutralAccentsAndTrueBlackSurfacesOnlyInDarkMode() {
+        val canonical = checkNotNull(ThemePresets.findById(MaterialThemePresets.AMOLED_ID))
+        for (dark in listOf(false, true)) {
+            val state = ThemePresets.forMode(canonical, dark).toCustomThemeState()
+            val colors = resolveAppThemeColors(dark, state)
+            val scheme = resolveColorScheme(dark, colors)
+            listOf(colors.primaryAccent, colors.secondaryAccent, scheme.tertiary).forEach(::neutral)
+            assertEquals(dark, colors.isAmoled)
+            if (dark) {
+                assertEquals(Color.White, colors.primaryAccent)
+                listOf(colors.scaffoldBackground, colors.cardBackground, colors.bottomSheetBackground,
+                    colors.bottomBarBackground, scheme.surface, scheme.surfaceVariant,
+                    scheme.surfaceContainerLowest, scheme.surfaceContainerLow, scheme.surfaceContainer,
+                    scheme.surfaceContainerHigh, scheme.surfaceContainerHighest).forEach {
+                    assertEquals(Color.Black, it)
+                }
             } else {
-                assertEquals("${preset.name} must not change", previous, preset)
-                assertEquals(ThemeTonePalettes.get(preset.accentName, preset.isDark),
-                    ThemePresets.tonalPalette(preset.toCustomThemeState()))
+                assertTrue(colors.scaffoldBackground.luminance() > .9f)
+                assertTrue(contrast(colors.textPrimary, colors.scaffoldBackground) >= 4.5f)
             }
         }
-    }
-
-    @Test fun monoUsesNeutralAccentsInBothModesAndAmoledRetainsBlackSurfaces() {
-        ThemePresets.allPresets.filter { it.accentName == "Mono" }.forEach { preset ->
-            val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
-            for (accent in listOf(colors.primaryAccent, colors.secondaryAccent)) {
-                neutral(accent)
-                assertEquals(color(if (preset.isDark) "#B0B0B0" else "#5E5E5E"), accent)
-            }
-        }
-        val amoled = resolveAppThemeColors(true, ThemePresets.AmoledPureBlack.toCustomThemeState())
-        assertTrue(amoled.isAmoled)
-        assertEquals(Color.Black, amoled.scaffoldBackground)
-        assertEquals(Color.Black, amoled.cardBackground)
-        assertEquals(Color.Black, amoled.bottomSheetBackground)
-        assertEquals(Color.Black, amoled.bottomBarBackground)
-        assertEquals(listOf(ThemePresets.AmoledPureBlack.id), ThemePresets.allPresets.filter { it.isAmoled }.map { it.id })
+        assertEquals(listOf(MaterialThemePresets.AMOLED_ID),
+            ThemePresets.allPresets.filter { it.isAmoled }.map { it.id })
     }
 
     @Test fun gradientContentRemainsReadableAcrossEveryBuiltInAccentPair() {
-        ThemePresets.allPresets.forEach { preset ->
+        variants().forEach { preset ->
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             for (step in 0..10) {
                 val surface = androidx.compose.ui.graphics.lerp(colors.primaryAccent, colors.secondaryAccent, step / 10f)
@@ -193,7 +164,7 @@ class ThemePaletteTest {
     }
 
     @Test fun editingEitherResolvedAccentDiscardsPresetRolesWithoutLosingTheCopiedColors() {
-        for (preset in listOf(ThemePresets.StudioNight, ThemePresets.CleanDay)) {
+        for (preset in listOf(ThemePresets.default(true), ThemePresets.default(false))) {
             val original = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             val originalScheme = resolveColorScheme(preset.isDark, original)
             assertNotNull(original.accentRoles)
@@ -215,7 +186,7 @@ class ThemePaletteTest {
     }
 
     @Test fun highContrastIncludesElevatedSurfacesAndCustomColorsAreNotNeutralized() {
-        ThemePresets.allPresets.forEach { preset ->
+        variants().forEach { preset ->
             val colors = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState(), true)
             val scheme = resolveColorScheme(preset.isDark, colors)
             for (surface in listOf(scheme.background, scheme.surface, scheme.surfaceContainerHighest)) {
@@ -224,7 +195,7 @@ class ThemePaletteTest {
                 }
             }
         }
-        val custom = ThemePresets.CherryBlossom.toCustomThemeState().copy(presetId = "", currentThemeName = "Custom",
+        val custom = ThemePresets.forMode(ThemePresets.allPresets[3], false).toCustomThemeState().copy(presetId = "", currentThemeName = "Custom",
             canvasColorHex = "#FFF0F8", cardColorHex = "#FFF7F2",
             bgGradientColorsHex = listOf("#FFF0F8", "#FFF0F8"))
         val colors = resolveAppThemeColors(false, custom)
@@ -235,7 +206,7 @@ class ThemePaletteTest {
     }
 
     @Test fun settingsRetainsAccentActionsButDoesNotPropagateItsFinishIntoThePlayer() {
-        ThemePresets.allPresets.forEach { preset ->
+        variants().forEach { preset ->
             val original = resolveAppThemeColors(preset.isDark, preset.toCustomThemeState())
             val settings = LiquidGlass.settingsColors(original)
             assertTrue(settings.settingsSurface)

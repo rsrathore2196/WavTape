@@ -553,7 +553,7 @@ class ExampleUnitTest {
     @Test
     fun testAllTenThemePresetsAdaptationAndColors() {
         val allPresets = com.example.data.local.ThemePresets.allPresets
-        assertTrue(allPresets.size >= 10)
+        assertEquals(10, allPresets.size)
 
         for (preset in allPresets) {
             val customTheme = preset.toCustomThemeState()
@@ -569,7 +569,7 @@ class ExampleUnitTest {
             assertNotNull(colors.textPrimary)
             assertNotNull(colors.textMuted)
 
-            if (preset.id == "dark_amoled_black") {
+            if (preset.id == com.example.data.local.MaterialThemePresets.AMOLED_ID) {
                 assertTrue(colors.isAmoled)
                 assertEquals(androidx.compose.ui.graphics.Color(0xFF000000), colors.scaffoldBackground)
             } else {

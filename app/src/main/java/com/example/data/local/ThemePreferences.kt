@@ -3,8 +3,6 @@ package com.example.data.local
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
-import com.example.ui.theme.TonalThemeOptions
-import com.example.ui.theme.PaletteStyle
 
 enum class AppThemeMode(
     val storageKey: String,
@@ -648,7 +646,7 @@ private object LegacyThemePresets {
 }
 
 /** Built-in accents share neutral surfaces; legacy palettes are retained solely for safe migration. */
-object ThemePresets {
+internal object HistoricalThemePresets {
     const val PALETTE_VERSION = 7
 
     private fun neutralPalette(preset: AppThemePreset): AppThemePreset {
@@ -864,63 +862,39 @@ object ThemePresets {
  */
 @Immutable
 data class CustomThemeState(
-    val presetId: String = "dark_studio_night",
-    val currentThemeName: String = "Studio Night",
-    val isPresetDark: Boolean = true,
-    val isAmoled: Boolean = false,
-    val accentName: String = "Ocean",
-    val accentShade: String = "Tonal",
-    val accentColorHex: String = "#95B0ED",
-    val secondaryAccentHex: String = "#77BBC5",
-    val canvasColorName: String = "Soft Obsidian",
-    val canvasColorHex: String = "#0C0C0E",
-    val cardColorName: String = "Tonal Surface",
-    val cardColorHex: String = "#1C1C20",
-    val cardBorderHex: String = "#3B3B3C",
-    val textPrimaryHex: String = "#E4E2E3",
-    val textSecondaryHex: String = "#B9B8B9",
-    val textMutedHex: String = "#B9B8B9",
-    val bgGradientColorsHex: List<String> = listOf("#0C0C0E", "#0C0C0E"),
-    val cardGradientColorsHex: List<String> = listOf("#1C1C20", "#1C1C20"),
-    val bottomSheetGradientColorsHex: List<String> = listOf("#0C0C0E", "#0C0C0E"),
-    val bgGradientName: String = "Tonal Canvas",
-    val cardGradientName: String = "Tonal Surface",
-    val bottomSheetGradientName: String = "Tonal Canvas"
+    val presetId: String = MaterialThemePresets.default(true).id,
+    val currentThemeName: String = MaterialThemePresets.default(true).name,
+    val isPresetDark: Boolean = MaterialThemePresets.default(true).isDark,
+    val isAmoled: Boolean = MaterialThemePresets.default(true).isAmoled,
+    val accentName: String = MaterialThemePresets.default(true).accentName,
+    val accentShade: String = MaterialThemePresets.default(true).accentShade,
+    val accentColorHex: String = MaterialThemePresets.default(true).accentColorHex,
+    val secondaryAccentHex: String = MaterialThemePresets.default(true).secondaryAccentHex,
+    val canvasColorName: String = MaterialThemePresets.default(true).canvasColorName,
+    val canvasColorHex: String = MaterialThemePresets.default(true).canvasColorHex,
+    val cardColorName: String = MaterialThemePresets.default(true).cardColorName,
+    val cardColorHex: String = MaterialThemePresets.default(true).cardColorHex,
+    val cardBorderHex: String = MaterialThemePresets.default(true).cardBorderHex,
+    val textPrimaryHex: String = MaterialThemePresets.default(true).textPrimaryHex,
+    val textSecondaryHex: String = MaterialThemePresets.default(true).textSecondaryHex,
+    val textMutedHex: String = MaterialThemePresets.default(true).textMutedHex,
+    val bgGradientColorsHex: List<String> = MaterialThemePresets.default(true).bgGradientColorsHex,
+    val cardGradientColorsHex: List<String> = MaterialThemePresets.default(true).cardGradientColorsHex,
+    val bottomSheetGradientColorsHex: List<String> = MaterialThemePresets.default(true).bottomSheetGradientColorsHex,
+    val bgGradientName: String = MaterialThemePresets.default(true).bgGradientName,
+    val cardGradientName: String = MaterialThemePresets.default(true).cardGradientName,
+    val bottomSheetGradientName: String = MaterialThemePresets.default(true).bottomSheetGradientName
 )
 
 @Immutable
-data class ThemeSelection(val mode: AppThemeMode, val palette: CustomThemeState,
-    val tonalTheme: TonalThemeOptions? = null)
+data class ThemeSelection(val mode: AppThemeMode, val palette: CustomThemeState)
 
 object ThemePreferences {
     private const val PREFS_NAME = "xtreme_theme_prefs"
     private const val KEY_THEME_MODE = "selected_theme_mode"
-    private const val KEY_TONAL_ENABLED = "tonal_enabled"
-    private const val KEY_TONAL_SEED = "tonal_seed_argb"
-    private const val KEY_TONAL_STYLE = "tonal_style"
-    private const val KEY_TONAL_SYSTEM = "tonal_system_colors"
-    private const val KEY_TONAL_ARTWORK = "tonal_album_art"
+    // Retired source options are removed on the next appearance save; never read or exported.
+    private val retiredTonalKeys = listOf("tonal_enabled", "tonal_seed_argb", "tonal_style", "tonal_system_colors", "tonal_album_art")
 
-    fun getTonalTheme(context: Context): TonalThemeOptions? {
-        val prefs = getPrefs(context)
-        if (!prefs.getBoolean(KEY_TONAL_ENABLED, false)) return null
-        val defaults = TonalThemeOptions()
-        val style = PaletteStyle.entries.find { it.name == prefs.getString(KEY_TONAL_STYLE, null) }
-            ?: PaletteStyle.TONAL_SPOT
-        return TonalThemeOptions(prefs.getInt(KEY_TONAL_SEED, defaults.seedColor), style,
-            prefs.getBoolean(KEY_TONAL_SYSTEM, false), prefs.getBoolean(KEY_TONAL_ARTWORK, false))
-    }
-
-    /** Keep the user's existing palettes intact; publish the new source and mode atomically. */
-    fun saveTonalTheme(context: Context, options: TonalThemeOptions, mode: AppThemeMode) {
-        getPrefs(context).edit().putString(KEY_THEME_MODE, mode.storageKey)
-            .putBoolean(KEY_TONAL_ENABLED, true)
-            .putInt(KEY_TONAL_SEED, options.seedColor)
-            .putString(KEY_TONAL_STYLE, options.style.name)
-            .putBoolean(KEY_TONAL_SYSTEM, options.useSystemDynamicColor)
-            .putBoolean(KEY_TONAL_ARTWORK, options.useAlbumArtwork).apply()
-    }
-    
     private const val KEY_PRESET_ID = "custom_preset_id"
     private const val KEY_PRESET_DARK = "custom_preset_is_dark"
     private const val KEY_AMOLED = "custom_is_amoled"
@@ -963,11 +937,11 @@ object ThemePreferences {
     }
 
     private fun modePrefix(dark: Boolean) = if (dark) "saved_dark_" else "saved_light_"
-    private fun defaultPreset(dark: Boolean) = if (dark) ThemePresets.StudioNight else ThemePresets.CleanDay
+    private fun defaultPreset(dark: Boolean) = ThemePresets.default(dark)
 
     fun setThemeMode(context: Context, mode: AppThemeMode): CustomThemeState {
         val state = getThemeForDarkMode(context, isDark(context, mode))
-        saveThemeSelection(context, mode, state, preserveTonal = true)
+        saveThemeSelection(context, mode, state)
         return state
     }
 
@@ -979,7 +953,8 @@ object ThemePreferences {
         val prefs = getPrefs(context)
         val fallback = defaultPreset(dark)
         val active = readTheme(prefs, "", fallback)
-        return if (active.isPresetDark == dark) active else readTheme(prefs, modePrefix(dark), fallback)
+        return if (ThemePresets.isBuiltIn(active)) ThemePresets.forMode(active, dark)
+            else if (active.isPresetDark == dark) active else readTheme(prefs, modePrefix(dark), fallback)
     }
 
     private fun readTheme(prefs: SharedPreferences, prefix: String, fallback: AppThemePreset): CustomThemeState {
@@ -988,7 +963,8 @@ object ThemePreferences {
         val version = prefs.getInt(prefix + KEY_PALETTE_VERSION, 1)
         val original = if (version < ThemePresets.PALETTE_VERSION)
             ThemePresets.legacyPreset(id.orEmpty(), name.orEmpty(), version) else null
-        val preset = original ?: ThemePresets.findById(id.orEmpty()) ?: fallback
+        val preset = original ?: MaterialThemePresets.findById(id.orEmpty(),
+            prefs.getBoolean(prefix + KEY_PRESET_DARK, fallback.isDark)) ?: fallback
         fun text(key: String, default: String) = prefs.getString(prefix + key, default) ?: default
         fun gradient(key: String, default: List<String>): List<String> =
             prefs.getString(prefix + key, null)?.split(",")?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() } ?: default
@@ -1020,11 +996,11 @@ object ThemePreferences {
     }
 
     /** One optimistic update and one serialized disk write for mode, palette, and per-mode history. */
-    fun saveThemeSelection(context: Context, mode: AppThemeMode, state: CustomThemeState, preserveTonal: Boolean = false) {
+    fun saveThemeSelection(context: Context, mode: AppThemeMode, state: CustomThemeState) {
         val prefs = getPrefs(context)
         val previous = readTheme(prefs, "", defaultPreset(isDark(context, getThemeMode(context))))
         val editor = prefs.edit().putString(KEY_THEME_MODE, mode.storageKey)
-        if (!preserveTonal) editor.putBoolean(KEY_TONAL_ENABLED, false)
+        retiredTonalKeys.forEach(editor::remove)
         writeTheme(editor, previous, modePrefix(previous.isPresetDark))
         writeTheme(editor, state, "")
         writeTheme(editor, state, modePrefix(state.isPresetDark))

@@ -18,8 +18,11 @@ class LightThemeColorsTest {
     private fun contrast(a: Color, b: Color): Float =
         (maxOf(a.luminance(), b.luminance()) + .05f) / (minOf(a.luminance(), b.luminance()) + .05f)
 
-    @Test fun allLightPresetsKeepTextAndStateOutlinesReadableOnTheirActualSurfaces() {
-        ThemePresets.lightPresets.forEach { preset ->
+    @Test fun everyThemeHasAReadableLightVariantOnItsActualGlassSurfaces() {
+        val presets = ThemePresets.allPresets.map { ThemePresets.forMode(it, false) }
+        assertEquals(ThemePresets.allPresets.map { it.id }, presets.map { it.id })
+        assertTrue(presets.none { it.isDark || it.isAmoled })
+        presets.forEach { preset ->
             val original = resolveAppThemeColors(false, preset.toCustomThemeState())
             val colors = LiquidGlass.settingsColors(original)
             val surfaces = listOf(colors.cardBackground, colors.scaffoldBackground) +
@@ -53,7 +56,7 @@ class LightThemeColorsTest {
     }
 
     @Test fun settingsFinishDoesNotChangeDarkAndAmoledPaletteValues() {
-        ThemePresets.darkPresets.forEach { preset ->
+        ThemePresets.allPresets.forEach { preset ->
             val colors = resolveAppThemeColors(true, preset.toCustomThemeState())
             assertEquals(colors.copy(settingsSurface = true), LiquidGlass.settingsColors(colors))
             assertEquals(colors.primaryAccent, LiquidGlass.lightContentColor(colors, colors.primaryAccent))

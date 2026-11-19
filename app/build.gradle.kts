@@ -164,8 +164,8 @@ dependencies {
   implementation(libs.media3.ui)
   implementation(libs.media3.common)
   implementation(libs.media3.datasource)
-  // Bitmap seed extraction. Google HCT/Blend numerics are vendored (Apache-2.0) in
-  // ui/theme/colorutilities; no unpublished Maven coordinate or XML widget library is needed.
+  // Google's HCT numerics for the connected Material palettes are vendored
+  // under ui/theme/colorutilities with their Apache-2.0 license.
   implementation(libs.androidx.palette.ktx)
   implementation("androidx.profileinstaller:profileinstaller:1.4.0")
   implementation("androidx.emoji2:emoji2:1.3.0") // Explicit API for deferred initialization (already present at runtime).

@@ -113,7 +113,7 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
         BoxWithConstraints(Modifier.weight(1f)) {
             // Retain the complete brand at compact widths and larger system text sizes.
             val fontScale = LocalDensity.current.fontScale
-            val titleSize = minOf(21f, (maxWidth.value - 12f) / (8.5f * fontScale)).sp
+            val titleSize = (minOf(21f, (maxWidth.value - 12f) / (8.5f * fontScale)) * 1.1f).sp
             Text(buildAnnotatedString {
                 withStyle(SpanStyle(color = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
                     fontWeight = FontWeight.Black)) { append("Wav") }
