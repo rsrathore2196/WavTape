@@ -82,6 +82,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -138,7 +140,7 @@ private val FEATURED_LANGUAGE_NAMES = listOf(
     "English", "Hindi", "Punjabi", "Spanish", "Korean", "Tamil", "Telugu"
 )
 
-/** First-run surfaces are always black; retain the app's exact theme accents. */
+/** Keep the onboarding controls on their dark surfaces and retain the active theme accents. */
 private fun onboardingColors(colors: AppThemeColors): AppThemeColors = colors.copy(
     isDark = true,
     isAmoled = true,
@@ -154,6 +156,45 @@ private fun onboardingColors(colors: AppThemeColors): AppThemeColors = colors.co
     textSecondary = Color(0xFFD5D9E2),
     textMuted = Color(0xFFAAB1BF)
 )
+
+private fun Modifier.onboardingBackdrop(primary: Color, secondary: Color): Modifier = drawWithCache {
+    val base = Color(0xFF06070B)
+    val canvas = Brush.linearGradient(
+        colors = listOf(
+            primary.copy(alpha = 0.06f).compositeOver(base),
+            base,
+            secondary.copy(alpha = 0.10f).compositeOver(base)
+        ),
+        end = Offset(size.width, size.height)
+    )
+    // Keep the brightest color near the edges so it stays clear of the centered copy.
+    val upperGlow = Brush.radialGradient(
+        0f to primary.copy(alpha = 0.44f),
+        0.38f to primary.copy(alpha = 0.15f),
+        0.74f to primary.copy(alpha = 0.03f),
+        1f to primary.copy(alpha = 0f),
+        center = Offset(size.width * 0.04f, size.height * 0.06f),
+        radius = maxOf(size.width * 0.84f, size.height * 0.46f)
+    )
+    val lowerGlow = Brush.radialGradient(
+        0f to secondary.copy(alpha = 0.38f),
+        0.6f to secondary.copy(alpha = 0.14f),
+        1f to secondary.copy(alpha = 0f),
+        center = Offset(size.width, size.height * 0.88f),
+        radius = maxOf(size.width * 0.86f, size.height * 0.42f)
+    )
+    val sheen = Brush.radialGradient(
+        colors = listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0f)),
+        center = Offset(size.width * 0.17f, -size.height * 0.06f),
+        radius = maxOf(size.width * 0.64f, size.height * 0.28f)
+    )
+    onDrawBehind {
+        drawRect(canvas)
+        drawRect(upperGlow)
+        drawRect(lowerGlow)
+        drawRect(sheen)
+    }
+}
 
 @Composable
 fun OnboardingScreen(
@@ -254,7 +295,7 @@ private fun OnboardingContent(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .onboardingBackdrop(appColors.primaryAccent, appColors.secondaryAccent)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
