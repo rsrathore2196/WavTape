@@ -176,3 +176,12 @@ cd WavTape
 # Build the debug APK
 ./gradlew :app:assembleDebug
 ```
+
+---
+
+<div align="center">
+  <a href="https://github.com/rsrathore2196/WavTape">
+    <img src="assets/branding/wavtape-lockup.png" alt="WavTape" width="280" />
+  </a>
+</div>
+
