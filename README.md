@@ -10,7 +10,7 @@
 
   <!-- Short Overview -->
   <p>
-    <b>WavTape</b> is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity listening experience with studio-grade lossless audio support and extensive customization.
+    <b>WavTape</b> (formerly known as Xtreme Player) is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity listening experience with studio-grade lossless audio support and extensive customization.
   </p>
   <p>
     Stream millions of online tracks in studio-grade <b>Lossless and FLAC high-res audio</b>, manage custom libraries, and enjoy seamless playback without interruptions.
