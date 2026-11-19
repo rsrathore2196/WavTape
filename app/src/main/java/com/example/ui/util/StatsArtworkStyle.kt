@@ -23,20 +23,64 @@ internal fun statsShortTime(millis: Long): String = listeningTime(millis).let {
     it.first + if (millis >= 3_600_000L) " hr" else " min"
 }
 
-/** A rich ink tint of the chosen accent, with the user's card colour underneath. */
+internal fun isLightStatsSurface(surface: Int): Boolean = ColorUtils.calculateLuminance(surface) >= 0.35
+
+/** Moderates decorative accent chroma/tone so ribbons and borders stay balanced on light and dark cards. */
+internal fun statsCardDecorAccent(accent: Color, surface: Color): Color {
+    val accentHct = com.example.ui.theme.colorutilities.hct.Hct.fromInt(accent.toArgb())
+    return if (isLightStatsSurface(surface.toArgb())) {
+        val chroma = if (accentHct.chroma < 6.0) 0.0 else accentHct.chroma.coerceIn(24.0, 52.0)
+        val tone = if (accentHct.chroma < 6.0) 48.0 else accentHct.tone.coerceIn(44.0, 62.0)
+        Color(com.example.ui.theme.colorutilities.hct.Hct.from(accentHct.hue, chroma, tone).toInt())
+    } else {
+        if (accentHct.chroma < 6.0) accent
+        else Color(com.example.ui.theme.colorutilities.hct.Hct.from(
+            accentHct.hue, accentHct.chroma.coerceIn(28.0, 58.0), accentHct.tone.coerceIn(58.0, 78.0)
+        ).toInt())
+    }
+}
+
+/** Theme-adaptive tinted surface for stats cards: soft luminous pastel in light themes, rich velvet ink in dark themes. */
 internal fun statsCardBase(accent: Color, surface: Color): Color {
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(accent.toArgb(), hsv)
-    hsv[1] = hsv[1].coerceAtLeast(.65f)
-    hsv[2] = .10f
-    return Color(ColorUtils.blendARGB(surface.toArgb(), android.graphics.Color.HSVToColor(hsv), .90f))
+    val surfaceArgb = surface.toArgb()
+    val accentHct = com.example.ui.theme.colorutilities.hct.Hct.fromInt(accent.toArgb())
+    val surfaceHct = com.example.ui.theme.colorutilities.hct.Hct.fromInt(surfaceArgb)
+    val achromatic = accentHct.chroma < 6.0
+    return if (isLightStatsSurface(surfaceArgb)) {
+        val target = if (achromatic) {
+            com.example.ui.theme.colorutilities.hct.Hct.from(
+                surfaceHct.hue, surfaceHct.chroma.coerceAtMost(4.0), (surfaceHct.tone - 4.0).coerceIn(88.0, 93.0)
+            ).toInt()
+        } else {
+            com.example.ui.theme.colorutilities.hct.Hct.from(
+                accentHct.hue, (accentHct.chroma * 0.45).coerceIn(12.0, 24.0), 92.5
+            ).toInt()
+        }
+        Color(ColorUtils.blendARGB(surfaceArgb, target, .86f))
+    } else {
+        val target = if (achromatic) {
+            com.example.ui.theme.colorutilities.hct.Hct.from(
+                surfaceHct.hue, surfaceHct.chroma.coerceAtMost(4.0), surfaceHct.tone.coerceIn(10.0, 15.0)
+            ).toInt()
+        } else {
+            com.example.ui.theme.colorutilities.hct.Hct.from(
+                accentHct.hue, (accentHct.chroma * 0.58).coerceIn(14.0, 32.0), (surfaceHct.tone * 0.45 + 9.0).coerceIn(12.0, 17.5)
+            ).toInt()
+        }
+        Color(ColorUtils.blendARGB(surfaceArgb, target, .84f))
+    }
 }
 
 internal fun statsCardHighlight(accent: Color, surface: Color): Color {
-    var amount = .65f
-    while (amount > .15f && ColorUtils.calculateContrast(android.graphics.Color.WHITE,
-            ColorUtils.blendARGB(surface.toArgb(), accent.toArgb(), amount)) < 7.0) amount -= .05f
-    return Color(ColorUtils.blendARGB(surface.toArgb(), accent.toArgb(), amount))
+    val surfaceArgb = surface.toArgb()
+    val light = isLightStatsSurface(surfaceArgb)
+    val decor = statsCardDecorAccent(accent, surface).toArgb()
+    val ink = if (light) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    var amount = if (light) .24f else .44f
+    val floor = if (light) .08f else .14f
+    while (amount > floor && ColorUtils.calculateContrast(ink,
+            ColorUtils.blendARGB(surfaceArgb, decor, amount)) < 7.0) amount -= .04f
+    return Color(ColorUtils.blendARGB(surfaceArgb, decor, amount))
 }
 
 /** Recorded once per size/palette, not rebuilt while scrolling or on every frame. */
@@ -50,8 +94,10 @@ internal fun Modifier.statsCardDecoration(accent: Color, surface: Color): Modifi
 
 private fun alpha(color: Int, amount: Float) = ColorUtils.setAlphaComponent(color, (amount * 255).toInt().coerceIn(0, 255))
 
-/** Same static edge lighting and ribbon detail for the cards and exported artwork. */
+/** Same static edge lighting and ribbon detail for the cards and exported artwork, adapted for light and dark surfaces. */
 internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surface: Int, radius: Float) {
+    val light = isLightStatsSurface(surface)
+    val decor = statsCardDecorAccent(Color(accent), Color(surface)).toArgb()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     val outline = Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) }
     canvas.save()
@@ -60,11 +106,11 @@ internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surf
     canvas.drawRect(bounds, paint)
     val highlight = statsCardHighlight(Color(accent), Color(surface)).toArgb()
     paint.shader = LinearGradient(bounds.left, bounds.top, bounds.right, bounds.bottom,
-        intArrayOf(highlight, surface, ColorUtils.blendARGB(surface, accent, .12f)),
-        floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
+        intArrayOf(highlight, surface, ColorUtils.blendARGB(surface, decor, if (light) .10f else .14f)),
+        floatArrayOf(0f, if (light) .52f else .48f, 1f), Shader.TileMode.CLAMP)
     canvas.drawRect(bounds, paint)
     paint.shader = RadialGradient(bounds.right, bounds.top, bounds.width() * .55f,
-        intArrayOf(alpha(accent, .25f), alpha(accent, 0f)), null, Shader.TileMode.CLAMP)
+        intArrayOf(alpha(decor, if (light) .14f else .22f), alpha(decor, 0f)), null, Shader.TileMode.CLAMP)
     canvas.drawRect(bounds, paint)
     val wave = Path().apply {
         moveTo(bounds.left - bounds.width() * .1f, bounds.bottom)
@@ -75,7 +121,8 @@ internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surf
         close()
     }
     paint.shader = LinearGradient(bounds.left, bounds.bottom, bounds.right, bounds.top + bounds.height() * .65f,
-        intArrayOf(alpha(accent, .02f), alpha(accent, .30f), alpha(accent, .07f)), null, Shader.TileMode.CLAMP)
+        intArrayOf(alpha(decor, if (light) .03f else .02f), alpha(decor, if (light) .22f else .28f), alpha(decor, .07f)),
+        null, Shader.TileMode.CLAMP)
     canvas.drawPath(wave, paint)
     // Multiple softly shaded ribbons give the whole interior depth, not just an outlined edge.
     paint.style = Paint.Style.STROKE
@@ -87,7 +134,7 @@ internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surf
                 bounds.right + bounds.width() * .1f, bounds.top + bounds.height() * (.69f + offset))
         }
         paint.shader = LinearGradient(bounds.left, bounds.bottom, bounds.right, bounds.top + bounds.height() * .7f,
-            intArrayOf(alpha(accent, 0f), alpha(accent, .08f), alpha(accent, .25f), alpha(accent, .04f)),
+            intArrayOf(alpha(decor, 0f), alpha(decor, if (light) .07f else .08f), alpha(decor, if (light) .22f else .24f), alpha(decor, .04f)),
             floatArrayOf(0f, .45f, .75f, 1f), Shader.TileMode.CLAMP)
         paint.strokeWidth = bounds.width() * .045f
         canvas.drawPath(ribbon, paint)
@@ -97,7 +144,7 @@ internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surf
     paint.style = Paint.Style.STROKE
     paint.strokeWidth = (bounds.width() * .004f).coerceAtLeast(1f)
     paint.shader = LinearGradient(bounds.left, bounds.bottom, bounds.right, bounds.top + bounds.height() * .6f,
-        intArrayOf(alpha(accent, 0f), alpha(accent, .55f), alpha(accent, 0f)), null, Shader.TileMode.CLAMP)
+        intArrayOf(alpha(decor, 0f), alpha(decor, if (light) .40f else .52f), alpha(decor, 0f)), null, Shader.TileMode.CLAMP)
     canvas.drawPath(wave, paint)
     canvas.restore()
     paint.shader = null
@@ -105,19 +152,29 @@ internal fun drawStatsCardFrame(canvas: Canvas, bounds: RectF, accent: Int, surf
     val inset = bounds.width() * .004f
     val rim = RectF(bounds).apply { inset(inset, inset) }
     paint.strokeWidth = (bounds.width() * .014f).coerceAtLeast(2f)
-    paint.color = alpha(accent, .12f)
+    paint.color = alpha(decor, if (light) .09f else .12f)
     canvas.drawRoundRect(rim, radius, radius, paint)
     paint.strokeWidth = (bounds.width() * .004f).coerceIn(1f, 1.8f)
     paint.shader = LinearGradient(bounds.left, bounds.top, bounds.right, bounds.bottom,
-        intArrayOf(alpha(accent, .95f), alpha(accent, .35f), alpha(accent, .9f)), null, Shader.TileMode.CLAMP)
+        if (light) intArrayOf(alpha(decor, .58f), alpha(decor, .24f), alpha(decor, .52f))
+        else intArrayOf(alpha(decor, .78f), alpha(decor, .28f), alpha(decor, .72f)), null, Shader.TileMode.CLAMP)
     canvas.drawRoundRect(rim, radius, radius, paint)
 }
 
-internal fun drawStatsPosterBackground(canvas: Canvas, accent: Int) {
+internal fun drawStatsPosterBackground(canvas: Canvas, accent: Int, surface: Int = android.graphics.Color.rgb(2, 10, 24)) {
+    val light = isLightStatsSurface(surface)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    canvas.drawColor(android.graphics.Color.rgb(2, 10, 24))
+    val decor = if (light) statsCardDecorAccent(Color(accent), Color(surface)).toArgb() else accent
+    canvas.drawColor(if (light) surface else android.graphics.Color.rgb(2, 10, 24))
+    if (light) {
+        val highlight = statsCardHighlight(Color(accent), Color(surface)).toArgb()
+        paint.shader = LinearGradient(0f, 0f, 720f, 1280f,
+            intArrayOf(highlight, surface, ColorUtils.blendARGB(surface, decor, .10f)),
+            floatArrayOf(0f, .52f, 1f), Shader.TileMode.CLAMP)
+        canvas.drawRect(0f, 0f, 720f, 1280f, paint)
+    }
     paint.shader = RadialGradient(620f, 130f, 610f,
-        intArrayOf(alpha(accent, .19f), alpha(accent, 0f)), null, Shader.TileMode.CLAMP)
+        intArrayOf(alpha(decor, if (light) .14f else .19f), alpha(decor, 0f)), null, Shader.TileMode.CLAMP)
     canvas.drawRect(0f, 0f, 720f, 1280f, paint)
     val ribbons = listOf(
         Path().apply { moveTo(480f, -45f); cubicTo(535f, 75f, 625f, 99f, 765f, 142f) },
@@ -130,15 +187,15 @@ internal fun drawStatsPosterBackground(canvas: Canvas, accent: Int) {
         paint.shader = null
         paint.maskFilter = BlurMaskFilter(20f, BlurMaskFilter.Blur.NORMAL)
         paint.strokeWidth = 28f
-        paint.color = alpha(accent, .65f)
+        paint.color = alpha(decor, if (light) .26f else .65f)
         canvas.drawPath(path, paint)
         paint.maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
         paint.strokeWidth = 10f
-        paint.color = alpha(accent, .8f)
+        paint.color = alpha(decor, if (light) .38f else .8f)
         canvas.drawPath(path, paint)
         paint.maskFilter = null
         paint.strokeWidth = 1.4f
-        paint.color = ColorUtils.blendARGB(accent, android.graphics.Color.WHITE, .45f)
+        paint.color = if (light) alpha(decor, .72f) else ColorUtils.blendARGB(accent, android.graphics.Color.WHITE, .45f)
         canvas.drawPath(path, paint)
     }
 }

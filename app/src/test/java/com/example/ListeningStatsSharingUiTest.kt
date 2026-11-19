@@ -111,6 +111,46 @@ class ListeningStatsSharingUiTest {
         capture("custom")
     }
 
+    @Test fun presetCardsAdaptSurfaceBrightnessAndAccentHueAcrossDarkAndLightThemes() {
+        val cases = listOf(
+            "tideglass-light" to resolveAppThemeColors(false, com.example.data.local.ThemePresets.default(false).toCustomThemeState()),
+            "tideglass-dark" to resolveAppThemeColors(true, com.example.data.local.ThemePresets.default(true).toCustomThemeState()),
+            "petal-light" to resolveAppThemeColors(false, com.example.data.local.ThemePresets.CherryBlossom.toCustomThemeState()),
+            "night-ink-light" to resolveAppThemeColors(false, com.example.data.local.ThemePresets.MinimalIvory.toCustomThemeState())
+        )
+        var palette by mutableStateOf(cases.first().second)
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides palette, LocalDynamicGlassEnabled provides false,
+                LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                ListeningStatsContent(summary, ListeningPeriod.WEEKLY, {}, {}, { _, _ -> }, {})
+            }
+        } }
+        for ((name, colors) in cases) {
+            compose.runOnIdle { palette = colors }
+            val file = File("/tmp/listening-stats-preset-$name.png")
+            compose.onNodeWithTag("listening_stats_page").captureRoboImage(file.absolutePath,
+                RoborazziOptions(taskType = RoborazziTaskType.Record))
+            val saved = if (colors.neutralSurfaces) colors.cardBackgroundElevated else colors.cardBackground
+            val base = statsCardBase(colors.primaryAccent, saved)
+            val luminance = ColorUtils.calculateLuminance(base.toArgb())
+            if (colors.isDark) assertTrue("$name should remain a rich dark card", luminance < 0.12)
+            else assertTrue("$name should adapt to a luminous light card", luminance >= 0.55)
+            if (name == "night-ink-light") {
+                val rgb = base.toArgb()
+                val spread = maxOf(android.graphics.Color.red(rgb), android.graphics.Color.green(rgb), android.graphics.Color.blue(rgb)) -
+                    minOf(android.graphics.Color.red(rgb), android.graphics.Color.green(rgb), android.graphics.Color.blue(rgb))
+                assertTrue("Neutral light theme cards must stay achromatic", spread <= 4)
+            }
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText("1.5").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val foreground = layouts.single().layoutInput.style.color.toArgb()
+            for (surface in listOf(base, statsCardHighlight(colors.primaryAccent, base))) {
+                assertTrue("$name card text must retain >= 4.5 contrast",
+                    ColorUtils.calculateContrast(foreground, surface.toArgb()) >= 4.5)
+            }
+        }
+    }
+
     @Test fun amoledStatsCardsUseNearBlackNeutralSurfacesForWhiteAndColouredAccents() {
         var palette by mutableStateOf(DarkAppColors.copy(isAmoled = true, scaffoldBackground = Color.Black,
             cardBackground = Color.Black, primaryAccent = Color.White))

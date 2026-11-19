@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
+import androidx.compose.ui.graphics.toArgb
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.ListeningPeriod
 import com.example.data.local.ListeningTotal
@@ -114,42 +115,68 @@ class ListeningStatsImageTest {
     }
 
     @Test fun sharedLogoRetainsTheSuppliedWavTapeColorsAndFitsThePosterBrand() {
-        val request = ListeningStatsImageRequest(ListeningSummary(0, 0, emptyList(), emptyList()), ListeningPeriod.WEEKLY, Color.MAGENTA)
-        val poster = ListeningStatsImage.render(context, request, "Maya")
-        val expected = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888)
+        val lockup = context.getDrawable(R.drawable.wavtape_lockup)!!
+        val px = ListeningStatsImage.brandLockupPixelBounds(lockup.intrinsicWidth, lockup.intrinsicHeight)
+        val expected = Bitmap.createBitmap(px.width(), px.height(), Bitmap.Config.ARGB_8888)
         try {
-            val logo = context.getDrawable(R.drawable.wavtape_logo)!!
-            val aspect = logo.intrinsicWidth.toFloat() / logo.intrinsicHeight.coerceAtLeast(1)
-            val width = minOf(128f, 128f * aspect)
-            val height = width / aspect.coerceAtLeast(.01f)
-            logo.setBounds((492f - width / 2).toInt(), (132f - height / 2).toInt(),
-                (492f + width / 2).toInt(), (132f + height / 2).toInt())
-            android.graphics.Canvas(expected).apply {
-                scale(1.5f, 1.5f); translate(-428f, -68f); logo.draw(this)
+            lockup.setBounds(0, 0, px.width(), px.height())
+            lockup.draw(android.graphics.Canvas(expected))
+            for (accent in listOf(Color.MAGENTA, Color.rgb(18, 24, 38), Color.WHITE)) {
+                val request = ListeningStatsImageRequest(ListeningSummary(0, 0, emptyList(), emptyList()), ListeningPeriod.WEEKLY, accent)
+                val poster = ListeningStatsImage.render(context, request, "Maya")
+                try {
+                    var compared = 0
+                    var magentaTextPixels = 0
+                    for (y in 1 until px.height() - 1) for (x in 1 until px.width() - 1) {
+                        val color = expected.getPixel(x, y)
+                        val actual = poster.getPixel(px.left + x, px.top + y)
+                        if (accent == Color.MAGENTA && actual == Color.MAGENTA) magentaTextPixels++
+                        if (Color.alpha(color) >= 252 && Color.alpha(expected.getPixel(x - 1, y)) >= 252 &&
+                            Color.alpha(expected.getPixel(x + 1, y)) >= 252 &&
+                            Color.alpha(expected.getPixel(x, y - 1)) >= 252 &&
+                            Color.alpha(expected.getPixel(x, y + 1)) >= 252) {
+                            assertTrue("The supplied lockup retains its original blue/cyan shading without accent tinting",
+                                kotlin.math.abs(Color.red(color) - Color.red(actual)) <= 5 &&
+                                    kotlin.math.abs(Color.green(color) - Color.green(actual)) <= 5 &&
+                                    kotlin.math.abs(Color.blue(color) - Color.blue(actual)) <= 5)
+                            compared++
+                        }
+                    }
+                    assertTrue("The combined logo and wordmark remain crisp at export resolution", compared > 1200)
+                    assertEquals("Old accent-tinted brand text is removed", 0, magentaTextPixels)
+                    if (accent == Color.MAGENTA) {
+                        File("/tmp/listening-stats-updated-brand.png").outputStream().use { poster.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    } else if (accent == Color.WHITE) {
+                        File("/tmp/listening-stats-light-accent-brand.png").outputStream().use { poster.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    }
+                } finally { poster.recycle() }
             }
-            var compared = 0
-            for (y in 1 until 191) for (x in 1 until 191) {
-                val color = expected.getPixel(x, y)
-                if (Color.alpha(color) >= 252 && Color.alpha(expected.getPixel(x - 1, y)) >= 252 &&
-                    Color.alpha(expected.getPixel(x + 1, y)) >= 252) {
-                    val actual = poster.getPixel(642 + x, 102 + y)
-                    assertTrue("The supplied logo retains its original blue/cyan shading without accent tinting",
-                        kotlin.math.abs(Color.red(color) - Color.red(actual)) <= 3 &&
-                            kotlin.math.abs(Color.green(color) - Color.green(actual)) <= 3 &&
-                            kotlin.math.abs(Color.blue(color) - Color.blue(actual)) <= 3)
-                    compared++
+        } finally { expected.recycle() }
+    }
+
+    @Test fun lightThemePosterMatchesStatsCardSurfaceAndAdaptsBrandContrast() {
+        val rows = (1..5).map { song(it) }
+        val summary = ListeningSummary(900_000, 10, rows, rows.map { it.copy(kind = "artist") }, 22, 16)
+        val presets = listOf(
+            "tideglass" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.default(false).toCustomThemeState()),
+            "petal" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.CherryBlossom.toCustomThemeState()),
+            "night-ink" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.MinimalIvory.toCustomThemeState())
+        )
+        for ((name, colors) in presets) {
+            val saved = if (colors.neutralSurfaces) colors.cardBackgroundElevated else colors.cardBackground
+            val cardBase = statsCardBase(colors.primaryAccent, saved).toArgb()
+            val request = ListeningStatsImageRequest(summary, ListeningPeriod.WEEKLY, colors.primaryAccent.toArgb(), cardBase)
+            val poster = ListeningStatsImage.render(context, request, "Maya")
+            try {
+                // Sample clean background region in the middle-right between subtitle and rankings
+                val bgSample = poster.getPixel(480, 500)
+                val bgLuminance = androidx.core.graphics.ColorUtils.calculateLuminance(bgSample)
+                assertTrue("$name light poster must stay luminous like the 4 stats boxes (lum=$bgLuminance)", bgLuminance >= 0.55)
+                File("/tmp/listening-stats-light-poster-$name.png").outputStream().use {
+                    poster.compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
-            }
-            assertTrue("The logo remains visible at export resolution", compared > 700)
-            fun countColor(color: Int): Int {
-                var count = 0
-                for (y in 170 until 216) for (x in 838 until 1018) if (poster.getPixel(x, y) == color) count++
-                return count
-            }
-            assertTrue("Wav uses the selected accent", countColor(Color.MAGENTA) > 100)
-            assertTrue("Tape remains white", countColor(Color.WHITE) > 100)
-            File("/tmp/listening-stats-updated-brand.png").outputStream().use { poster.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        } finally { poster.recycle(); expected.recycle() }
+            } finally { poster.recycle() }
+        }
     }
 
     @Test fun creationProducesRealPngShareGrantsReadAccessAndSaveCopiesTheSameImage() = runBlocking {

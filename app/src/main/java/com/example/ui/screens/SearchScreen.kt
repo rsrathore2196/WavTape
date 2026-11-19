@@ -16,11 +16,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -83,7 +86,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.onPreInterceptKeyBeforeSoftKeyboard
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -321,7 +326,7 @@ private fun GenreResultsPage(
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(
     searchState: SearchUiState,
@@ -463,6 +468,13 @@ fun SearchScreen(
     LaunchedEffect(isScreenActive, listState.isScrollInProgress) {
         if (isScreenActive && listState.isScrollInProgress) {
             keyboardController?.hide()
+            focusManager.clearFocus()
+        }
+    }
+
+    // When Android Back button/gesture closes the soft keyboard, clear search focus so recent searches hide too.
+    if (isScreenActive && searchFocused) {
+        ObserveImeCloseToClearFocus {
             focusManager.clearFocus()
         }
     }
@@ -668,6 +680,15 @@ fun SearchScreen(
                             ),
                             RoundedCornerShape(16.dp)
                         )
+                        .onPreInterceptKeyBeforeSoftKeyboard { event ->
+                            if (searchFocused &&
+                                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK &&
+                                event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP
+                            ) {
+                                focusManager.clearFocus()
+                            }
+                            false
+                        }
                         .onFocusChanged { searchFocused = it.isFocused }
                         .testTag("search_query_input")
                 )
@@ -1444,6 +1465,23 @@ fun SearchScreen(
         }
     }
 }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ObserveImeCloseToClearFocus(onImeClosed: () -> Unit) {
+    val currentOnImeClosed by rememberUpdatedState(onImeClosed)
+    val isImeVisible = WindowInsets.isImeVisible
+    var sawImeVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible) {
+            sawImeVisible = true
+        } else if (sawImeVisible) {
+            sawImeVisible = false
+            currentOnImeClosed()
+        }
+    }
 }
 
 private fun topGenreRank(title: String): Int {

@@ -159,6 +159,53 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
     }
 
+    @Test fun preImeBackKeyAndImeCloseHideRecentSearchesWhenKeyboardDismisses() {
+        var state by mutableStateOf(SearchUiState(recentSearches = listOf("First", "Second")))
+        lateinit var hostView: android.view.View
+        content {
+            hostView = androidx.compose.ui.platform.LocalView.current
+            SearchScreen(state, onQueryChange = { state = state.copy(query = it) },
+                onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {})
+        }
+        // 1. Pre-IME Back key (Android 3-button back while soft keyboard is open)
+        compose.onNodeWithTag("search_query_input").performClick().performTextInput("ambient")
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+        compose.runOnUiThread {
+            hostView.dispatchKeyEventPreIme(
+                android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK)
+            )
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.onNodeWithTag("search_query_input").assertIsNotFocused()
+        compose.runOnIdle { assertEquals("ambient", state.query) }
+
+        // 2. IME WindowInsets open -> close (Android back gesture / predictive back / keyboard hide button)
+        val insetsTarget = (hostView.parent as? android.view.View) ?: hostView
+        compose.onNodeWithTag("search_query_input").performClick()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+        compose.runOnUiThread {
+            val imeOpen = androidx.core.view.WindowInsetsCompat.Builder()
+                .setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(), androidx.core.graphics.Insets.of(0, 0, 0, 600))
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), true)
+                .build()
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(insetsTarget, imeOpen)
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+        compose.runOnUiThread {
+            val imeClosed = androidx.core.view.WindowInsetsCompat.Builder()
+                .setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(), androidx.core.graphics.Insets.NONE)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), false)
+                .build()
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(insetsTarget, imeClosed)
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.onNodeWithTag("search_query_input").assertIsNotFocused()
+        compose.runOnIdle { assertEquals("ambient", state.query) }
+    }
+
     @Test fun genreOpensItsOwnPageWithPlayableSongsAlbumsAndBackNavigation() {
         val track = MusicTrack("yt_abcdefghijk", "Pop Song", "Artist", "Pop Album", 180000, "", "")
         val album = CatalogAlbum("pop_album", "Pop Album", listOf(CatalogArtist("artist", "Artist")), "", "2026")

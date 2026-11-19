@@ -109,13 +109,15 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
         AppDynamicLogo(Modifier.size(48.dp).testTag("home_header_logo"),
             primaryAccent = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
             secondaryAccent = tabHeaderAccentColor(colors.secondaryAccent, colors.isDark),
-            cutoutColor = if (colors.isDark) TabHeaderBaseColor else TabHeaderLightBaseColor, showGlow = false)
+            cutoutColor = if (colors.isDark) TabHeaderBaseColor else TabHeaderLightBaseColor, showGlow = false,
+            adaptForLightSurface = !colors.isDark)
         BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             val wordmarkWidth = minOf(100.dp, maxWidth)
             AppBrandWordmark(
                 modifier = Modifier
                     .width(wordmarkWidth)
-                    .testTag("home_header_wordmark")
+                    .testTag("home_header_wordmark"),
+                adaptForLightSurface = !colors.isDark
             )
         }
         Box(Modifier.size(48.dp)

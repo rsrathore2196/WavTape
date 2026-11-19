@@ -14,6 +14,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.text.Layout
 import android.text.StaticLayout
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.FileProvider
 import androidx.core.graphics.ColorUtils
 import coil.imageLoader
@@ -35,7 +36,12 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /** Frozen at the explicit share action; later listening/period updates cannot change the image. */
-internal data class ListeningStatsImageRequest(val summary: ListeningSummary, val period: ListeningPeriod, val accent: Int)
+internal data class ListeningStatsImageRequest(
+    val summary: ListeningSummary,
+    val period: ListeningPeriod,
+    val accent: Int,
+    val surface: Int = ListeningStatsImage.DARK_POSTER_SURFACE
+)
 
 internal data class ListeningStatsPosterText(val subtitle: String, val value: String, val unit: String, val totals: String)
 
@@ -52,9 +58,11 @@ internal fun listeningStatsPosterText(request: ListeningStatsImageRequest, name:
 internal object ListeningStatsImage {
     private val regular by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }
     private val bold by lazy { Typeface.create("sans-serif", Typeface.BOLD) }
-    private val brandTypeface by lazy { Typeface.create("sans-serif-black", Typeface.BOLD) }
-    private const val NAVY = 0xFF020A18.toInt()
+    internal const val DARK_POSTER_SURFACE = 0xFF020A18.toInt()
+    private const val NAVY = DARK_POSTER_SURFACE
     private const val SECONDARY = 0xFFB9C5D9.toInt()
+    private const val LIGHT_PRIMARY_TEXT = 0xFF0F172A.toInt()
+    private const val LIGHT_SECONDARY_TEXT = 0xFF3E4A5E.toInt()
 
     suspend fun create(context: Context, request: ListeningStatsImageRequest, name: String): File = withContext(AppDispatchers.Io) {
         val images = ConcurrentHashMap<String, Bitmap>()
@@ -150,8 +158,11 @@ internal object ListeningStatsImage {
     /** Pure fixed-ratio poster renderer: never captures or alters any app screen. */
     internal fun render(context: Context, request: ListeningStatsImageRequest, name: String,
         images: Map<String, Bitmap> = emptyMap()): Bitmap {
-        val artistFeature = featureLayout(request.summary.artists.firstOrNull(), true)
-        val songFeature = featureLayout(request.summary.songs.firstOrNull(), false)
+        val lightPoster = isLightStatsSurface(request.surface)
+        val primaryText = if (lightPoster) LIGHT_PRIMARY_TEXT else Color.WHITE
+        val secondaryText = if (lightPoster) LIGHT_SECONDARY_TEXT else SECONDARY
+        val artistFeature = featureLayout(request.summary.artists.firstOrNull(), true, primaryText, secondaryText)
+        val songFeature = featureLayout(request.summary.songs.firstOrNull(), false, primaryText, secondaryText)
         val featureHeight = maxOf(artistFeature.height, songFeature.height)
         // Normal posters retain their dimensions; unusually long names get the
         // space they need below the rankings rather than being cut off.
@@ -161,70 +172,115 @@ internal object ListeningStatsImage {
             val canvas = Canvas(output)
             canvas.scale(1.5f, 1.5f)
             val text = listeningStatsPosterText(request, name)
-            // Keep the selected hue readable on the poster's dark canvas.
-            var accent = request.accent
-            if (ColorUtils.calculateContrast(accent, NAVY) < 3.0) {
-                for (step in 1..10) {
-                    accent = ColorUtils.blendARGB(request.accent, Color.WHITE, step / 10f)
-                    if (ColorUtils.calculateContrast(accent, NAVY) >= 3.0) break
+            val posterSurface = if (lightPoster) request.surface else NAVY
+            // Keep the selected hue readable on either the light stats surface or the dark canvas.
+            var accent = if (lightPoster) {
+                statsCardDecorAccent(androidx.compose.ui.graphics.Color(request.accent),
+                    androidx.compose.ui.graphics.Color(posterSurface)).toArgb()
+            } else request.accent
+            val minContrast = if (lightPoster) 4.5 else 3.0
+            val blendTarget = if (lightPoster) LIGHT_PRIMARY_TEXT else Color.WHITE
+            if (ColorUtils.calculateContrast(accent, posterSurface) < minContrast) {
+                val baseAccent = accent
+                for (step in 1..12) {
+                    accent = ColorUtils.blendARGB(baseAccent, blendTarget, step / 12f)
+                    if (ColorUtils.calculateContrast(accent, posterSurface) >= minContrast) break
                 }
             }
-            drawStatsPosterBackground(canvas, accent)
-            canvas.label("Listening Stats", 46f, 132f, 36f, 370f, bold = true)
-            canvas.label(text.subtitle, 47f, 167f, 20f, 380f, SECONDARY)
+            val frameAccent = if (lightPoster) request.accent else accent
+            val featureCardSurface = if (lightPoster) ColorUtils.blendARGB(posterSurface, Color.WHITE, .28f) else NAVY
+            val coverPlaceholderBg = if (lightPoster) ColorUtils.blendARGB(posterSurface, Color.WHITE, .68f) else Color.rgb(15, 29, 48)
+
+            drawStatsPosterBackground(canvas, frameAccent, posterSurface)
+            canvas.label("Listening Stats", 46f, 132f, 36f, 370f, primaryText, bold = true)
+            canvas.label(text.subtitle, 47f, 167f, 20f, 380f, secondaryText)
             canvas.label(request.period.label.uppercase(Locale.getDefault()), 47f, 202f, 13f, 380f, accent, tracking = .15f)
-            drawOriginalBrand(canvas, context, request.accent)
+            drawBrandLockup(canvas, context, lightPoster)
             val number = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = 104f; typeface = bold
-                shader = LinearGradient(0f, 235f, 0f, 320f, Color.WHITE, accent, Shader.TileMode.CLAMP)
+                shader = LinearGradient(0f, 235f, 0f, 320f, primaryText, accent, Shader.TileMode.CLAMP)
             }
             val fitting = TextUtils.ellipsize(text.value, number, 620f, TextUtils.TruncateAt.END).toString()
             canvas.drawText(fitting, 44f, 312f, number)
-            canvas.label(text.unit, 47f, 349f, 20f, 625f, SECONDARY, tracking = .15f)
-            canvas.label(text.totals, 47f, 389f, 19f, 630f, SECONDARY)
-            canvas.label("TOP SONGS", 47f, 441f, 18f, 290f, SECONDARY, true, .18f)
-            canvas.label("TOP ARTISTS", 378f, 441f, 18f, 300f, SECONDARY, true, .18f)
+            canvas.label(text.unit, 47f, 349f, 20f, 625f, secondaryText, tracking = .15f)
+            canvas.label(text.totals, 47f, 389f, 19f, 630f, secondaryText)
+            canvas.label("TOP SONGS", 47f, 441f, 18f, 290f, secondaryText, true, .18f)
+            canvas.label("TOP ARTISTS", 378f, 441f, 18f, 300f, secondaryText, true, .18f)
             val summary = request.summary
             summary.songs.take(5).forEachIndexed { index, row ->
                 val y = 470f + index * 79f
                 canvas.label((index + 1).toString(), 47f, y + 38f, 23f, 25f, accent, true)
-                canvas.cover(images["song:" + row.identity], row.title, 78f, y, 59f, false, accent)
-                canvas.label(row.title, 149f, y + 23f, 20f, 192f, bold = true)
-                canvas.label(row.artist + " · " + statsShortTime(row.listenedMs), 149f, y + 49f, 15f, 194f, SECONDARY)
+                canvas.cover(images["song:" + row.identity], row.title, 78f, y, 59f, false, accent, coverPlaceholderBg, secondaryText)
+                canvas.label(row.title, 149f, y + 23f, 20f, 192f, primaryText, bold = true)
+                canvas.label(row.artist + " · " + statsShortTime(row.listenedMs), 149f, y + 49f, 15f, 194f, secondaryText)
             }
             summary.artists.take(5).forEachIndexed { index, row ->
                 val y = 470f + index * 79f
                 canvas.label((index + 1).toString(), 378f, y + 38f, 23f, 25f, accent, true)
-                canvas.cover(images["artist:" + row.identity], row.artist, 416f, y, 59f, true, accent)
-                canvas.label(row.artist, 496f, y + 23f, 20f, 181f, bold = true)
-                canvas.label(statsShortTime(row.listenedMs), 496f, y + 49f, 16f, 181f, SECONDARY)
+                canvas.cover(images["artist:" + row.identity], row.artist, 416f, y, 59f, true, accent, coverPlaceholderBg, secondaryText)
+                canvas.label(row.artist, 496f, y + 23f, 20f, 181f, primaryText, bold = true)
+                canvas.label(statsShortTime(row.listenedMs), 496f, y + 49f, 16f, 181f, secondaryText)
             }
-            if (summary.songs.isEmpty()) canvas.label("No qualified plays yet", 47f, 493f, 16f, 285f, SECONDARY)
-            if (summary.artists.isEmpty()) canvas.label("No listening activity yet", 378f, 493f, 16f, 300f, SECONDARY)
-            canvas.featureCard(artistFeature, 29f, accent, images, featureHeight)
-            canvas.featureCard(songFeature, 369f, accent, images, featureHeight)
+            if (summary.songs.isEmpty()) canvas.label("No qualified plays yet", 47f, 493f, 16f, 285f, secondaryText)
+            if (summary.artists.isEmpty()) canvas.label("No listening activity yet", 378f, 493f, 16f, 300f, secondaryText)
+            canvas.featureCard(artistFeature, 29f, frameAccent, featureCardSurface, secondaryText, coverPlaceholderBg, images, featureHeight)
+            canvas.featureCard(songFeature, 369f, frameAccent, featureCardSurface, secondaryText, coverPlaceholderBg, images, featureHeight)
             return output
         } catch (error: Exception) { output.recycle(); throw error }
     }
 
-    private fun drawOriginalBrand(canvas: Canvas, context: Context, accent: Int) {
-        // Preserve the supplied WavTape ribbon's colors and transparent cutouts.
-        context.getDrawable(R.drawable.wavtape_logo)?.let { logo ->
-            val aspect = logo.intrinsicWidth.toFloat() / logo.intrinsicHeight.coerceAtLeast(1)
-            val width = minOf(128f, 128f * aspect)
-            val height = width / aspect.coerceAtLeast(.01f)
-            val left = 492f - width / 2f
-            val top = 132f - height / 2f
-            logo.setBounds(left.toInt(), top.toInt(), (left + width).toInt(), (top + height).toInt())
-            logo.draw(canvas)
+    internal const val BRAND_LOCKUP_RIGHT = 676f
+    internal const val BRAND_LOCKUP_WIDTH = 214f
+    internal const val BRAND_LOCKUP_CENTER_Y = 132f
+
+    private val lightLockupColorFilter = ColorMatrixColorFilter(
+        ColorMatrix(
+            floatArrayOf(
+                0.12f, 0f, 0f, 0f, 0f,
+                0f, 0.56f, 0f, 0f, 0f,
+                0f, 0f, 0.78f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+    )
+
+    internal fun brandLockupPixelBounds(intrinsicWidth: Int, intrinsicHeight: Int): Rect {
+        val aspect = intrinsicWidth.toFloat() / intrinsicHeight.coerceAtLeast(1)
+        val bmpW = kotlin.math.round(BRAND_LOCKUP_WIDTH * 1.5f).toInt().coerceAtLeast(1)
+        val bmpH = kotlin.math.round(bmpW / aspect.coerceAtLeast(.01f)).toInt().coerceAtLeast(1)
+        val dstLeftPx = kotlin.math.round(BRAND_LOCKUP_RIGHT * 1.5f).toInt() - bmpW
+        val dstTopPx = kotlin.math.round(BRAND_LOCKUP_CENTER_Y * 1.5f).toInt() - bmpH / 2
+        return Rect(dstLeftPx, dstTopPx, dstLeftPx + bmpW, dstTopPx + bmpH)
+    }
+
+    private fun drawBrandLockup(canvas: Canvas, context: Context, lightPoster: Boolean) {
+        // Draw the supplied transparent WavTape logo+wordmark lockup at top-right,
+        // adapting contrast for light surfaces while preserving its cyan/blue identity.
+        val lockup = context.getDrawable(R.drawable.wavtape_lockup) ?: return
+        val px = brandLockupPixelBounds(lockup.intrinsicWidth, lockup.intrinsicHeight)
+        val dst = RectF(px.left / 1.5f, px.top / 1.5f, px.right / 1.5f, px.bottom / 1.5f)
+
+        val rendered = Bitmap.createBitmap(px.width(), px.height(), Bitmap.Config.ARGB_8888)
+        try {
+            lockup.setBounds(0, 0, px.width(), px.height())
+            lockup.draw(Canvas(rendered))
+
+            val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+                colorFilter = PorterDuffColorFilter(
+                    ColorUtils.setAlphaComponent(if (lightPoster) 0xFF041430.toInt() else NAVY, if (lightPoster) 55 else 165),
+                    PorterDuff.Mode.SRC_IN
+                )
+                maskFilter = BlurMaskFilter(if (lightPoster) 3.5f else 5f, BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.drawBitmap(rendered, null, RectF(dst.left, dst.top + 1.5f, dst.right, dst.bottom + 1.5f), shadowPaint)
+
+            val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+                if (lightPoster) colorFilter = lightLockupColorFilter
+            }
+            canvas.drawBitmap(rendered, null, dst, brandPaint)
+        } finally {
+            rendered.recycle()
         }
-        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 26f; typeface = brandTypeface; letterSpacing = 1f / 26f; color = accent
-        }
-        canvas.drawText("Wav", 559f, 143f, paint)
-        val second = 559f + paint.measureText("Wav")
-        paint.color = Color.WHITE
-        canvas.drawText("Tape", second, 143f, paint)
     }
 
     internal fun wrappedFeatureName(value: String): StaticLayout = wrappedText(value, 22f, Color.WHITE, true)
@@ -242,25 +298,27 @@ internal object ListeningStatsImage {
     private data class FeatureLayout(val row: ListeningTotal?, val artist: Boolean,
         val name: StaticLayout?, val subtitle: StaticLayout?, val time: StaticLayout?, val height: Int)
 
-    private fun featureLayout(row: ListeningTotal?, artist: Boolean): FeatureLayout {
+    private fun featureLayout(row: ListeningTotal?, artist: Boolean, primaryText: Int = Color.WHITE,
+        secondaryText: Int = SECONDARY): FeatureLayout {
         if (row == null) return FeatureLayout(null, artist, null, null, null, 204)
-        val name = wrappedFeatureName(if (artist) row.artist else row.title)
-        val subtitle = if (artist) null else wrappedText(row.artist, 17f, SECONDARY)
-        val time = wrappedText(statsShortTime(row.listenedMs), 17f, SECONDARY)
+        val name = wrappedText(if (artist) row.artist else row.title, 22f, primaryText, true)
+        val subtitle = if (artist) null else wrappedText(row.artist, 17f, secondaryText)
+        val time = wrappedText(statsShortTime(row.listenedMs), 17f, secondaryText)
         val height = 140 + name.height + (subtitle?.let { 4 + it.height } ?: 0) + 6 + time.height + 20
         return FeatureLayout(row, artist, name, subtitle, time, height)
     }
 
-    private fun Canvas.featureCard(feature: FeatureLayout, x: Float, accent: Int, images: Map<String, Bitmap>, height: Int) {
-        drawStatsCardFrame(this, RectF(x, 893f, x + 324f, 893f + height), accent, NAVY, 28f)
-        label(if (feature.artist) "TOP ARTIST" else "MOST PLAYED SONG", x + 26f, 932f, 15f, 276f, SECONDARY, false, .16f)
+    private fun Canvas.featureCard(feature: FeatureLayout, x: Float, accent: Int, cardSurface: Int,
+        secondaryText: Int, coverPlaceholderBg: Int, images: Map<String, Bitmap>, height: Int) {
+        drawStatsCardFrame(this, RectF(x, 893f, x + 324f, 893f + height), accent, cardSurface, 28f)
+        label(if (feature.artist) "TOP ARTIST" else "MOST PLAYED SONG", x + 26f, 932f, 15f, 276f, secondaryText, false, .16f)
         val row = feature.row
         if (row == null) {
-            label(if (feature.artist) "No listening activity yet" else "No qualified plays yet", x + 26f, 1015f, 18f, 276f, SECONDARY)
+            label(if (feature.artist) "No listening activity yet" else "No qualified plays yet", x + 26f, 1015f, 18f, 276f, secondaryText)
             return
         }
         cover(images[(if (feature.artist) "artist:" else "song:") + row.identity], if (feature.artist) row.artist else row.title,
-            x + 26f, 949f, 72f, feature.artist, accent)
+            x + 26f, 949f, 72f, feature.artist, accent, coverPlaceholderBg, secondaryText)
         var y = 1033f
         fun drawText(layout: StaticLayout) {
             save(); translate(x + 26f, y); layout.draw(this); restore()
@@ -281,7 +339,8 @@ internal object ListeningStatsImage {
         drawText(TextUtils.ellipsize(value, paint, width, TextUtils.TruncateAt.END).toString(), x, baseline, paint)
     }
 
-    private fun Canvas.cover(bitmap: Bitmap?, name: String, x: Float, y: Float, size: Float, circle: Boolean, accent: Int) {
+    private fun Canvas.cover(bitmap: Bitmap?, name: String, x: Float, y: Float, size: Float, circle: Boolean, accent: Int,
+        placeholderBg: Int = Color.rgb(15, 29, 48), placeholderText: Int = SECONDARY) {
         val rect = RectF(x, y, x + size, y + size)
         val path = Path().apply {
             if (circle) addOval(rect, Path.Direction.CW) else addRoundRect(rect, 8f, 8f, Path.Direction.CW)
@@ -289,14 +348,14 @@ internal object ListeningStatsImage {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         save()
         clipPath(path)
-        drawColor(Color.rgb(15, 29, 48))
+        drawColor(placeholderBg)
         if (bitmap != null && !bitmap.isRecycled) {
             val side = minOf(bitmap.width, bitmap.height)
             val left = (bitmap.width - side) / 2; val top = (bitmap.height - side) / 2
             drawBitmap(bitmap, Rect(left, top, left + side, top + side), rect, paint)
         } else {
             val initial = name.trim().take(1).uppercase(Locale.getDefault())
-            label(initial, x + size * .32f, y + size * .66f, size * .45f, size * .5f, SECONDARY, true)
+            label(initial, x + size * .32f, y + size * .66f, size * .45f, size * .5f, placeholderText, true)
         }
         restore()
         paint.style = Paint.Style.STROKE; paint.strokeWidth = 1f

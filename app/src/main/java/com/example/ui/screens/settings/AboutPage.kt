@@ -115,7 +115,8 @@ fun AboutPage(
                     secondaryAccent = appColors.secondaryAccent,
                     cutoutColor = appColors.cardBackground,
                     contentDescriptionText = "WavTape Logo",
-                    showGlow = false
+                    showGlow = false,
+                    adaptForLightSurface = !appColors.isDark
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -123,7 +124,8 @@ fun AboutPage(
                 AppBrandWordmark(
                     modifier = Modifier
                         .height(34.dp)
-                        .testTag("about_app_wordmark")
+                        .testTag("about_app_wordmark"),
+                    adaptForLightSurface = !appColors.isDark
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))

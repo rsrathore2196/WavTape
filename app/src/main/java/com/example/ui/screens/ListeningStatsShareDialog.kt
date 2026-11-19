@@ -95,7 +95,7 @@ internal fun ListeningStatsShareDialog(request: ListeningStatsImageRequest, onDi
                     }
                 }
                 Box(Modifier.height(previewHeight).aspectRatio(9f / 16f)
-                    .clip(RoundedCornerShape(12.dp)).background(Color(0xFF020A18)),
+                    .clip(RoundedCornerShape(12.dp)).background(Color(request.surface)),
                     contentAlignment = Alignment.Center) {
                     if (previewRequest != null) AsyncImage(previewRequest, "Listening stats image preview",
                         contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
