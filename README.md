@@ -2,15 +2,15 @@
 
   <!-- Centered Circular App Logo -->
   <a href="https://github.com/rsrathore2196/Xtreme-Player">
-    <img src="assets/logo.png" alt="Xtreme Player Logo" width="130" height="130" style="border-radius: 50%; object-fit: cover;" />
+    <img src="assets/branding/wavtape-logo.png" alt="WavTape Logo" width="130" height="130" style="border-radius: 50%; object-fit: cover;" />
   </a>
 
   <!-- Project Title -->
-  <h1> Xtreme Player</h1>
+  <h1>WavTape</h1>
 
   <!-- Short Overview -->
   <p>
-    <b>Xtreme Player</b> is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity streaming experience with a privacy-first design.
+    <b>WavTape</b> is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity streaming experience with a privacy-first design.
   </p>
   <p>
     Stream millions of online tracks in studio-grade <b> Lossless and FLAC high-res audio</b>, manage custom libraries, and enjoy seamless playback without interruptions.
@@ -148,9 +148,9 @@
 
 ## Disclaimer & Legal Notice
 
-Xtreme Player is an independent, community-driven third-party audio player and client. It is not associated with Google LLC, YouTube Music, Telegram, or any of their parent companies.
+WavTape is an independent, community-driven third-party audio player and client. It is not associated with Google LLC, YouTube Music, Telegram, or any of their parent companies.
 
-- **No Media Hosting:** Xtreme Player does not host, upload, or store copyrighted music files. It operates strictly as an interface to scan local device storage or stream media directly from public sources.
+- **No Media Hosting:** WavTape does not host, upload, or store copyrighted music files. It operates strictly as an interface to scan local device storage or stream media directly from public sources.
 
 - **Fair Use & API Usage:** This software is created solely for personal research, educational, and fair-use purposes. The user is entirely responsible for ensuring their usage aligns with their local laws and platform policies.
 

@@ -319,7 +319,7 @@ object InternetArchiveApiService {
                         .addQueryParameter("page", requestedPage.toString())
                         .addQueryParameter("output", "json").build()
                     val request = Request.Builder().url(searchUrl)
-                        .header("User-Agent", "XtremePlayer/2.5.0 (Android; Lossless Audio Search)")
+                        .header("User-Agent", "WavTape/2.5.0 (Android; Lossless Audio Search)")
                         .header("Accept", "application/json").build()
                     if (recording != null && !withContext(AppDispatchers.Io) { recording.allowed() })
                         return@withTimeoutOrNull LosslessSearchPage(isSuccessful = false,
@@ -500,7 +500,7 @@ object InternetArchiveApiService {
             val metadataUrl = okhttp3.HttpUrl.Builder().scheme("https").host("archive.org")
                 .addPathSegment("metadata").addPathSegment(identifier).build()
             val request = Request.Builder().url(metadataUrl)
-                .header("User-Agent", "XtremePlayer/2.5.0 (Android)").build()
+                .header("User-Agent", "WavTape/2.5.0 (Android)").build()
             val encoded = requestMetadata(request)
             val root = withContext(AppDispatchers.CpuBounded) { JSONObject(encoded) }
             if (root.optBoolean("is_dark", false) || !authorized(root.optJSONObject("metadata"))) {
@@ -570,7 +570,7 @@ object InternetArchiveApiService {
                 val bytes = suspendCancellableCoroutine<ByteArray> { continuation ->
                     val call = httpClient.newCall(Request.Builder().url(url)
                         .header("Range", "bytes=0-262143").header("Accept-Encoding", "identity")
-                        .header("User-Agent", "XtremePlayer/2.5.0 (Android; Audio Metadata)").build())
+                        .header("User-Agent", "WavTape/2.5.0 (Android; Audio Metadata)").build())
                     continuation.invokeOnCancellation { call.cancel() }
                     call.enqueue(object : okhttp3.Callback {
                         override fun onFailure(call: okhttp3.Call, e: IOException) {

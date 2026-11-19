@@ -125,7 +125,7 @@ private data class MeasuredWord(
 )
 
 /**
- * Continuous Karaoke-Style Time-Synced Lyrics View for Xtreme Player.
+ * Continuous Karaoke-Style Time-Synced Lyrics View for WavTape.
  *
  * 1. Fluid Karaoke Highlighting & Line Transitions:
  *    - Continuous overlay reveal across the stable existing text.

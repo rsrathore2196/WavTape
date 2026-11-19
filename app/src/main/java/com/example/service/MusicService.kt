@@ -1283,7 +1283,7 @@ class MusicService : MediaLibraryService() {
             }
         })
 
-        // 4. PendingIntent to reopen Xtreme Player UI on notification click
+        // 4. PendingIntent to reopen WavTape UI on notification click
         val activityIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }

@@ -1,5 +1,5 @@
 {
-  "name": "Xtreme Player",
+  "name": "WavTape",
   "description": "Modern online music streaming player with Hi-Res Lossless and 320 kbps high quality audio playback, playlist import (Spotify, YouTube Music, Apple Music), Crystal Clarity audio engine, custom equalizer, and customizable settings.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

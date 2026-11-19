@@ -173,7 +173,7 @@ internal class LyricsTextTransformer(
     }
     private suspend fun send(url: String, body: FormBody): String? = requests.withPermit {
         try {
-            val request = Request.Builder().url(url).header("User-Agent", "XtremePlayer/${BuildConfig.VERSION_NAME}")
+            val request = Request.Builder().url(url).header("User-Agent", "WavTape/${BuildConfig.VERSION_NAME}")
                 .header("Accept", "application/json").post(body).build()
             suspendCancellableCoroutine { continuation ->
                 val call = network.newCall(request)

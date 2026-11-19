@@ -74,7 +74,7 @@ object StreamingAddons {
 
     private suspend fun get(url: HttpUrl, responseType: String, maxBytes: Long): String = permits.withPermit {
         val call = client.newCall(Request.Builder().url(url).header("X-LW-Intent", "stream")
-            .header("User-Agent", "XtremePlayer/${com.example.BuildConfig.VERSION_NAME}").build())
+            .header("User-Agent", "WavTape/${com.example.BuildConfig.VERSION_NAME}").build())
         suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {

@@ -4,7 +4,7 @@ import com.example.data.model.MusicTrack
 import java.util.Locale
 
 /**
- * Shared Original-Music Verification and Filtering System for Xtreme Player.
+ * Shared Original-Music Verification and Filtering System for WavTape.
  *
  * Ensures Home recommendations display exclusively genuine original recordings,
  * official studio singles, and verified albums while excluding:

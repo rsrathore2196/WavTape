@@ -57,7 +57,7 @@ internal object LastFmClient {
             add("api_sig", lastFmSignature(params, connection.secret)); add("format", "json")
         }.build()
         val request = Request.Builder().url("https://ws.audioscrobbler.com/2.0/").post(body)
-            .header("User-Agent", "Xtreme Player").build()
+            .header("User-Agent", "WavTape").build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Last.fm is unavailable")
             val root = JSONObject(response.body?.string() ?: throw IOException("Empty Last.fm response"))

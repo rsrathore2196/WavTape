@@ -193,7 +193,7 @@ internal class LyricsSources(private val identity: SongIdentity,
         query.forEach { (key, value) -> if (value != null && value.toString().isNotBlank()) addQueryParameter(key, value.toString()) }
     }.build().toString()
     private suspend fun get(url: String, bearer: String? = null): String? = slots.withPermit { withContext(Dispatchers.IO) { request(Request.Builder().url(url).apply {
-        header("User-Agent", "XtremePlayer/1.8 (lyrics)")
+        header("User-Agent", "WavTape/1.8 (lyrics)")
         header("Accept", "application/json, application/ttml+xml, text/plain, text/html")
         if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
     }.build()) } }

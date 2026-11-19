@@ -169,7 +169,7 @@ object AppUpdateManager {
         }
     }
     private fun get(url: String, maxBytes: Long = 2_000_000): String = client.newCall(Request.Builder().url(url)
-        .header("Accept", "application/vnd.github+json").header("User-Agent", "Xtreme-Player-Android/${BuildConfig.VERSION_NAME}").build())
+        .header("Accept", "application/vnd.github+json").header("User-Agent", "WavTape-Android/${BuildConfig.VERSION_NAME}").build())
         .execute().use { response ->
             if (!response.isSuccessful) throw IOException(when(response.code) {
                 403, 429 -> "Update server rate limit reached. Please try again later."

@@ -25,7 +25,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Xtreme Player"
+rootProject.name = "WavTape"
 
 include(":app")
 include(":benchmark")

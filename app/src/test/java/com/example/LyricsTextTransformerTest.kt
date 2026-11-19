@@ -44,7 +44,7 @@ class LyricsTextTransformerTest {
             assertEquals("translate.googleapis.com", request.url.host)
             assertEquals("dict-chrome-ex", body.value("client")); assertEquals("auto", body.value("sl"))
             assertEquals("t", body.value("dt")); assertEquals("en", body.value("tl"))
-            assertTrue(request.header("User-Agent").orEmpty().startsWith("XtremePlayer/"))
+            assertTrue(request.header("User-Agent").orEmpty().startsWith("WavTape/"))
             // Repeated chorus lines are sent once, then mapped to every occurrence.
             assertEquals(1, Regex("दिल मेरा").findAll(body.value("q")).count())
             200 to reply(translated(body.value("q")))
