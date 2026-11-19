@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.example.data.local.UserProfile
@@ -65,7 +66,7 @@ class HomeAppHeaderUiTest {
                     list = rememberLazyListState(prefetchStrategy = prefetch)
                     scope = rememberCoroutineScope()
                     Box(Modifier.fillMaxSize().testTag("header_review")) {
-                        HomeScreenContent(userProfile = UserProfile(name = "RS Rathore"), listState = list,
+                        HomeScreenContent(userProfile = UserProfile(name = "  RAVINDER\tSINGH  "), listState = list,
                             serverShelves = (1..3).map { ServerHomeShelf("s$it", "Shelf $it", tracks = listOf(
                                 MusicTrack("song$it", "Song $it", "Artist", "Album", 180_000, "", ""))) },
                             onTrackClick = { _, _ -> }, onToggleFavorite = {},
@@ -87,7 +88,7 @@ class HomeAppHeaderUiTest {
         compose.waitForIdle()
         assertEquals(header, bounds("home_fixed_header"))
         assertEquals(settings, bounds("top_settings_button"))
-        compose.onNodeWithText("RS RATHORE").assertDoesNotExist()
+        compose.onNodeWithTag("home_greeting_text").assertDoesNotExist()
         compose.onNodeWithTag("top_settings_button").assertIsDisplayed().performClick()
         assertEquals(1, settingsOpened)
         compose.runOnIdle { scope.launch { list.scrollToItem(0) } }
@@ -108,16 +109,20 @@ class HomeAppHeaderUiTest {
         capture("scrolled-refreshing")
     }
 
-    @Test fun lightHeaderOffsetsGreetingAndUsernameWithoutChangingTheirTypography() {
+    @Test fun greetingUsesTheTitleCasedFirstNameAndOriginalUsernameSizeWithAGlow() {
         show(LightAppColors)
         assertGreetingBelowHeader()
-        val greeting = compose.onNodeWithTag("home_greeting_text")
+        val greeting = layout(compose.onNodeWithTag("home_greeting_text").assertIsDisplayed())
         assertEquals(21.sp * 1.1f, layout(compose.onNodeWithText("WavTape")).layoutInput.style.fontSize)
-        assertEquals(16.1.sp * 1.05f, layout(greeting).layoutInput.style.fontSize)
-        assertEquals(21.sp * 1.05f, layout(compose.onNodeWithText("RS RATHORE")).layoutInput.style.fontSize)
+        val greetings = listOf("Good Morning", "Good Afternoon", "Good Evening", "Late Night Sessions")
+        assertTrue(greetings.any { greeting.layoutInput.text.text == "$it, Ravinder" })
+        assertEquals(21.sp * 1.05f, greeting.layoutInput.style.fontSize)
+        assertEquals(FontWeight.Bold, greeting.layoutInput.style.fontWeight)
+        assertTrue(requireNotNull(greeting.layoutInput.style.shadow).blurRadius > 0f)
+        assertEquals(1, greeting.lineCount)
+        assertFalse(greeting.isLineEllipsized(0))
         val hero = bounds("infinite_radio_hero_card")
         assertEquals(hero.left + with(compose.density) { 8.dp.toPx() }, bounds("home_greeting_text").left, 1f)
-        assertEquals(bounds("home_greeting_text").left, bounds("home_username_text").left, 1f)
         capture("light")
         assertBrandFits()
     }
@@ -149,7 +154,7 @@ class HomeAppHeaderUiTest {
         assertTrue(bounds("home_greeting").top >= bounds("home_fixed_header").bottom)
         assertEquals("The feed scrolls behind the fixed glass header", bounds("home_fixed_header").top,
             bounds("home_screen").top, 1f)
-        compose.onNodeWithTag("home_fixed_header").onChildren().filter(hasText("RS RATHORE")).assertCountEquals(0)
+        compose.onNodeWithTag("home_fixed_header").onChildren().filter(hasTestTag("home_greeting_text")).assertCountEquals(0)
     }
 
     private fun assertBrandFits() {

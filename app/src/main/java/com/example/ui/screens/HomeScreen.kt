@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.res.Configuration
+import android.graphics.Typeface
 import com.example.data.model.ServerHomeItem
 import com.example.data.model.nativeKind
 import com.example.data.model.requiresSongArtwork
@@ -77,10 +78,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.LinearGradientShader
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -352,45 +355,34 @@ fun HomeScreenContent(
             // Greeting belongs to the scrolling feed, below the fixed app header.
             item(key = "header_bar", contentType = "greeting") {
                 val profile = homeViewModel?.userProfile?.collectAsStateWithLifecycle()?.value ?: userProfile
+                val locale = LocalConfiguration.current.locales[0]
+                val firstName = profile?.name.orEmpty().trim().takeWhile { !it.isWhitespace() }
+                    .ifEmpty { "Listener" }
+                    .lowercase(locale).replaceFirstChar { it.titlecase(locale) }
+                val greetingFont = remember {
+                    FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
+                }
+                val glowRadius = with(LocalDensity.current) { 9.dp.toPx() }
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)
                         .testTag("home_greeting")
                 ) {
-                    val userName = profile?.name?.trim()?.takeIf { it.isNotBlank() } ?: "Listener"
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 8.dp)
-                    ) {
-                        Text(
-                            text = greeting,
-                            modifier = Modifier.testTag("home_greeting_text"),
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                                fontSize = 16.1.sp * 1.05f,
-                                lineHeight = 22.sp,
-                                fontWeight = FontWeight.Medium,
-                                letterSpacing = 0.15.sp,
-                                color = textMutedColor
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = userName.uppercase(),
-                            modifier = Modifier.testTag("home_username_text"),
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 21.sp * 1.05f,
-                                lineHeight = 28.sp,
-                                letterSpacing = 0.4.sp,
-                                color = textPrimaryColor
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(
+                        text = "$greeting, $firstName",
+                        modifier = Modifier.padding(start = 8.dp).testTag("home_greeting_text"),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = greetingFont,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 21.sp * 1.05f,
+                            lineHeight = 28.sp,
+                            letterSpacing = (-0.35).sp,
+                            color = textPrimaryColor,
+                            shadow = Shadow(appColors.primaryAccent.copy(alpha = if (isDark) 0.55f else 0.35f),
+                                blurRadius = glowRadius)
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
@@ -1053,9 +1045,9 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
 private fun rememberGreeting(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     return when (hour) {
-        in 5..11 -> "Good morning"
-        in 12..16 -> "Good afternoon"
-        in 17..22 -> "Good evening"
+        in 5..11 -> "Good Morning"
+        in 12..16 -> "Good Afternoon"
+        in 17..22 -> "Good Evening"
         else -> "Late Night Sessions"
     }
 }
