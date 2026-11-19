@@ -1,12 +1,15 @@
 <div align="center">
 
-  <!-- Centered Circular App Logo -->
-  <a href="https://github.com/rsrathore2196/WavTape">
-    <img src="assets/branding/wavtape-logo.png" alt="WavTape Logo" width="130" height="130" style="border-radius: 50%; object-fit: cover;" />
-  </a>
-
-  <!-- Project Title -->
-  <h1>WavTape</h1>
+  <!-- Centered App Logo & Wordmark -->
+  <p>
+    <a href="https://github.com/rsrathore2196/WavTape">
+      <img src="assets/branding/wavtape-logo.png" alt="WavTape Logo" width="130" height="130" style="border-radius: 50%; object-fit: cover;" />
+    </a>
+    <br />
+    <a href="https://github.com/rsrathore2196/WavTape">
+      <img src="assets/branding/wavtape-wordmark.png" alt="WavTape" width="230" />
+    </a>
+  </p>
 
   <!-- Short Overview -->
   <p>
