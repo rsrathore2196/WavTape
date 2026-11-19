@@ -24,8 +24,8 @@
   </p>
 
   <p>
-    <a href="https://t.me/XtremePlayerOfficiaI"><img src="https://img.shields.io/badge/Telegram-Updates%20%26%20Support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Updates"></a>
-    <a href="https://t.me/xtremeplayerofficial"><img src="https://img.shields.io/badge/Telegram-Discussion-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Discussion"></a>
+    <a href="https://t.me/WavTapeOfficial"><img src="https://img.shields.io/badge/Telegram-Updates%20%26%20Support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Updates"></a>
+    <a href="https://t.me/WavTapeDiscussion"><img src="https://img.shields.io/badge/Telegram-Discussion-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Discussion"></a>
   </p>
 
   <p>
