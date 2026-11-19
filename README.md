@@ -18,9 +18,9 @@
 
   <!-- Badges -->
   <p>
-    <a href="https://github.com/rsrathore2196/WavTape/releases"><img src="https://img.shields.io/github/v/release/rsrathore2196/WavTape?style=flat-square&logo=github&label=Release&color=09B1ED" alt="Latest Release"></a>
-    <a href="https://github.com/rsrathore2196/WavTape/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_APK-09B1ED?style=flat-square&logo=android&logoColor=white&labelColor=09101F" alt="Download APK"></a>
-    <a href="#"><img src="https://img.shields.io/badge/Android-8.0%2B-blue?style=flat-square&logo=android" alt="Android Version"></a>
+    <a href="https://github.com/rsrathore2196/WavTape/releases"><img src="https://img.shields.io/github/v/release/rsrathore2196/WavTape?style=flat-square&logo=github&label=Release&color=green" alt="Latest Release"></a>
+    <a href="https://github.com/rsrathore2196/WavTape/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_APK-green?style=flat-square&logo=android&logoColor=white" alt="Download APK"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Android-8.0%2B-red?style=flat-square&logo=android" alt="Android Version"></a>
   </p>
 
   <p>
