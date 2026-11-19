@@ -1,7 +1,7 @@
 <div align="center">
 
   <!-- Centered Circular App Logo -->
-  <a href="https://github.com/rsrathore2196/Xtreme-Player">
+  <a href="https://github.com/rsrathore2196/WavTape">
     <img src="assets/branding/wavtape-logo.png" alt="WavTape Logo" width="130" height="130" style="border-radius: 50%; object-fit: cover;" />
   </a>
 
@@ -10,21 +10,21 @@
 
   <!-- Short Overview -->
   <p>
-    <b>WavTape</b> is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity streaming experience with a privacy-first design.
+    <b>WavTape</b> is a lightweight, modern, open-source online streaming YouTube Music Client for Android. Built with a clean Material You (Material 3) interface, it delivers an ad-free, high-fidelity listening experience with studio-grade lossless audio support and extensive customization.
   </p>
   <p>
-    Stream millions of online tracks in studio-grade <b> Lossless and FLAC high-res audio</b>, manage custom libraries, and enjoy seamless playback without interruptions.
+    Stream millions of online tracks in studio-grade <b>Lossless and FLAC high-res audio</b>, manage custom libraries, and enjoy seamless playback without interruptions.
   </p>
 
   <!-- Badges -->
   <p>
-    <a href="https://github.com/rsrathore2196/Xtreme-Player/releases"><img src="https://img.shields.io/github/v/release/rsrathore2196/Xtreme-Player?style=flat-square&logo=github&label=Release&color=blue" alt="Release"></a>
-    <a href="https://github.com/rsrathore2196/Xtreme-Player/releases/latest"><img src="https://img.shields.io/github/v/release/rsrathore2196/Xtreme-Player?style=flat-square&logo=android&label=Download&color=green" alt="Download"></a>
+    <a href="https://github.com/rsrathore2196/WavTape/releases"><img src="https://img.shields.io/github/v/release/rsrathore2196/WavTape?style=flat-square&logo=github&label=Release&color=09B1ED" alt="Latest Release"></a>
+    <a href="https://github.com/rsrathore2196/WavTape/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_APK-09B1ED?style=flat-square&logo=android&logoColor=white&labelColor=09101F" alt="Download APK"></a>
     <a href="#"><img src="https://img.shields.io/badge/Android-8.0%2B-blue?style=flat-square&logo=android" alt="Android Version"></a>
   </p>
 
   <p>
-    <a href="https://t.me/XtremePlayerOfficiaI"><img src="https://img.shields.io/badge/Telegram-Updates%20%26%20Support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Updates & Support"></a>
+    <a href="https://t.me/XtremePlayerOfficiaI"><img src="https://img.shields.io/badge/Telegram-Updates%20%26%20Support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Updates"></a>
     <a href="https://t.me/xtremeplayerofficial"><img src="https://img.shields.io/badge/Telegram-Discussion-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Discussion"></a>
   </p>
 
@@ -93,7 +93,7 @@
 
 ### 🎧 Premium Streaming & Audio Engine
 - **Hi-Res Lossless & HQ Listening:** Enjoy FLAC, WAV, AAC, and bitrate tiers up to 24-bit/192 kHz studio master quality, with adjustable audio quality settings for mobile or high-fidelity listening.
-- **Audio DSP & Equalizer:** Tune playback with a 5-band hardware equalizer, preset modes including Flat, Bass Boost, Studio Master, Vocal Enhance, Electronic, Rock, and Acoustic, plus Crystal Clear and Dynamic boosting.
+- **Audio DSP & Equalizer:** Tune playback with a 5-band hardware equalizer, preset modes including Flat, Bass Boost, Studio Master, Vocal Enhance, Electronic, Rock, and Acoustic, plus Crystal Clarity and bass enhancement processing.
 - **Gapless, Smooth Playback:** Gapless transitions, 16-bit PCM hardware output, predictive pre-buffering, and a local LRU cache help reduce stutter and lag on weaker connections.
 - **Background & Controls:** Persistent lock screen and notification playback controls keep music playing in the background with AndroidX Media3 support.
 - **Smart Recommendations:** Discover more relevant tracks, regional chart hits, personalized mixes, and artist-based suggestions without repetitive country tags.
@@ -151,10 +151,9 @@
 WavTape is an independent, community-driven third-party audio player and client. It is not associated with Google LLC, YouTube Music, Telegram, or any of their parent companies.
 
 - **No Media Hosting:** WavTape does not host, upload, or store copyrighted music files. It operates strictly as an interface to scan local device storage or stream media directly from public sources.
+- **Fair Use & API Usage:** This software is created solely for personal research, educational, and fair-use purposes. The user is entirely responsible for ensuring their usage aligns with their local laws and the terms of the providers they access.
 
-- **Fair Use & API Usage:** This software is created solely for personal research, educational, and fair-use purposes. The user is entirely responsible for ensuring their usage aligns with their local laws and platform policies.
-
-**This project is provided for educational and research purposes only. The maintainers do not endorse or facilitate copyright infringement, unauthorized redistribution, or illegal access to media files.**
+**This project is provided for educational and research purposes only. The maintainers do not endorse or facilitate copyright infringement, unauthorized redistribution, or illegal access to media.**
 
 ### Licence
 
@@ -166,10 +165,10 @@ This project is licensed under the [GNU General Public License v3.0 (GPLv3)](thi
 
 ```bash
 # Clone the repository
-git clone https://github.com/rsrathore2196/Xtreme-Player.git
+git clone https://github.com/rsrathore2196/WavTape.git
 
 # Navigate to the project directory
-cd Xtreme-Player
+cd WavTape
 
 # Build the debug APK
 ./gradlew :app:assembleDebug
