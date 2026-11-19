@@ -42,6 +42,8 @@ class AboutCommunityThemeTest {
                 com.example.ui.screens.settings.AboutPage(isDarkMode = darkMode)
             }
         } }
+        compose.onNodeWithTag("about_app_wordmark").assertIsDisplayed().assertContentDescriptionEquals("WavTape")
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
         compose.onNodeWithText("Build Verification").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("STABLE").assertIsDisplayed()
         compose.onNodeWithText("BETA").assertDoesNotExist()

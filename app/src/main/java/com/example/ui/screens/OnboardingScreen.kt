@@ -346,18 +346,11 @@ private fun OnboardingContent(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // App Name "WavTape"
-                            Text(
-                                text = buildAnnotatedString {
-                                    append("Wav")
-                                    withStyle(SpanStyle(color = textPrimary)) { append("Tape") }
-                                },
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.sp,
-                                    fontSize = 26.4.sp,
-                                    color = primaryAccent
-                                )
+                            // Fixed WavTape wordmark graphic directly under the logo
+                            com.example.ui.components.AppBrandWordmark(
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .testTag("onboarding_details_wordmark")
                             )
 
                             Spacer(modifier = Modifier.height(4.dp))
@@ -967,18 +960,11 @@ fun OnboardingStartupPage(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // App name "WavTape" directly under the logo
-            Text(
-                text = buildAnnotatedString {
-                    append("Wav")
-                    withStyle(SpanStyle(color = textPrimary)) { append("Tape") }
-                },
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    fontSize = 34.sp,
-                    color = primaryAccent
-                )
+            // Fixed WavTape wordmark graphic directly under the logo
+            com.example.ui.components.AppBrandWordmark(
+                modifier = Modifier
+                    .height(40.dp)
+                    .testTag("onboarding_brand_wordmark")
             )
 
             Spacer(modifier = Modifier.height(8.dp))

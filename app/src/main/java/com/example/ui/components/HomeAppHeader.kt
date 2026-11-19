@@ -110,16 +110,13 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
             primaryAccent = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
             secondaryAccent = tabHeaderAccentColor(colors.secondaryAccent, colors.isDark),
             cutoutColor = if (colors.isDark) TabHeaderBaseColor else TabHeaderLightBaseColor, showGlow = false)
-        BoxWithConstraints(Modifier.weight(1f)) {
-            // Retain the complete brand at compact widths and larger system text sizes.
-            val fontScale = LocalDensity.current.fontScale
-            val titleSize = (minOf(21f, (maxWidth.value - 12f) / (8.5f * fontScale)) * 1.1f).sp
-            Text(buildAnnotatedString {
-                withStyle(SpanStyle(color = tabHeaderAccentColor(colors.primaryAccent, colors.isDark),
-                    fontWeight = FontWeight.Black)) { append("Wav") }
-                append("Tape")
-            }, color = foreground, fontWeight = FontWeight.ExtraBold, fontSize = titleSize,
-                letterSpacing = 1.sp, maxLines = 1)
+        BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            val wordmarkWidth = minOf(100.dp, maxWidth)
+            AppBrandWordmark(
+                modifier = Modifier
+                    .width(wordmarkWidth)
+                    .testTag("home_header_wordmark")
+            )
         }
         Box(Modifier.size(48.dp)
             .clickable { onOpenSettings?.invoke() }.testTag("top_settings_button"),

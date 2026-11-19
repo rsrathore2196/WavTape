@@ -104,7 +104,7 @@ class TabHeaderGlassUiTest {
         val settled = sourceDraws
         repeat(6) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() }
         assertEquals("The header never captures itself or starts a capture loop", settled, sourceDraws)
-        compose.onNodeWithText("WavTape").performTouchInput { click() }
+        compose.onNodeWithTag("home_header_wordmark").performTouchInput { click() }
         assertEquals("Covered rows cannot be tapped through the header", 0, underlayClicks)
         compose.onNodeWithTag("top_settings_button").performTouchInput { click() }
         assertEquals(1, settingsOpened)

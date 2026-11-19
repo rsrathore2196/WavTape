@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.AppBrandWordmark
 import com.example.ui.components.AppDynamicLogo
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
@@ -119,15 +120,13 @@ fun AboutPage(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = "WavTape",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 26.sp,
-                    letterSpacing = (-0.5).sp,
-                    color = appColors.textPrimary
+                AppBrandWordmark(
+                    modifier = Modifier
+                        .height(34.dp)
+                        .testTag("about_app_wordmark")
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Box(
                     modifier = Modifier

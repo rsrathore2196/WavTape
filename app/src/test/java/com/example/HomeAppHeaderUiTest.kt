@@ -113,7 +113,8 @@ class HomeAppHeaderUiTest {
         show(LightAppColors)
         assertGreetingBelowHeader()
         val greeting = layout(compose.onNodeWithTag("home_greeting_text").assertIsDisplayed())
-        assertEquals(21.sp * 1.1f, layout(compose.onNodeWithText("WavTape")).layoutInput.style.fontSize)
+        compose.onNodeWithTag("home_header_wordmark").assertIsDisplayed().assertContentDescriptionEquals("WavTape")
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
         val greetings = listOf("Good Morning", "Good Afternoon", "Good Evening", "Late Night Sessions")
         assertTrue(greetings.any { greeting.layoutInput.text.text == "$it, Ravinder" })
         assertEquals(21.sp * 1.05f, greeting.layoutInput.style.fontSize)
@@ -163,17 +164,13 @@ class HomeAppHeaderUiTest {
             .assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
         compose.onNodeWithTag("top_settings_button").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
         val header = bounds("home_fixed_header")
+        val logo = bounds("home_header_logo")
         val settings = bounds("top_settings_button")
-        for (word in listOf("WavTape")) {
-            val node = compose.onNodeWithText(word).assertIsDisplayed()
-            val measured = layout(node)
-            assertEquals(1, measured.lineCount)
-            assertFalse(measured.isLineEllipsized(0))
-            // Text layout rounds its integer width; allow the subpixel remainder.
-            assertTrue("$word should fit completely", measured.getLineRight(0) <= measured.size.width + 1f)
-            val box = node.fetchSemanticsNode().boundsInRoot
-            assertTrue(box.left >= header.left && box.right < settings.left)
-        }
+        val wordmark = compose.onNodeWithTag("home_header_wordmark").assertIsDisplayed()
+            .assertContentDescriptionEquals("WavTape").fetchSemanticsNode().boundsInRoot
+        assertTrue("Wordmark must fit to the right of the logo and left of settings",
+            wordmark.left >= logo.right && wordmark.right < settings.left &&
+                wordmark.top >= header.top && wordmark.bottom <= header.bottom)
         assertTrue(settings.right <= header.right && settings.bottom <= header.bottom)
     }
 
@@ -198,10 +195,7 @@ class HomeAppHeaderUiTest {
             assertEquals(actual.green, actual.blue, .03f)
             if (renderedPalette.isDark) assertTrue("Dark glass remains subtle", actual.red < .25f)
             else assertTrue("Light glass must not become a heavy gray slab", actual.red > .75f)
-            val brand = layout(compose.onNodeWithText("WavTape")).layoutInput
-            assertEquals(com.example.ui.components.tabHeaderAccentColor(renderedPalette.primaryAccent, renderedPalette.isDark),
-                brand.text.spanStyles.single { it.start == 0 && it.end == 3 }.item.color)
-            assertEquals(renderedPalette.textPrimary, brand.style.color)
+            compose.onNodeWithTag("home_header_wordmark").assertIsDisplayed()
         }
     }
 }

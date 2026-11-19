@@ -30,7 +30,7 @@ class WavTapeBrandAssetsTest {
         // resource resolution here; the pixel/mask checks below use native graphics.
         assertEquals("WavTape", context.getString(R.string.app_name))
         for (id in listOf(R.mipmap.ic_launcher, R.mipmap.ic_launcher_round,
-            R.drawable.wavtape_logo, R.drawable.ic_launcher_foreground)) {
+            R.drawable.wavtape_logo, R.drawable.wavtape_wordmark, R.drawable.ic_launcher_foreground)) {
             val drawable = requireNotNull(context.getDrawable(id))
             assertTrue(drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0)
         }
@@ -56,6 +56,24 @@ class WavTapeBrandAssetsTest {
                 assertTrue(blue > 100 && cyan > 100)
             } finally { bitmap.recycle() }
         }
+        val wordmark = Bitmap.createBitmap(616, 135, Bitmap.Config.ARGB_8888).also { bitmap ->
+            requireNotNull(context.getDrawable(R.drawable.wavtape_wordmark)).apply {
+                setBounds(0, 0, 616, 135); draw(Canvas(bitmap))
+            }
+        }
+        try {
+            assertEquals("Wordmark surround stays transparent", 0, Color.alpha(wordmark.getPixel(0, 0)))
+            assertEquals("Wordmark bottom corner stays transparent", 0, Color.alpha(wordmark.getPixel(615, 134)))
+            var blue = 0; var cyan = 0
+            for (y in 0 until 135 step 2) for (x in 0 until 616 step 2) {
+                val c = wordmark.getPixel(x, y)
+                if (Color.alpha(c) > 200) {
+                    if (Color.blue(c) > Color.red(c) + 50 && Color.blue(c) > Color.green(c) + 30) blue++
+                    if (Color.blue(c) > Color.red(c) + 50 && Color.green(c) > Color.red(c) + 50) cyan++
+                }
+            }
+            assertTrue("Wordmark preserves cyan/blue gradient", blue > 100 && cyan > 100)
+        } finally { wordmark.recycle() }
     }
 
     @Test fun legacyAndAdaptiveLaunchersUseTheNewMarkAndSafeTransparentForeground() {

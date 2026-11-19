@@ -84,12 +84,16 @@ class OnboardingAppearanceUiTest {
             assertTrue("Compare the supplied artwork across both themes", compared > 30)
         }
         val welcome = logoPixels("onboarding_brand_logo", "purple-theme")
+        val welcomeWordmark = logoPixels("onboarding_brand_wordmark", "purple-theme")
         compose.runOnIdle { colors = green }
         assertBrandOverDifferentThemes(welcome, logoPixels("onboarding_brand_logo", "green-theme"))
+        assertBrandOverDifferentThemes(welcomeWordmark, logoPixels("onboarding_brand_wordmark", "green-theme"))
         compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
         val details = logoPixels("onboarding_details_logo", "green-theme")
+        val detailsWordmark = logoPixels("onboarding_details_wordmark", "green-theme")
         compose.runOnIdle { colors = purple }
         assertBrandOverDifferentThemes(details, logoPixels("onboarding_details_logo", "purple-theme"))
+        assertBrandOverDifferentThemes(detailsWordmark, logoPixels("onboarding_details_wordmark", "purple-theme"))
     }
 
     private fun verify(light: Boolean) {
@@ -124,16 +128,18 @@ class OnboardingAppearanceUiTest {
         compose.onNodeWithText("Redefining High Fidelity").assertIsDisplayed()
         compose.onNodeWithText("WELCOME TO YOUR MUSIC").assertDoesNotExist()
         compose.onNodeWithTag("onboarding_brand_logo").assertIsDisplayed()
-        assertEquals("Brand accent must be inherited, not substituted", inherited.primaryAccent, textColor("WavTape"))
+        compose.onNodeWithTag("onboarding_brand_wordmark").assertIsDisplayed()
+            .assertContentDescriptionEquals("WavTape").assertHeightIsEqualTo(40.dp)
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
+        assertEquals("Tagline accent must be inherited", inherited.primaryAccent.copy(alpha = 0.9f),
+            textColor("Redefining High Fidelity"))
         assertCanvas("welcome")
         compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
         compose.onNodeWithText("Make it yours.").assertDoesNotExist()
         compose.onNodeWithTag("onboarding_details_logo").assertWidthIsEqualTo(70.4.dp).assertHeightIsEqualTo(70.4.dp)
-        for (brand in listOf("WavTape")) {
-            val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText(brand).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertEquals(26.4.sp, layouts.single().layoutInput.style.fontSize)
-        }
+        compose.onNodeWithTag("onboarding_details_wordmark").assertIsDisplayed()
+            .assertContentDescriptionEquals("WavTape").assertHeightIsEqualTo(32.dp)
+        compose.onNodeWithText("WavTape").assertDoesNotExist()
         compose.onNodeWithText("A LITTLE ABOUT YOU").assertDoesNotExist()
         for (name in listOf("English", "Hindi", "Punjabi", "Spanish", "Korean"))
             compose.onNodeWithTag("language_chip_$name").assertExists()
