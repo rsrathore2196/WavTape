@@ -53,48 +53,63 @@ fun InfiniteRadioHeroCard(
     artworkResolver: suspend (MusicTrack) -> String? = ::resolveYouTubeHeroArtwork
 ) {
     val appColors = LocalAppColors.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var artworkRequested by remember { mutableStateOf(false) }
     val isDark = appColors.isDark
     val glassEnabled = LocalDynamicGlassEnabled.current
-    var artworkSize by remember { mutableStateOf(IntSize.Zero) }
-    val artworkRequest = if (seedTrack != null && artworkSize.width > 0 && artworkSize.height > 0) {
-        com.example.ui.util.rememberHeroArtworkRequest(seedTrack, artworkSize, artworkResolver,
-            resolveMetadata = artworkRequested).takeIf { (it.data as? String)?.isNotBlank() == true }
-    } else null
-    var artworkReady by remember(artworkRequest) { mutableStateOf(false) }
-    // The supporting dark scrim belongs to real artwork. A missing/loading/failed
-    // cover is a theme surface and must not turn a light card into a dark panel.
-    val lightFallback = !isDark && !artworkReady
-    val glassTint = if (lightFallback) appColors.cardBackground else Color(0xFF080D18)
-    val foreground = if (lightFallback) com.example.ui.theme.LiquidGlass.lightContentColor(appColors, appColors.textPrimary)
-        else Color.White
-    val buttonForeground = if (glassEnabled) foreground else com.example.ui.theme.contrastingContentColor(appColors.cardBackground)
+    var measuredSize by remember { mutableStateOf(IntSize.Zero) }
     val playbackActive = isPlaying
     val radioLoading = isRadioSession && isLoading && !playbackActive
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(), label = "radio_press")
     val shape = RoundedCornerShape(26.dp)
-    val textShadow = if (!glassEnabled || lightFallback) Shadow.None else Shadow(
-        Color.Black.copy(alpha = 0.85f),
-        Offset(0f, 1f), 6f
-    )
 
-    Box(
+    BoxWithConstraints(
         modifier.fillMaxWidth().padding(contentPadding)
             .height(240.dp).shadow(if (glassEnabled) 14.dp else 6.dp, shape).clip(shape)
-            .background(glassTint)
-            .border(1.5.dp, if (!glassEnabled) SolidColor(appColors.cardBorder) else Brush.linearGradient(listOf(
-                Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.12f),
-                Color.Black.copy(alpha = if (isDark) 0.35f else 0.18f), Color.White.copy(alpha = 0.6f)
-            )), shape)
-            .onSizeChanged { if (artworkSize != it) artworkSize = it }
+            .onSizeChanged { if (measuredSize != it) measuredSize = it }
             .testTag("infinite_radio_hero_card")
     ) {
+        val artworkSize = if (constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
+            constraints.maxWidth > 0 && constraints.maxHeight > 0
+        ) IntSize(constraints.maxWidth, constraints.maxHeight) else measuredSize
+        val artworkRequest = if (seedTrack != null && artworkSize.width > 0 && artworkSize.height > 0) {
+            com.example.ui.util.rememberHeroArtworkRequest(seedTrack, artworkSize, artworkResolver,
+                resolveMetadata = artworkRequested).takeIf { (it.data as? String)?.isNotBlank() == true }
+        } else null
+        var artworkReady by remember(artworkRequest) {
+            val cached = artworkRequest?.let { req ->
+                val mem = coil.Coil.imageLoader(context).memoryCache
+                (req.memoryCacheKey?.let { mem?.get(it) } != null) ||
+                    (req.placeholderMemoryCacheKey?.let { mem?.get(it) } != null)
+            } == true
+            mutableStateOf(cached)
+        }
+        // The supporting dark scrim belongs to real artwork. A missing/loading/failed
+        // cover is a theme surface and must not turn a light card into a dark panel.
+        val lightFallback = !isDark && !artworkReady
+        val glassTint = if (lightFallback) appColors.cardBackground else Color(0xFF080D18)
+        val foreground = if (lightFallback) com.example.ui.theme.LiquidGlass.lightContentColor(appColors, appColors.textPrimary)
+            else Color.White
+        val buttonForeground = if (glassEnabled) foreground else com.example.ui.theme.contrastingContentColor(appColors.cardBackground)
+        val textShadow = if (!glassEnabled || lightFallback) Shadow.None else Shadow(
+            Color.Black.copy(alpha = 0.85f),
+            Offset(0f, 1f), 6f
+        )
+
+        Box(
+            Modifier.fillMaxSize()
+                .background(glassTint)
+                .border(1.5.dp, if (!glassEnabled) SolidColor(appColors.cardBorder) else Brush.linearGradient(listOf(
+                    Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.12f),
+                    Color.Black.copy(alpha = if (isDark) 0.35f else 0.18f), Color.White.copy(alpha = 0.6f)
+                )), shape)
+        ) {
         if (artworkRequest != null) {
             AsyncImage(
                 model = artworkRequest,
-                onLoading = { artworkReady = false },
+                onLoading = { if (artworkRequest.placeholderMemoryCacheKey == null) artworkReady = false },
                 onSuccess = { artworkReady = true },
                 onError = { artworkReady = false },
                 contentDescription = null,
@@ -186,5 +201,6 @@ fun InfiniteRadioHeroCard(
             )),
             RoundedCornerShape(23.dp)
         ))
+        }
     }
 }

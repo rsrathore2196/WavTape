@@ -45,7 +45,9 @@ data class CatalogDetailState(
     val browseContinuation: CatalogBrowseContinuation? = null,
     internal val requestId: Int = 0,
     val playlistContent: com.example.data.local.PlaylistWithTracks? = null,
-    val artistProfile: com.example.data.repository.CatalogArtistProfile? = null
+    val artistProfile: com.example.data.repository.CatalogArtistProfile? = null,
+    val genreAlbums: List<CatalogAlbum> = emptyList(),
+    val genrePlaylists: List<CatalogPlaylist> = emptyList()
 )
 private fun CatalogDetailState.withTracks(tracks: List<MusicTrack>, pending: List<MusicTrack> = this.pending): CatalogDetailState {
     val playlist = (destination as? CatalogDestination.Playlist)?.playlist
@@ -504,6 +506,13 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
     }
     fun loadMoreDetail() {
         val state = _detail.value ?: return
+        if (state.destination is CatalogDestination.TrackInfo) {
+            _detail.update { current ->
+                if (current?.destination?.key != state.destination.key) current
+                else current.copy(loading = false, initialized = true, error = null)
+            }
+            return
+        }
         if (state.destination.isAppLikedSongs()) {
             if (detailJob?.isActive == true) return
             val generation = detailGeneration
@@ -555,6 +564,8 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     }
                     is CatalogDestination.Album -> repository.albumSongs(selected.album, state.browseContinuation)
                     is CatalogDestination.Playlist -> repository.playlistSongs(selected.playlist, state.nextPage ?: 1, state.browseContinuation)
+                    is CatalogDestination.Genre -> TrackMetadataResolver.loadGenrePage(repository, selected.genre)
+                    is CatalogDestination.TrackInfo -> CatalogPage()
                 }
                 if (generation != _detail.value?.requestId) return@launch
                 val fresh = withContext(AppDispatchers.CpuBounded) {
@@ -562,7 +573,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     else repository.uniqueTracks(state.tracks + page.tracks).drop(state.tracks.size)
                 }
                 if (generation != _detail.value?.requestId) return@launch
-                val album = destination is CatalogDestination.Album
+                val album = destination is CatalogDestination.Album || destination is CatalogDestination.Genre
                 val added = if (album) fresh else fresh.take(10)
                 val pending = if (album) emptyList() else fresh.drop(10)
                 // A fallback search can begin at page one after an artist-endpoint
@@ -575,7 +586,9 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     nextPage = if (repeated) null else page.nextPage, loading = false,
                     initialized = true, error = null, warning = page.warning,
                     artistContinuation = page.artistContinuation, browseContinuation = page.browseContinuation,
-                    artistProfile = page.artistProfile ?: current.artistProfile)
+                    artistProfile = page.artistProfile ?: current.artistProfile,
+                    genreAlbums = if (page.albums.isNotEmpty()) page.albums else current.genreAlbums,
+                    genrePlaylists = if (page.playlists.isNotEmpty()) page.playlists else current.genrePlaylists)
                     .withTracks(liked(state.tracks + added), liked(pending)) }
                 // Store both name-only Home routes and provider-ID routes against the same loaded data.
                 synchronized(details) {

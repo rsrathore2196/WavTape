@@ -89,6 +89,9 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onPreInterceptKeyBeforeSoftKeyboard
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -96,6 +99,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -122,13 +126,34 @@ import com.example.ui.viewmodel.SearchUiState
 @Composable
 private fun RecentSearchList(
     queries: List<String>, onSearch: (String) -> Unit,
-    onRemove: (String) -> Unit, onClear: () -> Unit
+    onRemove: (String) -> Unit, onClear: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
 ) {
     val colors = LocalAppColors.current
     val maxHeight = minOf(300.dp, LocalConfiguration.current.screenHeightDp.dp * 0.4f)
-    LazyColumn(Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(max = maxHeight)
-        .clip(RoundedCornerShape(12.dp)).background(colors.inputBackground)
-        .testTag("recent_searches_list")) {
+    // Keep vertical boundary drags/flings inside the history list so swiping down
+    // does not bubble to the parent Search LazyColumn and dismiss the keyboard.
+    val keepScrollInsideHistory = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(0f, available.y)
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity
+            ): Velocity = Velocity(0f, available.y)
+        }
+    }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(max = maxHeight)
+            .clip(RoundedCornerShape(12.dp)).background(colors.inputBackground)
+            .nestedScroll(keepScrollInsideHistory)
+            .testTag("recent_searches_list")
+    ) {
         item(key = "history_heading") {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -464,9 +489,12 @@ fun SearchScreen(
         }
     }
 
-    // Automatically close keyboard when user starts scrolling the results list
-    LaunchedEffect(isScreenActive, listState.isScrollInProgress) {
-        if (isScreenActive && listState.isScrollInProgress) {
+    val recentSearchesListState = rememberLazyListState()
+
+    // Automatically close keyboard when user starts scrolling the results list,
+    // without dismissing the keyboard while interacting with the recent searches list.
+    LaunchedEffect(isScreenActive, listState.isScrollInProgress, recentSearchesListState.isScrollInProgress) {
+        if (isScreenActive && listState.isScrollInProgress && !recentSearchesListState.isScrollInProgress) {
             keyboardController?.hide()
             focusManager.clearFocus()
         }
@@ -693,8 +721,14 @@ fun SearchScreen(
                         .testTag("search_query_input")
                 )
 
-                if (isScreenActive && searchFocused && recentSearches.isNotEmpty()) {
-                    RecentSearchList(recentSearches, triggerSearch, onRemoveRecentSearch, onClearRecentSearches)
+                if (isScreenActive && searchFocused && !hasQuery && recentSearches.isNotEmpty()) {
+                    RecentSearchList(
+                        queries = recentSearches,
+                        onSearch = triggerSearch,
+                        onRemove = onRemoveRecentSearch,
+                        onClear = onClearRecentSearches,
+                        listState = recentSearchesListState
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

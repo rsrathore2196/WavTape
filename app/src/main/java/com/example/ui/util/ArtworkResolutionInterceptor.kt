@@ -55,6 +55,13 @@ data class ArtworkRequestMetadata(
     val preserveAspectRatio: Boolean = false
 )
 
+/** Real square covers may differ by a few pixels after CDN scaling; reject 4:3 / 16:9 video frames. */
+internal fun isSquareArtworkDimensions(width: Int, height: Int): Boolean {
+    if (width <= 0 || height <= 0) return false
+    val maxSide = maxOf(width, height)
+    return kotlin.math.abs(width - height) <= maxOf(4, (maxSide * 0.04f).toInt())
+}
+
 /** Small visible Home cards need a native thumbnail, not a full-player rendition. */
 internal fun providerThumbnailUrl(url: String, dimension: Int): String {
     val host = try { URI(url).host?.lowercase(java.util.Locale.ROOT) } catch (_: Exception) { null }
@@ -262,8 +269,9 @@ internal class ArtworkResolutionInterceptor(
         val attempted = mutableSetOf<String>()
         val cachedImages = mutableMapOf<String, SuccessResult?>()
         val savedImages = if (metadata.visibleThumbnail) diskCache() else null
+        val priorityArtwork = metadata.currentTrack || metadata.landscapeArtwork || metadata.targetSize == ImageConfig.HERO_BANNER_SIZE
         var lastError: ImageResult? = null
-        var networkBudgetMs = if (metadata.currentTrack) 6_000L else 3_000L
+        var networkBudgetMs = if (priorityArtwork) 12_000L else 4_500L
         // A native, unsampled image can still be much smaller than this viewport.
         // Only actual bitmap pixels can finish resolution; provider caps are fallbacks.
         fun sufficient(result: SuccessResult) = sufficientSize(result, chain.size)
@@ -292,7 +300,7 @@ internal class ArtworkResolutionInterceptor(
             }.build()
             // Memory hits never queue. Disk decoding shares the same bounded URL flight
             // as fetching, including visible thumbnails repeated across Home shelves.
-            val result = if (memoryOnly) chain.proceed(candidate) else admittedArtwork(url, metadata.currentTrack, metadata.visibleThumbnail, cacheOnly) {
+            val result = if (memoryOnly) chain.proceed(candidate) else admittedArtwork(url, priorityArtwork, metadata.visibleThumbnail, cacheOnly) {
                 if (cacheOnly) chain.proceed(candidate) else {
                     // Recheck after resource waits so duplicate cards share Coil's file.
                     val hit = chain.proceed(candidate.newBuilder().networkCachePolicy(CachePolicy.DISABLED).build())
@@ -316,7 +324,7 @@ internal class ArtworkResolutionInterceptor(
                     val bitmap = (success.drawable as? BitmapDrawable)?.bitmap
                     val w = bitmap?.width ?: success.drawable.intrinsicWidth
                     val h = bitmap?.height ?: success.drawable.intrinsicHeight
-                    w > 0 && w == h
+                    isSquareArtworkDimensions(w, h)
                 }
             }
             val loaded = decoded?.let { success ->

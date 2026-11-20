@@ -46,6 +46,7 @@ internal class YouTubePoTokenProvider(
             if (now() < retryAfterMs) return@withLock null
             // Waiting for another token request is cancellable, but does not
             // consume this session's attestation deadline or mark it failed.
+            var rendererGone = false
             val result = withTimeoutOrNull(timeoutMs) {
                 repeat(2) { attempt ->
                     try {
@@ -79,7 +80,8 @@ internal class YouTubePoTokenProvider(
                     } catch (error: Exception) {
                         discard()
                         PlaybackDiagnostics.youtubeEvent(videoId, "TOKEN_FAILED", reason = PlaybackDiagnostics.reason(error))
-                        if (YouTubeTokenWebView.isRendererInCooldown(now())) {
+                        if (error is YouTubeTokenWebView.RendererProcessGoneException || YouTubeTokenWebView.isRendererInCooldown(now())) {
+                            rendererGone = true
                             retryAfterMs = now() + YouTubeTokenWebView.RENDERER_CRASH_COOLDOWN_MS
                             return@withTimeoutOrNull null
                         }
@@ -93,7 +95,7 @@ internal class YouTubePoTokenProvider(
             if (result == null) {
                 // Includes our own deadline, which previously bypassed cooldown
                 // and advertised unusable token-required clients repeatedly.
-                retryAfterMs = if (YouTubeTokenWebView.isRendererInCooldown(now())) {
+                retryAfterMs = if (rendererGone || YouTubeTokenWebView.isRendererInCooldown(now())) {
                     now() + YouTubeTokenWebView.RENDERER_CRASH_COOLDOWN_MS
                 } else {
                     now() + 5_000L

@@ -7,6 +7,9 @@
     let signals = [], mintToken, shutdown;
     const fail = (id, stage) => Attestation.failed(id, stage);
     window.audioAttestation = {
+        startFromBridge() {
+            return this.start(Attestation.interpreter(), Attestation.program(), Attestation.globalName());
+        },
         async start(script, program, globalName) {
             try {
                 (new Function(script))();

@@ -340,6 +340,7 @@ fun MainNavigationScaffold(
     val platformOverscroll = LocalOverscrollConfiguration.current
     CompositionLocalProvider(
         LocalCollectionPlayback provides collectionPlaybackActions,
+        LocalOpenTrackInfo provides { track, playlistTitle -> viewModel.openTrackInfo(track, playlistTitle) },
         LocalDynamicGlassEnabled provides isDynamicGlassEnabled,
         LocalLiquidGlassProfile provides effectiveGlassProfile,
         LocalPlayerExpansionMotion provides playerMotion,
@@ -535,7 +536,10 @@ fun MainNavigationScaffold(
                             onScroll = viewModel.catalogBrowser::rememberScroll,
                             handleBack = !isPlayerExpanded,
                             onOpenAlbum = { viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Album(it)) },
-                            onOpenArtist = { viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Artist(it)) }
+                            onOpenArtist = { viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Artist(it)) },
+                            onOpenAlbumByName = { albumName, artistName -> viewModel.openAlbumByName(albumName, artistName) },
+                            onOpenGenre = viewModel::openGenre,
+                            onOpenPlaylist = { viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Playlist(it)) }
                         )
                     }
                 }
@@ -696,7 +700,23 @@ fun MainNavigationScaffold(
                 playbackPositionFlow = viewModel.playbackPosition,
                 currentPositionProvider = expandedPositionProvider,
                 trackDurationProvider = expandedTrackDurationProvider,
-                bufferedPositionProvider = expandedBufferedPositionProvider
+                bufferedPositionProvider = expandedBufferedPositionProvider,
+                onOpenArtist = { artist ->
+                    isPlayerExpanded = false
+                    viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Artist(artist))
+                },
+                onOpenAlbum = { album ->
+                    isPlayerExpanded = false
+                    viewModel.catalogBrowser.open(com.example.data.repository.CatalogDestination.Album(album))
+                },
+                onOpenAlbumByName = { albumName, artistName ->
+                    isPlayerExpanded = false
+                    viewModel.openAlbumByName(albumName, artistName)
+                },
+                onOpenGenre = { genre ->
+                    isPlayerExpanded = false
+                    viewModel.openGenre(genre)
+                }
             )
         }
 

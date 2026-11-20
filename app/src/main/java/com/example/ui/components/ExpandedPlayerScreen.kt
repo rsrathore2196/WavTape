@@ -74,8 +74,10 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
@@ -220,15 +222,64 @@ internal fun playerSingerLabel(track: MusicTrack): String {
     return firstTwo(track.singers).ifBlank { firstTwo(track.artist) }
 }
 
-internal data class PlayerCreditsTextColors(val primary: Color, val muted: Color, val heading: Color)
+internal data class PlayerCreditsTextColors(
+    val primary: Color,
+    val muted: Color,
+    val heading: Color,
+    val pillBackground: Color = Color.White.copy(alpha = 0.12f)
+)
 
 private fun playerArtworkBackground(dominant: Color, vibrant: Color, dynamicBackground: Boolean): Color =
     if (dynamicBackground) androidx.compose.ui.graphics.lerp(dominant, vibrant, 0.25f).copy(alpha = 1f)
     else Color(0xff101010)
 
-private fun blackOrWhiteOn(surface: Color): Color {
-    val luminance = surface.luminance()
-    return if ((luminance + 0.05f) / 0.05f >= 1.05f / (luminance + 0.05f)) Color.Black else Color.White
+private fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+private fun blackOrWhiteOn(surface: Color): Color =
+    if (contrastRatio(Color.Black, surface) >= contrastRatio(Color.White, surface)) Color.Black else Color.White
+
+private fun blackOrWhiteOn(surfaces: List<Color>, fallback: Color): Color {
+    if (surfaces.size <= 1) return blackOrWhiteOn(surfaces.firstOrNull() ?: fallback)
+    val blackMin = surfaces.minOf { contrastRatio(Color.Black, it) }
+    val whiteMin = surfaces.minOf { contrastRatio(Color.White, it) }
+    return when {
+        blackMin > whiteMin + 0.05f -> Color.Black
+        whiteMin > blackMin + 0.05f -> Color.White
+        else -> blackOrWhiteOn(fallback)
+    }
+}
+
+/** Sample average, darkest, and brightest tones from the rendered ArtworkColorField texture. */
+internal fun artworkColorFieldBackdropSamples(field: com.example.ui.util.ArtworkColorField): List<Color> {
+    val pixels = field.pixels
+    if (pixels.isEmpty()) return emptyList()
+    var sumR = 0L
+    var sumG = 0L
+    var sumB = 0L
+    var darkest = Color(pixels[0])
+    var brightest = darkest
+    var minLum = darkest.luminance()
+    var maxLum = minLum
+    for (pixel in pixels) {
+        sumR += (pixel ushr 16) and 0xFF
+        sumG += (pixel ushr 8) and 0xFF
+        sumB += pixel and 0xFF
+        val c = Color(pixel)
+        val lum = c.luminance()
+        if (lum < minLum) { minLum = lum; darkest = c }
+        if (lum > maxLum) { maxLum = lum; brightest = c }
+    }
+    val count = pixels.size.toFloat()
+    val average = Color(
+        (sumR / count / 255f).coerceIn(0f, 1f),
+        (sumG / count / 255f).coerceIn(0f, 1f),
+        (sumB / count / 255f).coerceIn(0f, 1f)
+    )
+    return listOf(average, darkest, brightest)
 }
 
 /** Preserve white lyrics/heart styling unless a near-white backdrop would hide it. */
@@ -250,20 +301,41 @@ private fun rememberPlayerContentColor(dominant: State<Color>, vibrant: State<Co
 }
 
 /** Reuse the backdrop's palette; never recolor the rest of the player or request another image. */
-internal fun playerCreditsTextColors(dominant: Color, vibrant: Color, dynamicBackground: Boolean): PlayerCreditsTextColors {
-    val background = playerArtworkBackground(dominant, vibrant, dynamicBackground)
-    val primary = blackOrWhiteOn(background)
-    val muted = com.example.ui.theme.LiquidGlass.contrastColor(
-        if (primary == Color.Black) Color(0xff737373) else Color(0xff949494), listOf(background), 4.5f)
-    // The existing heading pill adds a white reflection; only its text changes.
-    val heading = blackOrWhiteOn(Color.White.copy(alpha = 0.12f).compositeOver(background))
-    return PlayerCreditsTextColors(primary, muted, heading)
+internal fun playerCreditsTextColors(
+    dominant: Color,
+    vibrant: Color,
+    dynamicBackground: Boolean,
+    backdropSamples: List<Color> = emptyList()
+): PlayerCreditsTextColors {
+    val samples = if (!dynamicBackground) {
+        listOf(Color(0xff101010))
+    } else if (backdropSamples.isNotEmpty()) {
+        backdropSamples.map { it.copy(alpha = 1f) }
+    } else {
+        listOf(playerArtworkBackground(dominant, vibrant, true))
+    }
+    val background = samples.first()
+    val primary = blackOrWhiteOn(samples, background)
+    val mutedSeed = if (primary == Color.Black) Color(0xff424242) else Color(0xffc2c2c2)
+    val muted = com.example.ui.theme.LiquidGlass.contrastColor(mutedSeed, samples, 4.5f)
+    // Adapt the heading pill tint so the pill and its Info icon remain visible on both white and dark backdrops.
+    val pillBackground = if (background.luminance() > 0.5f) Color.Black.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.12f)
+    val pillSurfaces = samples.map { pillBackground.compositeOver(it) }
+    val heading = blackOrWhiteOn(pillSurfaces, pillSurfaces.first())
+    return PlayerCreditsTextColors(primary, muted, heading, pillBackground)
 }
 
 @Composable
-private fun rememberCreditsTextColors(dominant: State<Color>, vibrant: State<Color>, enabled: Boolean): PlayerCreditsTextColors {
-    val colors by remember(dominant, vibrant, enabled) {
-        derivedStateOf { playerCreditsTextColors(dominant.value, vibrant.value, enabled) }
+private fun rememberCreditsTextColors(
+    dominant: State<Color>,
+    vibrant: State<Color>,
+    enabled: Boolean,
+    backdropSamples: State<List<Color>>? = null
+): PlayerCreditsTextColors {
+    val colors by remember(dominant, vibrant, enabled, backdropSamples) {
+        derivedStateOf {
+            playerCreditsTextColors(dominant.value, vibrant.value, enabled, backdropSamples?.value.orEmpty())
+        }
     }
     return colors
 }
@@ -295,6 +367,10 @@ fun ExpandedPlayerScreen(
     bufferedPositionProvider: () -> Long = { uiState.bufferedPositionMs },
     onLyricsVisibilityChanged: (Boolean) -> Unit = {},
     isScreenVisible: Boolean = true,
+    onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit = {},
+    onOpenAlbum: (com.example.data.repository.CatalogAlbum) -> Unit = {},
+    onOpenAlbumByName: (String, String) -> Unit = { _, _ -> },
+    onOpenGenre: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val track = uiState.currentTrack ?: return
@@ -314,7 +390,18 @@ fun ExpandedPlayerScreen(
     @Suppress("NAME_SHADOWING")
     val isDark = appColors.isDark
 
-    val resolvedArtworkRequest = com.example.ui.util.rememberPlayerArtworkRequest(track, isScreenVisible)
+    var artworkRetryAttempt by remember(track.id, track.coverUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var pendingArtworkRetry by remember(track.id, track.coverUrl) { mutableStateOf(false) }
+    LaunchedEffect(track.id, track.coverUrl, pendingArtworkRetry, isScreenVisible) {
+        if (pendingArtworkRetry && isScreenVisible && artworkRetryAttempt < 2) {
+            delay(450L * (artworkRetryAttempt + 1))
+            pendingArtworkRetry = false
+            artworkRetryAttempt += 1
+        }
+    }
+    val resolvedArtworkRequest = com.example.ui.util.rememberPlayerArtworkRequest(
+        track, isScreenVisible, retryAttempt = artworkRetryAttempt
+    )
     val highResCoverUrl = resolvedArtworkRequest.data as? String ?: ""
     val highResImageRequest = resolvedArtworkRequest
     val headerArtworkPixels = with(androidx.compose.ui.platform.LocalDensity.current) { 52.dp.roundToPx() }.coerceAtLeast(192)
@@ -334,6 +421,18 @@ fun ExpandedPlayerScreen(
         }
     }
     var isFlipped by remember(track.id) { mutableStateOf(false) }
+    var resolvedCredits by remember(track.id) {
+        mutableStateOf(com.example.data.repository.TrackMetadataResolver.initial(track))
+    }
+    LaunchedEffect(track.id, isScreenVisible, isFlipped) {
+        if (!isScreenVisible || resolvedCredits.isEnriched) return@LaunchedEffect
+        try {
+            resolvedCredits = com.example.data.repository.TrackMetadataResolver.resolve(context, track)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+        }
+    }
     var showLyrics by remember(track.id) { mutableStateOf(false) }
     val lyricsArtworkDurationMs = if (showLyrics) LYRICS_ENTRANCE_MS else LYRICS_EXIT_MS
     val lyricsContentTransition = rememberPlayerLyricsTransition(showLyrics, isScreenVisible)
@@ -447,20 +546,43 @@ fun ExpandedPlayerScreen(
         com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
             appColors.cardBackgroundElevated, highResCoverUrl)
     }
-    val cachedColors = remember(paletteKey) { TrackPaletteCache.get(paletteKey) }
+    val rawCoverPaletteKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl,
+        isDark, appColors.primaryAccent, appColors.cardBackgroundElevated) {
+        com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
+            appColors.cardBackgroundElevated, track.coverUrl)
+    }
+    val cachedColors = remember(paletteKey, rawCoverPaletteKey) {
+        TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
+    }
     var dominantColor by remember(paletteKey) { mutableStateOf(cachedColors?.dominantColor ?: appColors.cardBackgroundElevated) }
     var accentColor by remember(paletteKey) { mutableStateOf(cachedColors?.accentColor ?: appColors.primaryAccent) }
     var topEdgeColor by remember(paletteKey) { mutableStateOf(cachedColors?.topEdgeColor ?: appColors.cardBackgroundElevated) }
     var bottomEdgeColor by remember(paletteKey) { mutableStateOf(cachedColors?.bottomEdgeColor ?: appColors.cardBackgroundElevated) }
-    val artworkColorField = remember { mutableStateOf(cachedColors?.colorField) }
+    val artworkColorField = remember(paletteKey) { mutableStateOf(cachedColors?.colorField) }
+    var loadedCoverRequest by remember(paletteKey) { mutableStateOf<ImageRequest?>(null) }
     // Only the backdrop's draw scope observes geometry; layout changes do not
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
 
-    LaunchedEffect(paletteKey, resolvedArtworkRequest, isScreenVisible, appColors.dynamicAlbumGlow, lyricsPresentationAnimating) {
+    // Apply any already-prefetched RAM palette immediately without waiting for open/morph transitions.
+    LaunchedEffect(paletteKey, rawCoverPaletteKey, appColors.dynamicAlbumGlow) {
+        if (!appColors.dynamicAlbumGlow) return@LaunchedEffect
+        val inMem = TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
+        if (inMem != null) {
+            dominantColor = inMem.dominantColor
+            accentColor = inMem.accentColor
+            topEdgeColor = inMem.topEdgeColor
+            bottomEdgeColor = inMem.bottomEdgeColor
+            if (inMem.colorField != null) {
+                artworkColorField.value = inMem.colorField
+            }
+        }
+    }
+
+    LaunchedEffect(paletteKey, rawCoverPaletteKey, resolvedArtworkRequest, loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, lyricsPresentationAnimating) {
         if (!isScreenVisible || !appColors.dynamicAlbumGlow || lyricsPresentationAnimating) return@LaunchedEffect
-        // Fast-path: If already in memory cache, avoid all processing
-        val inMem = TrackPaletteCache.get(paletteKey)
+        // Fast-path: If already in memory cache with full colorField, avoid all processing
+        val inMem = TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
         if (inMem != null) {
             dominantColor = inMem.dominantColor
             accentColor = inMem.accentColor
@@ -472,12 +594,17 @@ fun ExpandedPlayerScreen(
             }
         }
 
-        if (highResCoverUrl.isNotBlank()) {
+        val paletteSource = loadedCoverRequest ?: resolvedArtworkRequest
+        val sourceUrl = paletteSource.data as? String ?: highResCoverUrl
+        if (sourceUrl.isNotBlank()) {
             withContext(AppDispatchers.Io) {
                 try {
-                    val extracted = com.example.ui.util.preparePlayerArtworkColors(paletteKey) {
+                    val extracted = com.example.ui.util.preparePlayerArtworkColors(
+                        key = paletteKey,
+                        urgent = { isScreenVisible && !lyricsPresentationAnimating }
+                    ) {
                         val loader = context.imageLoader
-                        val request = com.example.ui.util.playerPaletteRequest(resolvedArtworkRequest)
+                        val request = com.example.ui.util.playerPaletteRequest(paletteSource)
                         val result = loader.execute(request) as? SuccessResult ?: return@preparePlayerArtworkColors null
                         val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
                         val colors = withContext(AppDispatchers.CpuBounded) {
@@ -485,7 +612,9 @@ fun ExpandedPlayerScreen(
                         } ?: return@preparePlayerArtworkColors null
                         val resolvedKey = com.example.ui.util.playerPaletteKey(track, isDark,
                             appColors.primaryAccent, appColors.cardBackgroundElevated, result.request.data.toString())
-                        if (resolvedKey != paletteKey) TrackPaletteCache.put(resolvedKey, colors)
+                        for (alias in setOf(resolvedKey, rawCoverPaletteKey)) {
+                            if (alias != paletteKey) TrackPaletteCache.put(alias, colors)
+                        }
                         colors
                     } ?: return@withContext
                     withContext(Dispatchers.Main) {
@@ -517,9 +646,18 @@ fun ExpandedPlayerScreen(
     val animatedBottomEdgeColor = animateColorAsState(bottomEdgeColor,
         animationSpec = tween(650, easing = LinearOutSlowInEasing), label = "artwork_bottom_color")
 
+    val creditsFieldSamples = remember(artworkColorField.value) {
+        artworkColorField.value?.let(::artworkColorFieldBackdropSamples).orEmpty()
+    }
     val creditsBackground = remember(animatedTopEdgeColor, animatedBottomEdgeColor) { derivedStateOf {
         androidx.compose.ui.graphics.lerp(animatedTopEdgeColor.value, animatedBottomEdgeColor.value, 0.5f)
     } }
+    val creditsBackdropSamples = remember(creditsFieldSamples, animatedTopEdgeColor, animatedBottomEdgeColor, creditsBackground) {
+        derivedStateOf {
+            if (creditsFieldSamples.isNotEmpty()) creditsFieldSamples
+            else listOf(creditsBackground.value, animatedTopEdgeColor.value, animatedBottomEdgeColor.value)
+        }
+    }
 
     val isEffectivelyDark by remember(isDark, appColors.isDark, appColors.isAmoled, appColors.dynamicAlbumGlow, animatedDominantColor, appColors.scaffoldBackground) { derivedStateOf {
         val color = if (appColors.dynamicAlbumGlow) animatedDominantColor.value else appColors.scaffoldBackground
@@ -719,7 +857,9 @@ fun ExpandedPlayerScreen(
                                             PlayerCoverArtwork(
                                                 request = highResImageRequest,
                                                 onBoundsChanged = { artworkBlendBounds.value = it },
-                                                onReady = { morphArtworkReady = true },
+                                                onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
+                                                onArtworkLoaded = { loadedCoverRequest = it },
+                                                onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                                 fullScreen = isFullScreenArt,
                                                 fadeRightEdge = isFullScreenArt,
                                                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(if (isFullScreenArt) 0.dp else 22.dp))
@@ -727,7 +867,8 @@ fun ExpandedPlayerScreen(
                                         } else {
                                             // BACK SIDE: Song credits
                                             val creditsText = rememberCreditsTextColors(creditsBackground, creditsBackground,
-                                                appColors.dynamicAlbumGlow && LocalDynamicGlassEnabled.current)
+                                                appColors.dynamicAlbumGlow && LocalDynamicGlassEnabled.current,
+                                                creditsBackdropSamples)
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
@@ -736,12 +877,14 @@ fun ExpandedPlayerScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Column(
-                                                    modifier = Modifier.fillMaxWidth(),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .verticalScroll(rememberScrollState()),
                                                     horizontalAlignment = Alignment.CenterHorizontally,
                                                     verticalArrangement = Arrangement.Center
                                                 ) {
                                                     Surface(
-                                                        color = (if (isDark) Color.White else Color.Black).copy(alpha = 0.12f),
+                                                        color = creditsText.pillBackground,
                                                         shape = RoundedCornerShape(6.dp)
                                                     ) {
                                                         Row(
@@ -751,7 +894,7 @@ fun ExpandedPlayerScreen(
                                                             Icon(
                                                                 imageVector = Icons.Default.Info,
                                                                 contentDescription = null,
-                                                                tint = if (isDark) Color.White else Color.Black,
+                                                                tint = creditsText.heading,
                                                                 modifier = Modifier.size(11.dp)
                                                             )
                                                             Spacer(modifier = Modifier.width(4.dp))
@@ -766,7 +909,7 @@ fun ExpandedPlayerScreen(
                                                     }
                                                     Spacer(modifier = Modifier.height(4.dp))
                                                     Text(
-                                                        text = track.cleanTitle,
+                                                        text = resolvedCredits.title,
                                                         fontWeight = FontWeight.ExtraBold,
                                                         fontSize = 16.sp,
                                                         color = creditsText.primary,
@@ -779,16 +922,42 @@ fun ExpandedPlayerScreen(
                                                                 animationMode = playerMarqueeMode)
                                                     )
                                                     Spacer(modifier = Modifier.height(4.dp))
-                                                    CreditDetailRow(
-                                                        label = "Album",
-                                                        value = track.album.ifBlank { "Original Single" },
-                                                        colors = creditsText
-                                                    )
-                                                    CreditDetailRow(
-                                                        label = "Artist",
-                                                        value = if (track.singers.isNotBlank()) track.singers else track.artist,
-                                                        colors = creditsText
-                                                    )
+                                                    resolvedCredits.album?.let { album ->
+                                                        CreditDetailRow(
+                                                            label = "Album",
+                                                            value = album.title,
+                                                            colors = creditsText,
+                                                            valueTag = "credits_album_value",
+                                                            onClick = {
+                                                                if (album.id.isNotBlank()) onOpenAlbum(album)
+                                                                else onOpenAlbumByName(album.title, resolvedCredits.primaryArtistName)
+                                                            }
+                                                        )
+                                                    }
+                                                    if (resolvedCredits.artists.isNotEmpty()) {
+                                                        CreditClickableArtistsRow(
+                                                            label = "Artist",
+                                                            artists = resolvedCredits.artists,
+                                                            colors = creditsText,
+                                                            onOpenArtist = onOpenArtist
+                                                        )
+                                                    }
+                                                    if (resolvedCredits.composers.isNotEmpty()) {
+                                                        CreditDetailRow(
+                                                            label = "Composer",
+                                                            value = resolvedCredits.composers.joinToString(", "),
+                                                            colors = creditsText
+                                                        )
+                                                    }
+                                                    resolvedCredits.genre?.let { genre ->
+                                                        CreditDetailRow(
+                                                            label = "Genre",
+                                                            value = genre,
+                                                            colors = creditsText,
+                                                            valueTag = "credits_genre_value",
+                                                            onClick = { onOpenGenre(genre) }
+                                                        )
+                                                    }
                                                     Spacer(modifier = Modifier.height(4.dp))
                                                     Text(
                                                         text = "🔄 Tap to flip",
@@ -1654,14 +1823,17 @@ fun ExpandedPlayerScreen(
                                             request = highResImageRequest,
                                             onBoundsChanged = { artworkBlendBounds.value = it },
                                             fullScreen = isFullScreenArt,
-                                            onReady = { morphArtworkReady = true },
+                                            onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
+                                            onArtworkLoaded = { loadedCoverRequest = it },
+                                            onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                             modifier = Modifier.fillMaxSize()
                                                 .clip(if (isFullScreenArt) RoundedCornerShape(0.dp) else RoundedCornerShape(24.dp))
                                         )
                                     } else {
                                         // BACK SIDE: Song credits and information
                                         val creditsText = rememberCreditsTextColors(creditsBackground, creditsBackground,
-                                            appColors.dynamicAlbumGlow && LocalDynamicGlassEnabled.current)
+                                            appColors.dynamicAlbumGlow && LocalDynamicGlassEnabled.current,
+                                            creditsBackdropSamples)
                                         Box(
                                             modifier = Modifier
                                             .fillMaxSize()
@@ -1670,12 +1842,14 @@ fun ExpandedPlayerScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(
-                                                modifier = Modifier.fillMaxWidth(),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .verticalScroll(rememberScrollState()),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Surface(
-                                                    color = (if (isDark) Color.White else Color.Black).copy(alpha = 0.12f),
+                                                    color = creditsText.pillBackground,
                                                     shape = RoundedCornerShape(8.dp)
                                                 ) {
                                                     Row(
@@ -1685,7 +1859,7 @@ fun ExpandedPlayerScreen(
                                                         Icon(
                                                             imageVector = Icons.Default.Info,
                                                             contentDescription = null,
-                                                            tint = if (isDark) Color.White else Color.Black,
+                                                            tint = creditsText.heading,
                                                             modifier = Modifier.size(13.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(6.dp))
@@ -1702,7 +1876,7 @@ fun ExpandedPlayerScreen(
                                                 Spacer(modifier = Modifier.height(12.dp))
 
                                                 Text(
-                                                    text = track.cleanTitle,
+                                                    text = resolvedCredits.title,
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 17.sp,
                                                     color = creditsText.primary,
@@ -1720,30 +1894,57 @@ fun ExpandedPlayerScreen(
 
                                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                                CreditDetailRow(
-                                                    label = "Album / Movie",
-                                                    value = track.album.ifBlank { "Original Single" },
-                                                    colors = creditsText
-                                                )
-                                                CreditDetailRow(
-                                                    label = "Singers / Artists",
-                                                    value = if (track.singers.isNotBlank()) track.singers else track.artist,
-                                                    colors = creditsText
-                                                )
-                                                CreditDetailRow(
-                                                    label = "Composer / Writer",
-                                                    value = if (track.writer.isNotBlank()) track.writer else "Original Composer",
-                                                    colors = creditsText
-                                                )
-                                                CreditDetailRow(
-                                                    label = "Genre & Language",
-                                                    value = "${track.genre} • ${if (track.language.isNotBlank()) track.language else "Hindi"}${if (track.year.isNotBlank()) " (${track.year})" else ""}",
-                                                    colors = creditsText
-                                                )
-                                                if (track.isrc.isNotBlank()) {
+                                                resolvedCredits.album?.let { album ->
+                                                    CreditDetailRow(
+                                                        label = "Album / Movie",
+                                                        value = album.title,
+                                                        colors = creditsText,
+                                                        valueTag = "credits_album_value",
+                                                        onClick = {
+                                                            if (album.id.isNotBlank()) onOpenAlbum(album)
+                                                            else onOpenAlbumByName(album.title, resolvedCredits.primaryArtistName)
+                                                        }
+                                                    )
+                                                }
+                                                if (resolvedCredits.artists.isNotEmpty()) {
+                                                    CreditClickableArtistsRow(
+                                                        label = "Singers / Artists",
+                                                        artists = resolvedCredits.artists,
+                                                        colors = creditsText,
+                                                        onOpenArtist = onOpenArtist
+                                                    )
+                                                }
+                                                if (resolvedCredits.composers.isNotEmpty()) {
+                                                    CreditDetailRow(
+                                                        label = "Composer / Writer",
+                                                        value = resolvedCredits.composers.joinToString(", "),
+                                                        colors = creditsText
+                                                    )
+                                                }
+                                                resolvedCredits.genre?.let { genre ->
+                                                    CreditDetailRow(
+                                                        label = "Genre",
+                                                        value = genre,
+                                                        colors = creditsText,
+                                                        valueTag = "credits_genre_value",
+                                                        onClick = { onOpenGenre(genre) }
+                                                    )
+                                                }
+                                                val languageYear = buildList {
+                                                    resolvedCredits.language?.takeIf { it.isNotBlank() }?.let(::add)
+                                                    resolvedCredits.year?.takeIf { it.isNotBlank() }?.let(::add)
+                                                }.joinToString(" • ")
+                                                if (languageYear.isNotBlank()) {
+                                                    CreditDetailRow(
+                                                        label = "Language & Year",
+                                                        value = languageYear,
+                                                        colors = creditsText
+                                                    )
+                                                }
+                                                resolvedCredits.isrc?.takeIf { it.isNotBlank() }?.let { isrc ->
                                                     CreditDetailRow(
                                                         label = "ISRC Code",
-                                                        value = track.isrc,
+                                                        value = isrc,
                                                         colors = creditsText
                                                     )
                                                 }
@@ -2371,8 +2572,85 @@ private fun formatTime(timeMs: Long): String {
 }
 
 @Composable
-private fun CreditDetailRow(label: String, value: String, colors: PlayerCreditsTextColors) {
+private fun CreditDetailRow(
+    label: String,
+    value: String,
+    colors: PlayerCreditsTextColors,
+    valueTag: String? = null,
+    onClick: (() -> Unit)? = null
+) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = if (landscape) 13.sp else 11.sp,
+            color = colors.muted,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .padding(start = 8.dp)
+                .then(if (onClick != null) Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick) else Modifier),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Text(
+                text = value,
+                fontSize = if (landscape) 14.sp else 12.sp,
+                color = colors.primary,
+                fontWeight = FontWeight.SemiBold,
+                textDecoration = if (onClick != null) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .then(if (valueTag != null) Modifier.testTag(valueTag) else Modifier)
+                    .basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 1000,
+                        animationMode = if (LocalPlayerExpansionMotion.current?.covered != false) androidx.compose.foundation.MarqueeAnimationMode.Immediately
+                            else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
+                    ),
+                textAlign = TextAlign.End
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreditClickableArtistsRow(
+    label: String,
+    artists: List<com.example.data.repository.CatalogArtist>,
+    colors: PlayerCreditsTextColors,
+    onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit
+) {
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val annotated = remember(artists, colors.primary, onOpenArtist) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            artists.forEachIndexed { index, artist ->
+                if (index > 0) append(", ")
+                val link = androidx.compose.ui.text.LinkAnnotation.Clickable(
+                    tag = "credit_artist_$index",
+                    styles = androidx.compose.ui.text.TextLinkStyles(
+                        style = androidx.compose.ui.text.SpanStyle(
+                            color = colors.primary,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                        )
+                    ),
+                    linkInteractionListener = { onOpenArtist(artist) }
+                )
+                pushLink(link)
+                append(artist.name)
+                pop()
+            }
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2394,19 +2672,14 @@ private fun CreditDetailRow(label: String, value: String, colors: PlayerCreditsT
             contentAlignment = Alignment.CenterEnd
         ) {
             Text(
-                text = value,
+                text = annotated,
                 fontSize = if (landscape) 14.sp else 12.sp,
                 color = colors.primary,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.basicMarquee(
-                    iterations = Int.MAX_VALUE,
-                    initialDelayMillis = 1000,
-                    animationMode = if (LocalPlayerExpansionMotion.current?.covered != false) androidx.compose.foundation.MarqueeAnimationMode.Immediately
-                        else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
-                ),
-                textAlign = TextAlign.End
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.testTag("credits_artists_value")
             )
         }
     }
@@ -2500,10 +2773,16 @@ private fun Modifier.animatedFillMaxWidth(fraction: State<Float>): Modifier = la
 @Composable
 internal fun PlayerCoverArtwork(request: ImageRequest, modifier: Modifier = Modifier,
     fullScreen: Boolean = false, fadeRightEdge: Boolean = false, onReady: () -> Unit = {},
+    onArtworkLoaded: (ImageRequest) -> Unit = {},
+    onError: () -> Unit = {},
     onBoundsChanged: (Rect) -> Unit = {}) {
     AsyncImage(model = request, contentDescription = "Cover Art - Tap to flip",
         contentScale = ContentScale.Crop,
-        onSuccess = { onReady() },
+        onSuccess = { state ->
+            onReady()
+            onArtworkLoaded(state.result.request)
+        },
+        onError = { onError() },
         modifier = modifier.onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
             .playerArtworkEdgeBlend(fullScreen, fadeRightEdge = fadeRightEdge))
 }

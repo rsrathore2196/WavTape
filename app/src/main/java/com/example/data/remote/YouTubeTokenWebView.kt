@@ -33,9 +33,15 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
     @Volatile override var expiresAtMs = 0L
         private set
     private var view: WebView? = null
+    @Volatile private var pendingInterpreter: String = ""
+    @Volatile private var pendingProgram: String = ""
+    @Volatile private var pendingGlobalName: String = ""
 
     private inner class Bridge {
         @JavascriptInterface fun loaded() { if (alive) loaded.complete(Unit) }
+        @JavascriptInterface fun interpreter(): String = pendingInterpreter.also { pendingInterpreter = "" }
+        @JavascriptInterface fun program(): String = pendingProgram.also { pendingProgram = "" }
+        @JavascriptInterface fun globalName(): String = pendingGlobalName.also { pendingGlobalName = "" }
         @JavascriptInterface fun snapshot(value: String) {
             if (alive && value.length in 1..MAX_RESPONSE) snapshot.complete(value)
         }
@@ -55,26 +61,17 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
         check(alive)
         val web = WebView(context.applicationContext)
         view = web
+        // Detached headless WebViews are never window-visible; waivedWhenNotVisible=true
+        // immediately downgrades them to RENDERER_PRIORITY_WAIVED and triggers OS kills (code -1).
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             runCatching {
-                web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, true)
+                web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
             }
         }
-        web.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = false
-            setGeolocationEnabled(false)
-            allowFileAccess = false
-            allowContentAccess = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(false)
-            userAgentString = YouTubeClient.WEB_REMIX.userAgent
-            cacheMode = WebSettings.LOAD_NO_CACHE
-        }
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?) = true
+        // Avoid allocating hardware GPU compositing surfaces for a never-attached offscreen WebView.
+        runCatching {
+            web.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            web.layout(0, 0, 1, 1)
         }
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
@@ -87,17 +84,38 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 rendererProcessCrashed = true
                 lastCrashTimestampMs = SystemClock.elapsedRealtime()
-                fail(IOException("YouTube attestation renderer stopped"))
+                // Destroy the dead WebView on Main before resuming awaiting IO coroutines.
                 destroyView(processGone = true)
+                fail(RendererProcessGoneException())
                 return true
             }
+        }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?) = true
+        }
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = false
+            setGeolocationEnabled(false)
+            allowFileAccess = false
+            allowContentAccess = false
+            mediaPlaybackRequiresUserGesture = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                runCatching { safeBrowsingEnabled = false }
+            }
+            userAgentString = YouTubeClient.WEB_REMIX.userAgent
+            cacheMode = WebSettings.LOAD_NO_CACHE
         }
         web.addJavascriptInterface(Bridge(), "Attestation")
         web.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "utf-8", null)
     }
 
     private suspend fun evaluate(script: String) = withContext(Dispatchers.Main.immediate) {
-        if (!alive || rendererProcessCrashed) return@withContext
+        if (!alive) return@withContext
         val current = view ?: return@withContext
         runCatching {
             current.evaluateJavascript(script, null)
@@ -114,9 +132,12 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
                 ?: throw IOException("YouTube attestation interpreter unavailable")
             request(http, Request.Builder().url(url).header("User-Agent", YouTubeClient.WEB_REMIX.userAgent).build())
         }
+        pendingInterpreter = interpreter
+        pendingProgram = challenge.program
+        pendingGlobalName = challenge.globalName
         create(context, html)
         loaded.await()
-        evaluate("audioAttestation.start(${JSONObject.quote(interpreter)},${JSONObject.quote(challenge.program)},${JSONObject.quote(challenge.globalName)})")
+        evaluate("audioAttestation.startFromBridge()")
         val proof = snapshot.await()
         val integrity = post(http, "GenerateIT", JSONArray().put(REQUEST_KEY).put(proof))
         val (token, lifetime) = withContext(AppDispatchers.CpuBounded) { parseIntegrity(integrity) }
@@ -146,6 +167,9 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
 
     private fun fail(error: Exception) {
         alive = false
+        pendingInterpreter = ""
+        pendingProgram = ""
+        pendingGlobalName = ""
         loaded.completeExceptionally(error)
         snapshot.completeExceptionally(error)
         authorized.completeExceptionally(error)
@@ -167,6 +191,9 @@ internal class YouTubeTokenWebView private constructor() : YouTubeTokenBrowser {
         fail(IOException("YouTube attestation session closed"))
         destroyView(processGone = false)
     }
+
+    internal class RendererProcessGoneException(message: String = "YouTube attestation renderer stopped") :
+        IOException(message)
 
     companion object {
         @Volatile var rendererProcessCrashed: Boolean = false

@@ -121,34 +121,57 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("recent_search_item_Query 9").performClick()
         compose.runOnIdle { assertEquals("Query 9", searched); assertEquals("Query 9", remembered) }
         list.assertDoesNotExist()
-        compose.onNodeWithTag("search_query_input").performClick()
-        // Existing text does not hide history while the field is active.
+        // While a query is present, focusing the field keeps search results prioritized over history.
+        compose.onNodeWithTag("search_query_input").performClick().assertIsFocused()
+        list.assertDoesNotExist()
+        // Clearing the query while focused brings recent searches back so Clear all works.
+        compose.runOnIdle { state = state.copy(query = "") }
         list.assertIsDisplayed().performScrollToNode(hasTestTag("clear_recent_searches_button"))
         compose.onNodeWithTag("clear_recent_searches_button").performClick()
         list.assertDoesNotExist()
     }
 
-    @Test fun historyIsShownWhileTypingAndHiddenWhenSearchTabIsInactive() = checkHistoryVisibility()
+    @Test fun historyIsShownWhenEmptyHiddenOnceTypingStartsAndHiddenWhenTabIsInactive() = checkHistoryVisibility()
 
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeHistoryFitsBelowTheFocusedField() = checkHistoryVisibility()
 
     private fun checkHistoryVisibility() {
+        val track = MusicTrack("yt_result001", "Mix Track", "Artist", "Album", 180000, "", "")
         var state by mutableStateOf(SearchUiState(recentSearches = listOf("history_heading", "Second")))
+        var catalog by mutableStateOf(CatalogSearchState())
         var active by mutableStateOf(true)
         content {
-            SearchScreen(state, onQueryChange = { state = state.copy(query = it) },
-                onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {}, isScreenActive = active)
+            SearchScreen(state, onQueryChange = { q ->
+                state = state.copy(query = q)
+                catalog = if (q.isBlank()) CatalogSearchState() else CatalogSearchState(
+                    query = q,
+                    page = CatalogPage(tracks = listOf(track)),
+                    display = com.example.ui.viewmodel.CatalogSearchDisplay(songs = listOf(track))
+                )
+            }, onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {},
+                isScreenActive = active, catalogState = catalog)
         }
-        compose.onNodeWithTag("search_query_input").performClick().performTextInput("mix")
+        compose.onNodeWithTag("search_query_input").performClick().assertIsFocused()
         val field = compose.onNodeWithTag("search_query_input").fetchSemanticsNode().boundsInRoot
         val history = compose.onNodeWithTag("recent_searches_list").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue("History stays below the focused field", history.top >= field.bottom)
         compose.onNodeWithTag("recent_search_item_Second").assertIsDisplayed()
+
+        // Typing even a single letter hides recent searches and prioritizes search results immediately.
+        compose.onNodeWithTag("search_query_input").performTextInput("m")
+        compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+        compose.onNodeWithText("Mix Track").assertIsDisplayed()
+
+        // Clearing back to empty while focused shows recent searches again.
+        compose.runOnIdle { state = state.copy(query = ""); catalog = CatalogSearchState() }
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
-        compose.runOnIdle { assertEquals("Dismissing history preserves the typed query", "mix", state.query) }
+
         compose.onNodeWithTag("search_query_input").performClick()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
         compose.runOnIdle { active = false }
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
         compose.runOnIdle { active = true }
@@ -157,6 +180,36 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
         compose.onNodeWithTag("finish_search_button").performClick()
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
+    }
+
+    @Test fun swipingDownOnRecentSearchesKeepsKeyboardFocusAndHistoryOpen() {
+        var state by mutableStateOf(SearchUiState(recentSearches = (1..10).map { "Query $it" }))
+        content {
+            SearchScreen(state, onQueryChange = { state = state.copy(query = it) },
+                onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {})
+        }
+        compose.onNodeWithTag("search_query_input").performClick().assertIsFocused()
+        val list = compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+
+        // Swiping down from the top of the scrollable history list must not dismiss keyboard/focus.
+        list.performTouchInput { swipeDown() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("search_query_input").assertIsFocused()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+
+        // Swiping up and back down inside history must also preserve focus.
+        list.performTouchInput { swipeUp() }
+        list.performTouchInput { swipeDown() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("search_query_input").assertIsFocused()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
+
+        // Even with a short (non-scrollable) history list, swiping down must not dismiss keyboard/focus.
+        compose.runOnIdle { state = state.copy(recentSearches = listOf("One", "Two")) }
+        compose.onNodeWithTag("recent_searches_list").performTouchInput { swipeDown() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("search_query_input").assertIsFocused()
+        compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
     }
 
     @Test fun preImeBackKeyAndImeCloseHideRecentSearchesWhenKeyboardDismisses() {
@@ -168,7 +221,7 @@ class SearchGenreNavigationTest {
                 onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {})
         }
         // 1. Pre-IME Back key (Android 3-button back while soft keyboard is open)
-        compose.onNodeWithTag("search_query_input").performClick().performTextInput("ambient")
+        compose.onNodeWithTag("search_query_input").performClick()
         compose.onNodeWithTag("recent_searches_list").assertIsDisplayed()
         compose.runOnUiThread {
             hostView.dispatchKeyEventPreIme(
@@ -178,7 +231,6 @@ class SearchGenreNavigationTest {
         compose.waitForIdle()
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
         compose.onNodeWithTag("search_query_input").assertIsNotFocused()
-        compose.runOnIdle { assertEquals("ambient", state.query) }
 
         // 2. IME WindowInsets open -> close (Android back gesture / predictive back / keyboard hide button)
         val insetsTarget = (hostView.parent as? android.view.View) ?: hostView
@@ -203,7 +255,6 @@ class SearchGenreNavigationTest {
         compose.waitForIdle()
         compose.onNodeWithTag("recent_searches_list").assertDoesNotExist()
         compose.onNodeWithTag("search_query_input").assertIsNotFocused()
-        compose.runOnIdle { assertEquals("ambient", state.query) }
     }
 
     @Test fun genreOpensItsOwnPageWithPlayableSongsAlbumsAndBackNavigation() {

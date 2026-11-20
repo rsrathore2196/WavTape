@@ -58,7 +58,8 @@ fun TrackListItem(
     onClick: () -> Unit = {},
     onToggleFavorite: (() -> Unit)? = null,
     onRemoveClick: (() -> Unit)? = null,
-    onMoreClick: (() -> Unit)? = null
+    onMoreClick: (() -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null
 ) {
     val appColors = LocalAppColors.current
     val isDark = appColors.isDark
@@ -215,5 +216,7 @@ fun TrackListItem(
                 )
             }
         }
+
+        trailingContent?.invoke()
     }
 }

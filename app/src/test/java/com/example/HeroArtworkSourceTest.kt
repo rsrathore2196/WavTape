@@ -169,4 +169,31 @@ class HeroArtworkSourceTest {
         assertEquals(landscape, YouTubeHeroArtworkResolver.landscapeCover(related(), "zyxwvutsrqp"))
     }
 
+    @Test fun heroArtworkBypassesBlockedColdShelfDownloadsAndKeepsFullQuality() = runBlocking {
+        val downloads = ArtworkResolutionInterceptor::class.java.getDeclaredField("coldArtworkRequests")
+            .apply { isAccessible = true }.get(null) as kotlinx.coroutines.sync.Semaphore
+        downloads.acquire(); downloads.acquire()
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val source = "https://lh3.googleusercontent.com/hero-priority=w544-h306-l90-rj"
+        val size = IntSize(1000, 720)
+        val expected = aspectPreservingArtworkUrl(source, size)
+        val image = android.graphics.drawable.BitmapDrawable(context.resources,
+            android.graphics.Bitmap.createBitmap(1280, 720, android.graphics.Bitmap.Config.ARGB_8888))
+        val request = buildHeroArtworkRequest(context, source, size)
+        val chain = object : coil.intercept.Interceptor.Chain {
+            override val request = request
+            override val size = coil.size.Size(size.width, size.height)
+            override fun withRequest(request: coil.request.ImageRequest) = error("Not needed")
+            override fun withSize(size: coil.size.Size) = error("Not needed")
+            override suspend fun proceed(request: coil.request.ImageRequest): coil.request.ImageResult =
+                if (!request.networkCachePolicy.readEnabled)
+                    coil.request.ErrorResult(null, request, java.io.IOException("Cache miss"))
+                else coil.request.SuccessResult(image, request, coil.decode.DataSource.NETWORK)
+        }
+        try {
+            val result = withTimeout(1_000) { ArtworkResolutionInterceptor().intercept(chain) } as coil.request.SuccessResult
+            assertEquals(expected, result.request.data)
+            assertEquals(0, downloads.availablePermits)
+        } finally { downloads.release(); downloads.release() }
+    }
 }

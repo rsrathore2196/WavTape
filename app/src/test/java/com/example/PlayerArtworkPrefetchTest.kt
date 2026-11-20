@@ -221,4 +221,53 @@ class PlayerArtworkPrefetchTest {
         } finally { scope.coroutineContext[Job]!!.cancelAndJoin(); loader.shutdown() }
     }
 
+    @Test fun squareArtworkToleranceAcceptsMinorCdnRoundingAndRejectsVideoFrames() {
+        assertTrue(isSquareArtworkDimensions(1200, 1200))
+        assertTrue(isSquareArtworkDimensions(1200, 1198))
+        assertTrue(isSquareArtworkDimensions(600, 597))
+        assertFalse(isSquareArtworkDimensions(640, 360))
+        assertFalse(isSquareArtworkDimensions(800, 600))
+        assertFalse(isSquareArtworkDimensions(1280, 720))
+        assertFalse(isSquareArtworkDimensions(0, 600))
+    }
+
+    @Test fun fullQualityPrefetchAndPaletteDoNotWaitForOptionalInteractionGateAfterStartup() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val originalCover = "https://lh3.googleusercontent.com/eager-full=w60-h60-l90-rj"
+        val track = MusicTrack("yt_eager123456", "Eager Track", "Artist", "Album", 180_000, originalCover, "audio")
+        val fullDecoded = CompletableDeferred<Unit>()
+        val loader = ImageLoader.Builder(context).components {
+            add(coil.intercept.Interceptor { chain ->
+                val result = chain.proceed(chain.request)
+                if (chain.request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)?.targetSize == ImageConfig.PLAYER_SCREEN_SIZE) {
+                    fullDecoded.complete(Unit)
+                }
+                result
+            })
+            add(object : coil.fetch.Fetcher.Factory<Any> {
+                override fun create(data: Any, options: coil.request.Options, imageLoader: ImageLoader) = coil.fetch.Fetcher {
+                    val pixels = (options.size.width as? coil.size.Dimension.Pixels)?.px ?: 1200
+                    val bitmap = Bitmap.createBitmap(pixels, pixels, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.BLUE)
+                    coil.fetch.DrawableResult(android.graphics.drawable.BitmapDrawable(context.resources, bitmap),
+                        false, DataSource.MEMORY_CACHE)
+                }
+            })
+        }.build()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        BackgroundWorkCoordinator.scrolling(true)
+        try {
+            prepareCurrentPlayerArtwork(context, MutableStateFlow(track), MutableStateFlow(true), scope,
+                fullPlayerVisible = MutableStateFlow(false), resolveCover = { null }, loaderFor = { loader })
+            withTimeout(3_000) { fullDecoded.await() }
+            val rawKey = playerPaletteKey(track, true, Color.White, Color.Black, originalCover)
+            val ready = withTimeoutOrNull(3_000) { while (TrackPaletteCache.get(rawKey)?.colorField == null) delay(10); true }
+            assertTrue("Full-quality prefetch must also warm palette under raw cover key", ready == true)
+        } finally {
+            BackgroundWorkCoordinator.scrolling(false)
+            scope.coroutineContext[Job]!!.cancelAndJoin()
+            loader.shutdown()
+        }
+    }
+
 }

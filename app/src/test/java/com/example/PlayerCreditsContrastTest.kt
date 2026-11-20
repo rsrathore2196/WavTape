@@ -47,4 +47,42 @@ class PlayerCreditsContrastTest {
         assertEquals(Color(0xffe2e2e2), light)
         assertEquals(Color(0xff202020), dark)
     }
+
+    @Test fun pureWhiteAndPureDarkBackdropsAdaptPillAndHeadingContrast() {
+        val onWhite = playerCreditsTextColors(Color.White, Color.White, true)
+        assertEquals(Color.Black, onWhite.primary)
+        assertEquals(Color.Black, onWhite.heading)
+        assertTrue(onWhite.pillBackground.red == 0f && onWhite.pillBackground.alpha > 0f)
+        val whitePillSurface = onWhite.pillBackground.compositeOver(Color.White)
+        assertTrue(contrast(onWhite.heading, whitePillSurface) >= 7.0f)
+        assertTrue(contrast(onWhite.muted, Color.White) >= 7.0f)
+
+        val onBlack = playerCreditsTextColors(Color.Black, Color.Black, true)
+        assertEquals(Color.White, onBlack.primary)
+        assertEquals(Color.White, onBlack.heading)
+        assertTrue(onBlack.pillBackground.red == 1f && onBlack.pillBackground.alpha > 0f)
+        val blackPillSurface = onBlack.pillBackground.compositeOver(Color.Black)
+        assertTrue(contrast(onBlack.heading, blackPillSurface) >= 7.0f)
+        assertTrue(contrast(onBlack.muted, Color.Black) >= 7.0f)
+    }
+
+    @Test fun brightArtworkColorFieldUsesWhiteCreditsMatchingRenderedFieldPixels() {
+        // Pure white, pure black, and bright pastel covers all render through ArtworkColorField (lum <= 0.15).
+        for (fill in listOf(0xffffffff.toInt(), 0xff000000.toInt(), 0xffe8f1ff.toInt())) {
+            val pixels = IntArray(120 * 120) { fill }
+            val extracted = com.example.ui.util.extractPlayerArtworkColors(pixels, 120, 120)!!
+            val samples = com.example.ui.components.artworkColorFieldBackdropSamples(extracted.colorField!!)
+            val colors = playerCreditsTextColors(extracted.topEdgeColor, extracted.bottomEdgeColor, true, samples)
+            assertEquals("Credits on rendered ArtworkColorField must stay white for 0x${Integer.toHexString(fill)}", Color.White, colors.primary)
+            assertTrue(colors.heading == Color.White || colors.heading == Color.Black)
+            if (fill == 0xffffffff.toInt() || fill == 0xff000000.toInt()) {
+                assertEquals(Color.White, colors.heading)
+            }
+            samples.forEach { surface ->
+                assertTrue("Primary contrast on $surface", contrast(colors.primary, surface) >= 4.5f)
+                assertTrue("Muted contrast on $surface", contrast(colors.muted, surface) >= 4.5f)
+                assertTrue("Heading contrast on $surface", contrast(colors.heading, colors.pillBackground.compositeOver(surface)) >= 4.5f)
+            }
+        }
+    }
 }

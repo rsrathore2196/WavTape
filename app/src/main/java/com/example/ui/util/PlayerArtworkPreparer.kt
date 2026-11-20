@@ -102,66 +102,123 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
                 (context.applicationContext as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
                 val cover = BackgroundWorkCoordinator.traceWork("Player cover identity") { resolveCover(track) }
                 currentCoroutineContext().ensureActive()
-                val artworkTrack = cover?.let { track.copy(coverUrl = it) } ?: track
-                fun request(full: Boolean): ImageRequest {
+                var artworkTrack = cover?.let { track.copy(coverUrl = it) } ?: track
+                var usingResolvedCover = cover != null
+                fun request(targetTrack: MusicTrack, full: Boolean, strictSquare: Boolean): ImageRequest {
                     val fullSize = playerArtworkDecodeSize(context)
                     val pixels = (64 * context.resources.displayMetrics.density).toInt().coerceIn(64, 384)
                     // Share the full player's source file, but decode only the small
                     // visible target until full preparation is actually admitted.
-                    val built = buildOptimizedImageRequest(context, artworkTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE,
-                        artworkTrack, decodeSize = if (full) fullSize else IntSize(pixels, pixels),
-                        sourceSize = fullSize, currentTrack = true, requireSquareSongArtwork = cover != null)
+                    val built = buildOptimizedImageRequest(context, targetTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE,
+                        targetTrack, decodeSize = if (full) fullSize else IntSize(pixels, pixels),
+                        sourceSize = fullSize, currentTrack = true, requireSquareSongArtwork = strictSquare)
                     return if (full) built else built.newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
                         checkNotNull(built.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER))
                             .copy(targetSize = ImageConfig.MINI_PLAYER_SIZE), null).build()
                 }
                 val loader = loaderFor(context)
                 val fullInitially = fullPlayerVisible.value
-                val result = BackgroundWorkCoordinator.traceWork(if (fullInitially) "Player artwork FULL" else "Player artwork MINI") {
-                    loader.execute(request(fullInitially)) as? SuccessResult
+                var result = BackgroundWorkCoordinator.traceWork(if (fullInitially) "Player artwork FULL" else "Player artwork MINI") {
+                    loader.execute(request(artworkTrack, fullInitially, strictSquare = usingResolvedCover)) as? SuccessResult
                 }
-                if (result == null) {
-                    if (cover != null) com.example.data.remote.rejectSongCover(track, cover)
+                if (usingResolvedCover) {
+                    val bitmap = (result?.drawable as? BitmapDrawable)?.bitmap
+                    val width = bitmap?.width ?: result?.drawable?.intrinsicWidth ?: 0
+                    val height = bitmap?.height ?: result?.drawable?.intrinsicHeight ?: 0
+                    if (result == null || !isSquareArtworkDimensions(width, height)) {
+                        com.example.data.remote.rejectSongCover(track, cover!!)
+                        // Fall back to prefetching the track's own cover without publishing the failed song cover.
+                        if (track.coverUrl.isBlank() || track.coverUrl == cover) return@collectLatest
+                        artworkTrack = track
+                        usingResolvedCover = false
+                        result = BackgroundWorkCoordinator.traceWork(if (fullInitially) "Player artwork FULL" else "Player artwork MINI") {
+                            loader.execute(request(artworkTrack, fullInitially, strictSquare = false)) as? SuccessResult
+                        } ?: return@collectLatest
+                    } else {
+                        currentCoroutineContext().ensureActive()
+                        onCoverResolved(publishPlayerCover(track, cover!!))
+                    }
+                } else if (result == null) {
                     return@collectLatest
                 }
-                if (cover != null) {
-                    // Publish only usable square art, already in Coil's cache. A failed
-                    // cover download never blanks the player's current artwork.
-                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
-                    val width = bitmap?.width ?: result.drawable.intrinsicWidth
-                    val height = bitmap?.height ?: result.drawable.intrinsicHeight
-                    if (width <= 0 || width != height) {
-                        com.example.data.remote.rejectSongCover(track, cover)
-                        return@collectLatest
+                // Defer full-size decode only while core startup tabs are preparing (unless player opens).
+                // During normal playback, eagerly prefetch full quality and palette immediately.
+                BackgroundWorkCoordinator.awaitCoreTabsOrUrgent { fullPlayerVisible.value }
+                currentCoroutineContext().ensureActive()
+                val fullRequest = request(artworkTrack, true, strictSquare = usingResolvedCover)
+                val fullResult = if (fullInitially) result else BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
+                    loader.execute(fullRequest) as? SuccessResult
+                } ?: return@collectLatest
+                if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
+                    !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@collectLatest
+                val primaryKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
+                val requestKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullRequest.data.toString())
+                val rawKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, artworkTrack.coverUrl)
+                preparePlayerArtworkColors(primaryKey, urgent = { fullPlayerVisible.value }) {
+                    // Network and decoding started at selection; color analysis reuses the cached full cover.
+                    val sample = loader.execute(playerPaletteRequest(fullResult.request)) as? SuccessResult
+                        ?: return@preparePlayerArtworkColors null
+                    val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
+                    val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
+                        ?: return@preparePlayerArtworkColors null
+                    val resolvedKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, sample.request.data.toString())
+                    for (alias in setOf(requestKey, rawKey, resolvedKey)) {
+                        if (alias != primaryKey) TrackPaletteCache.put(alias, colors)
                     }
-                    currentCoroutineContext().ensureActive()
-                    onCoverResolved(publishPlayerCover(track, cover))
+                    colors
                 }
-                // Optional prewarming waits for core preparation and gesture quiet.
-                // Expansion promotes this same job instead of restarting its lookup.
-                BackgroundWorkCoordinator.optionalProcessing(urgent = { fullPlayerVisible.value }, awaitFrameQuiet = false) {
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* A failed prefetch never prevents normal on-demand image loading. */ }
+        }
+}
+
+/** Pre-warm the next track's full-quality artwork and palette during idle time so Skip Next is instant. */
+internal fun prepareUpcomingPlayerArtwork(
+    context: Context,
+    upcomingTracks: Flow<MusicTrack?>,
+    foreground: Flow<Boolean>,
+    scope: CoroutineScope,
+    loaderFor: (Context) -> ImageLoader = { it.imageLoader }
+): Job = scope.launch(AppDispatchers.Io) {
+    combine(
+        upcomingTracks.distinctUntilChanged { a, b -> a === b || a != null && b != null && playerCoverLookupIdentity(a) == playerCoverLookupIdentity(b) },
+        foreground.distinctUntilChanged()
+    ) { track, visible -> track to visible }
+        .collectLatest { (track, visible) ->
+            if (track == null || !visible || track.coverUrl.isBlank()) return@collectLatest
+            try {
+                BackgroundWorkCoordinator.optionalProcessing(awaitFrameQuiet = false) {
                     BackgroundWorkCoordinator.awaitOptionalBatch()
-                    val fullResult = if (fullInitially) result else BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
-                        loader.execute(request(true)) as? SuccessResult
-                    } ?: return@optionalProcessing
+                    currentCoroutineContext().ensureActive()
+                    val fullSize = playerArtworkDecodeSize(context)
+                    val coverUrl = cachedPlayerCover(track)?.url ?: track.coverUrl
+                    val artworkTrack = if (coverUrl == track.coverUrl) track else track.copy(coverUrl = coverUrl)
+                    val fullRequest = buildOptimizedImageRequest(
+                        context, artworkTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE,
+                        artworkTrack, decodeSize = fullSize, sourceSize = fullSize,
+                        currentTrack = true, requireSquareSongArtwork = coverUrl != track.coverUrl
+                    )
+                    val loader = loaderFor(context)
+                    val fullResult = loader.execute(fullRequest) as? SuccessResult ?: return@optionalProcessing
                     if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
                         !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@optionalProcessing
-                    val key = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
-                    preparePlayerArtworkColors(key) {
-                        // Network and decoding started at selection; optional color analysis
-                        // shares the visible player's preparation and existing CPU budget.
+                    val primaryKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
+                    val requestKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullRequest.data.toString())
+                    val rawKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, artworkTrack.coverUrl)
+                    preparePlayerArtworkColors(primaryKey) {
                         val sample = loader.execute(playerPaletteRequest(fullResult.request)) as? SuccessResult
                             ?: return@preparePlayerArtworkColors null
                         val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
                         val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
                             ?: return@preparePlayerArtworkColors null
-                        val resolvedKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
-                        if (resolvedKey != key) TrackPaletteCache.put(resolvedKey, colors)
+                        for (alias in setOf(requestKey, rawKey)) {
+                            if (alias != primaryKey) TrackPaletteCache.put(alias, colors)
+                        }
                         colors
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { /* A failed prefetch never prevents normal on-demand image loading. */ }
+            catch (_: Exception) { /* Optional upcoming prefetch never interrupts playback. */ }
         }
 }
 
@@ -187,13 +244,15 @@ private val playerPaletteLocks = Array(8) { Mutex() }
 
 /** Prefetch and the visible player share one decode/analysis, including after navigation waits. */
 internal suspend fun preparePlayerArtworkColors(
-    key: String, prepare: suspend () -> ExtractedTrackColors?
+    key: String,
+    urgent: () -> Boolean = { false },
+    prepare: suspend () -> ExtractedTrackColors?
 ): ExtractedTrackColors? {
     fun prepared() = TrackPaletteCache.get(key)?.takeIf { it.colorField != null }
     prepared()?.let { return it }
     return playerPaletteLocks[(key.hashCode() and Int.MAX_VALUE) % playerPaletteLocks.size].withLock {
         prepared()?.let { return@withLock it }
-        BackgroundWorkCoordinator.awaitNavigationIdle(requireForeground = true)
+        BackgroundWorkCoordinator.awaitNavigationIdle(requireForeground = true, bypass = urgent)
         prepared() ?: prepare()?.also {
             currentCoroutineContext().ensureActive()
             TrackPaletteCache.put(key, it)
@@ -204,7 +263,8 @@ internal suspend fun preparePlayerArtworkColors(
 /** Show the native cover immediately; resolve a landscape shelf image to song art while visible. */
 @Composable
 internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
-    resolveCover: suspend (MusicTrack) -> String? = ::resolveYouTubePlayerCover
+    resolveCover: suspend (MusicTrack) -> String? = ::resolveYouTubePlayerCover,
+    retryAttempt: Int = 0
 ): ImageRequest {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -213,8 +273,9 @@ internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
     }
     val identity = remember(track) { playerCoverLookupIdentity(track) }
     var resolved by remember(identity) { mutableStateOf(cachedPlayerCover(track)?.url) }
+    var resolvedFailed by remember(identity) { mutableStateOf(false) }
     LaunchedEffect(identity, active, sourceSize) {
-        if (!active || resolved != null || isSelectedSongCover(track.id, track.coverUrl)) return@LaunchedEffect
+        if (!active || resolved != null || resolvedFailed || isSelectedSongCover(track.id, track.coverUrl)) return@LaunchedEffect
         // The visible player also owns its lookup. A cancelled/unfinished optional
         // prefetch must not leave a Home video's rectangular thumbnail in the player.
         withContext(AppDispatchers.Io) {
@@ -226,7 +287,7 @@ internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
                 val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
                 val width = bitmap?.width ?: result.drawable.intrinsicWidth
                 val height = bitmap?.height ?: result.drawable.intrinsicHeight
-                if (width <= 0 || width != height) return@withContext
+                if (!isSquareArtworkDimensions(width, height)) return@withContext
                 currentCoroutineContext().ensureActive()
                 publishPlayerCover(track, cover)
                 resolved = cover
@@ -234,15 +295,21 @@ internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
             catch (_: Exception) { /* Keep the same-track cover if song artwork is unavailable. */ }
         }
     }
-    val coverUrl = resolved ?: track.coverUrl
+    val activeResolved = resolved?.takeUnless { resolvedFailed }
+    val coverUrl = activeResolved ?: track.coverUrl
     val visibility = remember(context, track.id, coverUrl) { ArtworkVisibility(active) }
     SideEffect { visibility.active.value = active }
-    return remember(context, track.id, coverUrl, visibility, sourceSize) {
+    return remember(context, track.id, coverUrl, visibility, sourceSize, retryAttempt) {
         // AsyncImage resolves the actual rendered bounds. Prefetch still has an
         // explicit window-sized target; both use the same provider source file.
-        buildOptimizedImageRequest(context, coverUrl, ImageConfig.PLAYER_SCREEN_SIZE, track,
+        val base = buildOptimizedImageRequest(context, coverUrl, ImageConfig.PLAYER_SCREEN_SIZE, track,
             visibility = visibility, currentTrack = true, sourceSize = sourceSize,
-            requireSquareSongArtwork = resolved != null || hasNativeSquareCover(coverUrl))
+            requireSquareSongArtwork = activeResolved != null)
+        if (activeResolved != null && track.coverUrl.isNotBlank() && activeResolved != track.coverUrl) {
+            base.newBuilder().listener(onError = { _, _ -> resolvedFailed = true }).build()
+        } else if (retryAttempt > 0) {
+            base.newBuilder().setParameter("com.example.artwork.retry", retryAttempt, null).build()
+        } else base
     }
 }
 

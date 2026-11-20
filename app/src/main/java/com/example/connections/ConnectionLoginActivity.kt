@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -122,6 +123,12 @@ class ConnectionLoginActivity : ComponentActivity() {
                                     }
                                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                                         if (provider == "spotify") super.shouldInterceptRequest(view, request) else null
+                                    override fun onRenderProcessGone(deadView: WebView, detail: RenderProcessGoneDetail): Boolean {
+                                        if (view === deadView) view = null
+                                        status = "The browser process stopped unexpectedly. Close and try again."
+                                        runCatching { deadView.destroy() }
+                                        return true
+                                    }
                                 }
                                 view = this
                                 loadUrl(if (provider == "youtube" && intent.getBooleanExtra("manage", false)) "https://music.youtube.com/"
@@ -213,7 +220,13 @@ internal suspend fun refreshSpotifySession(context: Context, saved: SpotifyConne
         cookieReady.complete(it)
     }
     check(withTimeout(10_000) { cookieReady.await() }) { "Spotify session cookie could not be restored" }
-    val view = sessionWebView(context)
+    val view = sessionWebView(context).apply {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            runCatching { setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false) }
+        }
+        runCatching { setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null) }
+    }
+    var destroyedByCrash = false
     try {
         view.webViewClient = object : SpotifySessionClient({ session -> view.post {
             // Ignore the cached pair that triggered recovery; let the page finish renewing it.
@@ -223,6 +236,12 @@ internal suspend fun refreshSpotifySession(context: Context, saved: SpotifyConne
             }
         } }) {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = !ConnectionHosts.allowed(request.url.toString(), "spotify")
+            override fun onRenderProcessGone(deadView: WebView, detail: RenderProcessGoneDetail): Boolean {
+                destroyedByCrash = true
+                runCatching { deadView.destroy() }
+                result.completeExceptionally(java.io.IOException("Spotify refresh renderer stopped"))
+                return true
+            }
         }
         // A detached view still needs a viewport for the web player to initialize its library requests.
         val viewportWidth = (360 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
@@ -233,7 +252,12 @@ internal suspend fun refreshSpotifySession(context: Context, saved: SpotifyConne
         // The web player performs its own challenge and token refresh with the stored session.
         view.loadUrl("https://open.spotify.com/?connection_refresh=${System.currentTimeMillis()}")
         withTimeout(45_000) { result.await(); checkNotNull(latest) }
-    } finally { view.stopLoading(); view.destroy() }
+    } finally {
+        if (!destroyedByCrash) {
+            runCatching { view.stopLoading() }
+            runCatching { view.destroy() }
+        }
+    }
 }
 
 internal suspend fun clearConnectionCookies(provider: String) = withContext(Dispatchers.Main) {

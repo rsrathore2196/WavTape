@@ -298,6 +298,15 @@ fun HomeScreenContent(
     val nativeCards = homeViewModel?.serverCards?.collectAsStateWithLifecycle()?.value
         ?: remember(serverShelves) { serverShelves.map { HomeShelfPresentation("server_shelf_${it.id}", it, ShelfLoadStatus.SUCCESS) } }
     val artworkActive = com.example.ui.util.LocalArtworkRequestsActive.current
+    val heroPrefetchContext = androidx.compose.ui.platform.LocalContext.current
+    val observedHeroSeed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
+    val effectiveHeroSeed = currentTrack ?: observedHeroSeed
+    LaunchedEffect(effectiveHeroSeed?.id, effectiveHeroSeed?.coverUrl, artworkActive, landscape) {
+        if (artworkActive && effectiveHeroSeed != null) {
+            val heroSize = com.example.ui.util.defaultHeroArtworkSize(heroPrefetchContext, landscape)
+            com.example.ui.util.prefetchHeroArtwork(heroPrefetchContext, effectiveHeroSeed, heroSize)
+        }
+    }
     LaunchedEffect(homeViewModel, listState, artworkActive) {
         if (homeViewModel == null) return@LaunchedEffect
         if (!artworkActive) { homeViewModel.setArtistSectionRelevant(false); return@LaunchedEffect }
@@ -394,7 +403,7 @@ fun HomeScreenContent(
             // and a radio-only glass button reflecting the actual radio session.
             // Always visible even when user has no listening history.
             // =========================================================================
-            artworkItem(state = listState, key = "hero_infinite_radio_card", contentType = "hero") {
+            artworkItem(state = listState, key = "hero_infinite_radio_card", contentType = "hero", defaultVisible = true) {
                 val seed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
                 if (landscape) {
                     val history = if (hasRecent) homeViewModel?.listeningHistoryCard?.collectAsStateWithLifecycle()?.value else null
@@ -669,11 +678,11 @@ private fun LandscapeHomeOverview(seed: MusicTrack?, currentPlayingId: String?, 
 
 /** Preserve item keys/geometry while admitting image work only for the visible viewport. */
 private fun androidx.compose.foundation.lazy.LazyListScope.artworkItem(
-    state: LazyListState, key: String, contentType: String,
+    state: LazyListState, key: String, contentType: String, defaultVisible: Boolean = false,
     itemContent: @Composable androidx.compose.foundation.lazy.LazyItemScope.() -> Unit
 ) {
     item(key = key, contentType = contentType) {
-        VisibleItemArtwork(state, key) {
+        VisibleItemArtwork(state, key, defaultVisible) {
             com.example.performance.BackgroundWorkCoordinator.traceSection("Home row composition") { itemContent() }
         }
     }
@@ -681,13 +690,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.artworkItem(
 
 /** No layout node: image work and effects share viewport bounds with independent parent gates. */
 @Composable
-internal fun VisibleItemArtwork(state: LazyListState, key: String, content: @Composable () -> Unit) {
+internal fun VisibleItemArtwork(state: LazyListState, key: String, defaultVisible: Boolean = false, content: @Composable () -> Unit) {
     val parentActive = com.example.ui.util.LocalArtworkRequestsActive.current
     val parentEffectsActive = com.example.ui.components.LocalVisualEffectsActive.current
-    val inViewport by remember(state, key) {
+    val inViewport by remember(state, key, defaultVisible) {
         androidx.compose.runtime.derivedStateOf {
             val layout = state.layoutInfo
-            layout.visibleItemsInfo.any { item -> item.key == key &&
+            if (defaultVisible && layout.visibleItemsInfo.isEmpty()) true
+            else layout.visibleItemsInfo.any { item -> item.key == key &&
                 item.offset + item.size > layout.viewportStartOffset && item.offset < layout.viewportEndOffset }
         }
     }

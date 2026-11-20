@@ -167,6 +167,15 @@ class PlayerViewModel(
         application, playerUiState.map { it.currentTrack },
         com.example.performance.BackgroundWorkCoordinator.uiForeground, viewModelScope,
         fullPlayerVisible = fullPlayerArtworkDemand, coverUrgency = coverArtworkDemand)
+    private val upcomingArtworkPrefetch = com.example.ui.util.prepareUpcomingPlayerArtwork(
+        application,
+        playerUiState.map { state ->
+            state.queue.getOrNull(state.currentIndex + 1)?.takeIf { it.id != state.currentTrack?.id }
+                ?: state.nextRecommendedTrack?.takeIf { it.id != state.currentTrack?.id }
+        },
+        com.example.performance.BackgroundWorkCoordinator.uiForeground,
+        viewModelScope
+    )
     // Progress has dedicated flows/providers. It must not invalidate the entire navigation tree.
     // Paused positions remain observable so external seeks still update the stationary player.
     val playbackPresentationState = kotlinx.coroutines.flow.combine(playerUiState.map { state ->
@@ -1208,19 +1217,30 @@ class PlayerViewModel(
     }
 
     fun openAlbumByName(albumName: String) {
+        openAlbumByName(albumName, "")
+    }
+
+    fun openAlbumByName(albumName: String, artistName: String) {
+        val cleanAlbum = com.example.data.repository.TrackMetadataResolver.sanitizeAlbumName(albumName) ?: return
         viewModelScope.launch(AppDispatchers.Io) {
-            val found = repository.catalogBrowser.search(albumName, "Albums", 1).albums.firstOrNull()
-                ?: com.example.data.repository.CatalogAlbum(
-                    id = "album_${albumName.hashCode()}",
-                    title = albumName,
-                    artists = emptyList(),
-                    image = "",
-                    year = ""
-                )
+            val found = com.example.data.repository.TrackMetadataResolver.resolveAlbum(
+                catalogRepository = repository.catalogBrowser,
+                albumName = cleanAlbum,
+                artistName = artistName
+            )
             withContext(AppDispatchers.Main) {
                 catalogBrowser.open(com.example.data.repository.CatalogDestination.Album(found))
             }
         }
+    }
+
+    fun openGenre(genre: String) {
+        val clean = com.example.data.repository.TrackMetadataResolver.sanitizeField(genre) ?: return
+        catalogBrowser.open(com.example.data.repository.CatalogDestination.Genre(clean))
+    }
+
+    fun openTrackInfo(track: MusicTrack, sourcePlaylistTitle: String? = null) {
+        catalogBrowser.open(com.example.data.repository.CatalogDestination.TrackInfo(track, sourcePlaylistTitle))
     }
 
     // Serial IO operations preserve history order and survive Search tab disposal.

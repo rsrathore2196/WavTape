@@ -93,10 +93,7 @@ fun ListeningStatsScreen(period: ListeningPeriod, onPeriod: (ListeningPeriod) ->
         }
     }, onArtist, listState, failure, { reloadRevision++ }, embedded, modifier,
         onShare = { snapshot, selectedPeriod ->
-            val savedSurface = if (colors.neutralSurfaces) colors.cardBackgroundElevated else colors.cardBackground
-            val posterSurface = if (colors.isDark) ListeningStatsImage.DARK_POSTER_SURFACE
-                else statsCardBase(colors.primaryAccent, savedSurface).toArgb()
-            sharing = ListeningStatsImageRequest(snapshot, selectedPeriod, colors.primaryAccent.toArgb(), posterSurface)
+            sharing = ListeningStatsImage.requestForMode(snapshot, selectedPeriod, isDark = colors.isDark)
         })
     sharing?.let { request -> ListeningStatsShareDialog(request, onDismiss = { sharing = null }) }
 }

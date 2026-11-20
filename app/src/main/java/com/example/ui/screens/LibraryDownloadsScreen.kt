@@ -38,6 +38,7 @@ import com.example.downloads.playableQueue
 import com.example.performance.AppDispatchers
 import com.example.ui.components.CollectionActionSize
 import com.example.ui.components.CollectionActionSurfaceSize
+import com.example.ui.components.TrackRowMenuMode
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.liquidGlassButton
 import kotlinx.coroutines.CancellationException
@@ -144,6 +145,9 @@ fun LibraryDownloadsScreen(
                 showDownloadAction = false, artworkIcon = Icons.Default.Download,
                 collectionLabel = "OFFLINE COLLECTION", emptyTitle = "No downloads yet",
                 emptyDescription = "Download songs from their track menu to listen here without internet.",
+                menuMode = TrackRowMenuMode.DOWNLOADS,
+                onRemoveTrackRequest = { track -> deletionCandidates = setOf(track.id) },
+                downloadStore = store,
                 trailingPlaybackAction = {
                     val canDelete = saved.isNotEmpty() && !deleting
                     IconButton(onClick = { deletionCandidates = saved.mapTo(mutableSetOf()) { it.track.id } },

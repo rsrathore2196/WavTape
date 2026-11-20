@@ -154,28 +154,47 @@ class ListeningStatsImageTest {
         } finally { expected.recycle() }
     }
 
-    @Test fun lightThemePosterMatchesStatsCardSurfaceAndAdaptsBrandContrast() {
+    @Test fun posterStaysPermanentlyTideglassAndAdaptsOnlyBetweenDarkAndLightModes() {
         val rows = (1..5).map { song(it) }
         val summary = ListeningSummary(900_000, 10, rows, rows.map { it.copy(kind = "artist") }, 22, 16)
-        val presets = listOf(
-            "tideglass" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.default(false).toCustomThemeState()),
-            "petal" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.CherryBlossom.toCustomThemeState()),
-            "night-ink" to com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.MinimalIvory.toCustomThemeState())
-        )
-        for ((name, colors) in presets) {
-            val saved = if (colors.neutralSurfaces) colors.cardBackgroundElevated else colors.cardBackground
-            val cardBase = statsCardBase(colors.primaryAccent, saved).toArgb()
-            val request = ListeningStatsImageRequest(summary, ListeningPeriod.WEEKLY, colors.primaryAccent.toArgb(), cardBase)
-            val poster = ListeningStatsImage.render(context, request, "Maya")
-            try {
-                // Sample clean background region in the middle-right between subtitle and rankings
-                val bgSample = poster.getPixel(480, 500)
-                val bgLuminance = androidx.core.graphics.ColorUtils.calculateLuminance(bgSample)
-                assertTrue("$name light poster must stay luminous like the 4 stats boxes (lum=$bgLuminance)", bgLuminance >= 0.55)
-                File("/tmp/listening-stats-light-poster-$name.png").outputStream().use {
-                    poster.compress(Bitmap.CompressFormat.PNG, 100, it)
-                }
-            } finally { poster.recycle() }
+        val lightBaseline = ListeningStatsImage.render(context,
+            ListeningStatsImage.requestForMode(summary, ListeningPeriod.WEEKLY, isDark = false), "Maya")
+        val darkBaseline = ListeningStatsImage.render(context,
+            ListeningStatsImage.requestForMode(summary, ListeningPeriod.WEEKLY, isDark = true), "Maya")
+        try {
+            val lightBg = lightBaseline.getPixel(480, 500)
+            val darkBg = darkBaseline.getPixel(480, 500)
+            val lightLum = androidx.core.graphics.ColorUtils.calculateLuminance(lightBg)
+            val darkLum = androidx.core.graphics.ColorUtils.calculateLuminance(darkBg)
+            assertTrue("Light Tideglass poster must stay luminous (lum=$lightLum)", lightLum >= 0.55)
+            assertTrue("Dark Tideglass poster must stay dark navy (lum=$darkLum)", darkLum < 0.05)
+            assertNotEquals("Dark and light Tideglass posters must differ", lightBg, darkBg)
+
+            // Non-Tideglass themes/accents must still render the exact Tideglass light or dark poster.
+            val otherLight = listOf(
+                com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.CherryBlossom.toCustomThemeState()),
+                com.example.ui.theme.resolveAppThemeColors(false, com.example.data.local.ThemePresets.MinimalIvory.toCustomThemeState())
+            )
+            for (colors in otherLight) {
+                val saved = if (colors.neutralSurfaces) colors.cardBackgroundElevated else colors.cardBackground
+                val otherSurface = statsCardBase(colors.primaryAccent, saved).toArgb()
+                val rendered = ListeningStatsImage.render(context,
+                    ListeningStatsImageRequest(summary, ListeningPeriod.WEEKLY, colors.primaryAccent.toArgb(), otherSurface), "Maya")
+                try {
+                    assertTrue("Light poster must remain permanently Tideglass", rendered.sameAs(lightBaseline))
+                } finally { rendered.recycle() }
+            }
+            val otherDark = listOf(Color.MAGENTA, Color.YELLOW, Color.GREEN, Color.WHITE)
+            for (accent in otherDark) {
+                val rendered = ListeningStatsImage.render(context,
+                    ListeningStatsImageRequest(summary, ListeningPeriod.WEEKLY, accent, ListeningStatsImage.DARK_POSTER_SURFACE), "Maya")
+                try {
+                    assertTrue("Dark poster must remain permanently Tideglass", rendered.sameAs(darkBaseline))
+                } finally { rendered.recycle() }
+            }
+        } finally {
+            lightBaseline.recycle()
+            darkBaseline.recycle()
         }
     }
 

@@ -37,6 +37,7 @@ import com.example.ui.components.CollectionTargetPlayButton
 import com.example.data.repository.CatalogDestination
 import com.example.data.repository.CatalogAlbum
 import com.example.data.repository.CatalogArtist
+import com.example.data.repository.CatalogPlaylist
 import com.example.ui.util.rememberOptimizedImageRequest
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.playback.PlayerUiState
@@ -44,6 +45,8 @@ import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.playerArtworkEdgeBlend
 import com.example.ui.components.headerArtworkEdgeBlend
 import com.example.ui.components.TrackListItem
+import com.example.ui.components.TrackOverflowMenuButton
+import com.example.ui.components.TrackRowMenuMode
 import com.example.ui.components.bouncyOverscroll
 import com.example.ui.components.CollectionTitleRow
 import com.example.ui.components.rememberCollectionDownloadAction
@@ -60,7 +63,11 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
     onMore: () -> Unit, onPlay: (MusicTrack, List<MusicTrack>) -> Unit, onFavorite: (MusicTrack) -> Unit,
     onScroll: (Int, Int) -> Unit, handleBack: Boolean = true,
     onOpenAlbum: (CatalogAlbum) -> Unit = {}, onOpenArtist: (CatalogArtist) -> Unit = {},
-    onShuffleCollection: (() -> Unit)? = null) {
+    onOpenAlbumByName: (String, String) -> Unit = { _, _ -> },
+    onOpenGenre: (String) -> Unit = {},
+    onOpenPlaylist: (CatalogPlaylist) -> Unit = {},
+    onShuffleCollection: (() -> Unit)? = null,
+    downloadStore: com.example.downloads.OfflineDownloads = com.example.downloads.OfflineDownloads.get(androidx.compose.ui.platform.LocalContext.current)) {
     val colors = LocalAppColors.current
     val downloadContext = androidx.compose.ui.platform.LocalContext.current
     val downloadRepository by remember(downloadContext) {
@@ -71,6 +78,32 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
     LaunchedEffect(list) { snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
         .distinctUntilChanged().collect { (index, offset) -> onScroll(index, offset) } }
     BackHandler(enabled = handleBack, onBack = onBack)
+    if (state.destination is CatalogDestination.TrackInfo) {
+        TrackInfoScreen(
+            track = state.destination.track,
+            sourcePlaylistTitle = state.destination.sourcePlaylistTitle,
+            listState = list,
+            onOpenArtist = onOpenArtist,
+            onOpenAlbum = onOpenAlbum,
+            onOpenAlbumByName = onOpenAlbumByName,
+            onOpenGenre = onOpenGenre
+        )
+        return
+    }
+    if (state.destination is CatalogDestination.Genre) {
+        GenreDetailScreen(
+            genreName = state.destination.genre,
+            state = state,
+            player = player,
+            listState = list,
+            onRetry = onMore,
+            onPlay = onPlay,
+            onFavorite = onFavorite,
+            onOpenAlbum = onOpenAlbum,
+            onOpenPlaylist = onOpenPlaylist
+        )
+        return
+    }
     if (state.destination is CatalogDestination.Playlist) {
         val playlist = state.destination.playlist
         val content = state.playlistContent ?: remember(playlist) {
@@ -82,8 +115,10 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
         PlaylistDetailScreen(playlistWithTracks = content, playerUiState = player, onBackClick = onBack,
             onPlayTrack = onPlay, onToggleFavorite = onFavorite, onDeletePlaylist = {}, onRemoveTrack = {},
             readOnly = true, listState = list,
+            menuMode = TrackRowMenuMode.STANDARD,
             downloadCollectionComplete = !state.loading && state.nextPage == null && state.pending.isEmpty(),
             downloadCollectionKey = state.destination.key,
+            downloadStore = downloadStore,
             loadDownloadTracks = { com.example.downloads.loadCollectionTracks(downloadRepository, state.destination) },
             footer = {
                 if (state.loading) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
@@ -99,12 +134,15 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
     val albumDownload = (state.destination as? CatalogDestination.Album)?.let { dest ->
         rememberCollectionDownloadAction(state.tracks, CollectionPageMetadata.title(dest.album.title, "Untitled album"),
             dest.key, !state.loading && state.nextPage == null && state.pending.isEmpty(),
-            loadTracks = { com.example.downloads.loadCollectionTracks(downloadRepository, dest) })
+            loadTracks = { com.example.downloads.loadCollectionTracks(downloadRepository, dest) },
+            store = downloadStore)
     }
     val title = when (val target = state.destination) {
         is CatalogDestination.Artist -> target.artist.name
         is CatalogDestination.Album -> target.album.title
         is CatalogDestination.Playlist -> target.playlist.title
+        is CatalogDestination.TrackInfo -> target.track.cleanTitle
+        is CatalogDestination.Genre -> target.genre
     }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("catalog_detail_list").background(colors.scaffoldBackground)
         .then(if (state.destination is CatalogDestination.Artist || state.destination is CatalogDestination.Album) Modifier
@@ -119,7 +157,7 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                     AlbumProfileHeader(dest.album, state.tracks,
                         !state.loading && state.nextPage == null && state.pending.isEmpty())
                 }
-                is CatalogDestination.Playlist -> Unit
+                is CatalogDestination.Playlist, is CatalogDestination.TrackInfo, is CatalogDestination.Genre -> Unit
             }
         }
         if (state.destination is CatalogDestination.Album) item("album_playback_actions") {
@@ -178,11 +216,26 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                 }
             }
         }
+        val isAlbumPage = state.destination is CatalogDestination.Album
         items(state.tracks, key = { it.id }, contentType = { "track" }) { song ->
-            TrackListItem(track = song, isPlaying = player.currentTrack?.id == song.id && player.isPlaying,
+            TrackListItem(
+                track = song,
+                isPlaying = player.currentTrack?.id == song.id && player.isPlaying,
                 isLoading = player.currentTrack?.id == song.id && player.isLoading,
-                onClick = { onPlay(song, state.tracks) }, onToggleFavorite = { onFavorite(song) },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                onClick = { onPlay(song, state.tracks) },
+                onToggleFavorite = if (isAlbumPage) null else ({ onFavorite(song) }),
+                trailingContent = if (isAlbumPage) {
+                    {
+                        TrackOverflowMenuButton(
+                            track = song,
+                            mode = TrackRowMenuMode.STANDARD,
+                            onToggleFavorite = { onFavorite(song) },
+                            downloadStore = downloadStore
+                        )
+                    }
+                } else null,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
         }
         if (state.loading) item("loading") { Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp), color = colors.primaryAccent)

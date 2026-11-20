@@ -86,6 +86,17 @@ object BackgroundWorkCoordinator {
         } }
     }
 
+    internal fun isCoreTabsPreparing(): Boolean = foreground.get() && corePreparations.get() > 0
+
+    internal suspend fun awaitCoreTabsOrUrgent(urgent: () -> Boolean) {
+        while (isCoreTabsPreparing() && !urgent()) {
+            val observed = admissionRevision.value
+            currentCoroutineContext().ensureActive()
+            if (!isCoreTabsPreparing() || urgent()) return
+            awaitAdmissionChange(observed, externalUrgency = true)
+        }
+    }
+
     fun trace(name: String): AutoCloseable {
         val cookie = traceCookies.incrementAndGet()
         androidx.tracing.Trace.beginAsyncSection("Xtreme/$name", cookie)

@@ -1091,7 +1091,7 @@ fun AboutSocialCommunityButtonsRow(
                         .weight(1f)
                         .then(pillStyle)
                         .bouncyClickable {
-                            openUrl("https://t.me/XtremePlayerOfficiaI", "Telegram Channel")
+                            openUrl("https://t.me/WavTapeOfficial", "Telegram Channel")
                         }
                         .testTag("about_telegram_channel_button"),
                     contentAlignment = Alignment.Center
@@ -1132,7 +1132,7 @@ fun AboutSocialCommunityButtonsRow(
                         .weight(1f)
                         .then(pillStyle)
                         .bouncyClickable {
-                            openUrl("https://t.me/xtremeplayerofficial", "Telegram Discussion")
+                            openUrl("https://t.me/WavTapeDiscussion", "Telegram Discussion")
                         }
                         .testTag("about_telegram_discussion_button"),
                     contentAlignment = Alignment.Center

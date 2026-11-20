@@ -81,6 +81,8 @@ internal fun LazyListScope.catalogSearchResults(
                         playTarget = CollectionPlaybackTarget.Catalog(destination)) { onOpen(destination) }
                     is CatalogDestination.Playlist -> CatalogEntityRow(destination.playlist.title, "Playlist", destination.playlist.image,
                         playTarget = CollectionPlaybackTarget.Catalog(destination)) { onOpen(destination) }
+                    is CatalogDestination.Genre -> CatalogEntityRow(destination.genre, "Genre", null) { onOpen(destination) }
+                    is CatalogDestination.TrackInfo -> CatalogEntityRow(destination.track.cleanTitle, "Track Info", destination.track.coverUrl) { onOpen(destination) }
                 }
             }
         }

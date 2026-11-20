@@ -61,6 +61,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import com.example.ui.components.TrackListItem
+import com.example.ui.components.TrackOverflowMenuButton
+import com.example.ui.components.TrackRowMenuMode
 import com.example.ui.components.playerArtworkEdgeBlend
 import com.example.ui.components.headerArtworkEdgeBlend
 import com.example.ui.components.CollectionTitleRow
@@ -121,7 +123,10 @@ fun PlaylistDetailScreen(
     collectionLabel: String = "PLAYLIST",
     emptyTitle: String = "Playlist is empty",
     emptyDescription: String? = null,
-    trailingPlaybackAction: (@Composable () -> Unit)? = null
+    trailingPlaybackAction: (@Composable () -> Unit)? = null,
+    menuMode: TrackRowMenuMode = if (readOnly) TrackRowMenuMode.STANDARD else TrackRowMenuMode.CUSTOM_PLAYLIST,
+    onRemoveTrackRequest: ((MusicTrack) -> Unit)? = null,
+    onTrackInfo: ((MusicTrack) -> Unit)? = null
 ) {
     val playlist = playlistWithTracks.playlist
     val tracks = playlistWithTracks.musicTracks
@@ -419,13 +424,35 @@ fun PlaylistDetailScreen(
                     }
                 }
             } else {
+                val sourcePlaylistTitle = if (collectionLabel == "PLAYLIST" && !title.equals("Liked Songs", ignoreCase = true)) {
+                    playlist.title
+                } else null
                 itemsIndexed(tracks, key = { index, track -> if (track.playlistEntryId > 0L) "pl_entry_${track.playlistEntryId}" else "pl_track_${track.id}_$index" }) { _, track ->
                     TrackListItem(
                         track = track,
                         isPlaying = track.id == currentPlayingId,
                         onClick = { playback.play(track, tracks) },
-                        onToggleFavorite = { onToggleFavorite(track) },
-                        onRemoveClick = if (readOnly) null else ({ trackPendingRemoval = track }),
+                        onToggleFavorite = null,
+                        onRemoveClick = null,
+                        trailingContent = {
+                            TrackOverflowMenuButton(
+                                track = track,
+                                mode = menuMode,
+                                onToggleFavorite = { onToggleFavorite(track) },
+                                onRemove = if (menuMode == TrackRowMenuMode.CUSTOM_PLAYLIST || menuMode == TrackRowMenuMode.DOWNLOADS) {
+                                    {
+                                        if (onRemoveTrackRequest != null) {
+                                            onRemoveTrackRequest(track)
+                                        } else {
+                                            trackPendingRemoval = track
+                                        }
+                                    }
+                                } else null,
+                                onTrackInfo = onTrackInfo,
+                                sourcePlaylistTitle = sourcePlaylistTitle,
+                                downloadStore = downloadStore
+                            )
+                        },
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                     )
                 }

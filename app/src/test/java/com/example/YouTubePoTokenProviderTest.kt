@@ -188,4 +188,47 @@ class YouTubePoTokenProviderTest {
         assertFalse(YouTubeTokenWebView.allowedResource("https://www.gstatic.com.evil.example/interpreter.js"))
         assertFalse(YouTubeTokenWebView.allowedResource("file:///tmp/interpreter.js"))
     }
+
+    @Test fun rendererProcessGoneDoesNotRetryAndEntersRendererCooldown() = runTest {
+        YouTubeTokenWebView.markRecoverySuccess()
+        try {
+            var now = 1_000L
+            var opens = 0
+            val provider = YouTubePoTokenProvider(
+                openBrowser = {
+                    opens++
+                    if (opens == 1) {
+                        YouTubeTokenWebView.rendererProcessCrashed = true
+                        YouTubeTokenWebView.lastCrashTimestampMs = now
+                        throw YouTubeTokenWebView.RendererProcessGoneException()
+                    }
+                    Browser(now + 60_000L).also { YouTubeTokenWebView.markRecoverySuccess() }
+                },
+                supported = { true },
+                now = { now }
+            )
+            assertNull(provider.getPoToken("abcdefghijk", "visitor", null))
+            assertEquals("Renderer crash must not immediately spawn a second WebView", 1, opens)
+            assertTrue(provider.capabilities.providers.isEmpty())
+            assertFalse(provider.capabilities.usesWebView)
+
+            // Still in renderer crash cooldown after short delay
+            now += 10_000L
+            assertTrue(YouTubeTokenWebView.isRendererInCooldown(now))
+            assertNull(provider.getPoToken("lmnopqrstuv", "visitor", null))
+            assertEquals(1, opens)
+
+            // After renderer crash cooldown expires, recovery succeeds and clears crash state
+            now += YouTubeTokenWebView.RENDERER_CRASH_COOLDOWN_MS
+            assertFalse(YouTubeTokenWebView.isRendererInCooldown(now))
+            assertFalse(provider.capabilities.providers.isEmpty())
+            val recovered = provider.getPoToken("abcdefghijk", "visitor", null)
+            assertNotNull(recovered)
+            assertEquals(2, opens)
+            assertFalse(YouTubeTokenWebView.rendererProcessCrashed)
+            provider.close()
+        } finally {
+            YouTubeTokenWebView.markRecoverySuccess()
+        }
+    }
 }

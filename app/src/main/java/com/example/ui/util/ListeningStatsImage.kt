@@ -64,6 +64,38 @@ internal object ListeningStatsImage {
     private const val LIGHT_PRIMARY_TEXT = 0xFF0F172A.toInt()
     private const val LIGHT_SECONDARY_TEXT = 0xFF3E4A5E.toInt()
 
+    private val darkTideglassColors by lazy {
+        com.example.ui.theme.resolveAppThemeColors(
+            darkTheme = true,
+            custom = com.example.data.local.ThemePresets.default(dark = true).toCustomThemeState()
+        )
+    }
+    private val lightTideglassColors by lazy {
+        com.example.ui.theme.resolveAppThemeColors(
+            darkTheme = false,
+            custom = com.example.data.local.ThemePresets.default(dark = false).toCustomThemeState()
+        )
+    }
+
+    /** Exported listening stats always use Tideglass colors, adapting only between dark and light mode. */
+    internal fun tideglassPalette(isDark: Boolean): Pair<Int, Int> {
+        val tideglass = if (isDark) darkTideglassColors else lightTideglassColors
+        val surface = if (isDark) DARK_POSTER_SURFACE else {
+            val saved = if (tideglass.neutralSurfaces) tideglass.cardBackgroundElevated else tideglass.cardBackground
+            statsCardBase(tideglass.primaryAccent, saved).toArgb()
+        }
+        return tideglass.primaryAccent.toArgb() to surface
+    }
+
+    internal fun requestForMode(
+        summary: ListeningSummary,
+        period: ListeningPeriod,
+        isDark: Boolean
+    ): ListeningStatsImageRequest {
+        val (accent, surface) = tideglassPalette(isDark)
+        return ListeningStatsImageRequest(summary, period, accent, surface)
+    }
+
     suspend fun create(context: Context, request: ListeningStatsImageRequest, name: String): File = withContext(AppDispatchers.Io) {
         val images = ConcurrentHashMap<String, Bitmap>()
         val sources = buildList {
@@ -172,12 +204,12 @@ internal object ListeningStatsImage {
             val canvas = Canvas(output)
             canvas.scale(1.5f, 1.5f)
             val text = listeningStatsPosterText(request, name)
-            val posterSurface = if (lightPoster) request.surface else NAVY
-            // Keep the selected hue readable on either the light stats surface or the dark canvas.
+            val (resolvedAccent, posterSurface) = tideglassPalette(isDark = !lightPoster)
+            // Keep the Tideglass hue readable on either the light stats surface or the dark canvas.
             var accent = if (lightPoster) {
-                statsCardDecorAccent(androidx.compose.ui.graphics.Color(request.accent),
+                statsCardDecorAccent(androidx.compose.ui.graphics.Color(resolvedAccent),
                     androidx.compose.ui.graphics.Color(posterSurface)).toArgb()
-            } else request.accent
+            } else resolvedAccent
             val minContrast = if (lightPoster) 4.5 else 3.0
             val blendTarget = if (lightPoster) LIGHT_PRIMARY_TEXT else Color.WHITE
             if (ColorUtils.calculateContrast(accent, posterSurface) < minContrast) {
@@ -187,7 +219,7 @@ internal object ListeningStatsImage {
                     if (ColorUtils.calculateContrast(accent, posterSurface) >= minContrast) break
                 }
             }
-            val frameAccent = if (lightPoster) request.accent else accent
+            val frameAccent = if (lightPoster) resolvedAccent else accent
             val featureCardSurface = if (lightPoster) ColorUtils.blendARGB(posterSurface, Color.WHITE, .28f) else NAVY
             val coverPlaceholderBg = if (lightPoster) ColorUtils.blendARGB(posterSurface, Color.WHITE, .68f) else Color.rgb(15, 29, 48)
 

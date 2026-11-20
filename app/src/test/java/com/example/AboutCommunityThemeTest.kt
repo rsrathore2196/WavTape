@@ -115,7 +115,7 @@ class AboutCommunityThemeTest {
         compose.runOnIdle { colors = LightAppColors.copy(primaryAccent = Color(0xFFADEEF2)) }
         checkTheme()
         val urls = listOf("https://github.com/rsrathore2196/Xtreme-Player",
-            "https://t.me/XtremePlayerOfficiaI", "https://t.me/xtremeplayerofficial")
+            "https://t.me/WavTapeOfficial", "https://t.me/WavTapeDiscussion")
         buttons.zip(urls).forEach { (tag, url) ->
             compose.onNodeWithTag(tag).performClick()
             val intent = shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStartedActivity

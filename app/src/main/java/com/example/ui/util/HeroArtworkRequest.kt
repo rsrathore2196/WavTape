@@ -5,6 +5,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import coil.imageLoader
+import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.example.data.model.MusicTrack
@@ -12,9 +14,35 @@ import com.example.data.remote.YouTubeHeroArtworkResolver
 import com.example.data.remote.heroArtworkIdentity
 import com.example.performance.AppDispatchers
 import com.example.recommendation.DiscoveryRequestCoordinator
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import kotlin.math.roundToInt
+
+/** Match the Hero card's actual pixel viewport so prefetched full-quality art hits Coil's cache directly. */
+internal fun defaultHeroArtworkSize(context: Context, landscape: Boolean = false): IntSize {
+    val metrics = context.resources.displayMetrics
+    val density = metrics.density.coerceAtLeast(1f)
+    val horizontalPaddingPx = (40f * density).roundToInt()
+    val maxWidthPx = (metrics.widthPixels - horizontalPaddingPx).coerceAtLeast(1)
+    val widthPx = if (landscape) {
+        ((maxWidthPx - (16f * density).roundToInt()).coerceAtLeast(1) / 3f).roundToInt().coerceAtLeast(1)
+    } else {
+        maxWidthPx.coerceAtMost((640f * density).roundToInt() - horizontalPaddingPx).coerceAtLeast(1)
+    }
+    val heightPx = (240f * density).roundToInt().coerceAtLeast(1)
+    return IntSize(widthPx, heightPx)
+}
+
+/** Eagerly prefetch full-quality Hero artwork using the initial cover URL without triggering metadata lookup. */
+internal fun prefetchHeroArtwork(context: Context, track: MusicTrack, size: IntSize) {
+    val source = YouTubeHeroArtworkResolver.initial(track) ?: track.coverUrl
+    if (source.isBlank() || size.width <= 0 || size.height <= 0) return
+    val request = buildHeroArtworkRequest(context, source, size)
+    if (request.memoryCacheKey?.let { context.imageLoader.memoryCache?.get(it) } != null) return
+    context.imageLoader.enqueue(request)
+}
 
 /** Only the visible Hero requests its video artwork; no playback metadata is rewritten. */
 @Composable
@@ -30,7 +58,16 @@ internal fun rememberHeroArtworkRequest(track: MusicTrack, size: IntSize,
     var resolved by rememberSaveable(identity) { mutableStateOf(false) }
     var refreshAfter by rememberSaveable(identity) { mutableLongStateOf(0L) }
     var retainedIdentity by rememberSaveable { mutableStateOf(identity) }
+    var fallbackRetryAttempt by remember(identity) { mutableIntStateOf(0) }
+    var pendingFallbackRetry by remember(identity) { mutableStateOf(false) }
     val currentResolver by rememberUpdatedState(resolve)
+    LaunchedEffect(identity, active, pendingFallbackRetry) {
+        if (active && pendingFallbackRetry && fallbackRetryAttempt < 2) {
+            delay(450L * (fallbackRetryAttempt + 1))
+            pendingFallbackRetry = false
+            fallbackRetryAttempt += 1
+        }
+    }
     LaunchedEffect(identity, active, resolveMetadata) {
         // Saveable inputs are not validated when an offscreen item is restored.
         // A track change while scrolled away must never restore the previous art.
@@ -52,14 +89,27 @@ internal fun rememberHeroArtworkRequest(track: MusicTrack, size: IntSize,
     val displayedSource = if (retainedIdentity == identity) source else fallback
     val visibility = remember(identity, displayedSource) { ArtworkVisibility(active) }
     SideEffect { visibility.active.value = active }
-    return remember(context, displayedSource, fallback, size, visibility) {
+    return remember(context, displayedSource, fallback, size, visibility, fallbackRetryAttempt) {
         val requestedSource = displayedSource
-        buildHeroArtworkRequest(context, requestedSource, size, visibility).newBuilder()
-            .listener(onError = { _, _ ->
-                // A removed/unavailable video image must leave the supplied cover
-                // filling the card, rather than a failed image or a fabricated frame.
-                if (source == requestedSource && fallback.isNotBlank() && requestedSource != fallback) source = fallback
-            }).build()
+        val fallbackPlaceholder = if (requestedSource != fallback && fallback.isNotBlank()) {
+            "hero-landscape:${aspectPreservingArtworkUrl(fallback, size)}"
+        } else null
+        buildHeroArtworkRequest(context, requestedSource, size, visibility, fallbackPlaceholder).newBuilder()
+            .apply {
+                if (fallbackRetryAttempt > 0) setParameter("com.example.artwork.hero_retry", fallbackRetryAttempt, null)
+            }
+            .listener(
+                onSuccess = { _, _ -> pendingFallbackRetry = false },
+                onError = { _, _ ->
+                    // A removed/unavailable video image must leave the supplied cover
+                    // filling the card, rather than a failed image or a fabricated frame.
+                    if (source == requestedSource && fallback.isNotBlank() && requestedSource != fallback) {
+                        source = fallback
+                    } else if (requestedSource == fallback && fallbackRetryAttempt < 2) {
+                        pendingFallbackRetry = true
+                    }
+                }
+            ).build()
     }
 }
 
@@ -92,20 +142,30 @@ internal fun aspectPreservingArtworkUrl(source: String, size: IntSize): String {
 }
 
 internal fun buildHeroArtworkRequest(context: Context, source: String, size: IntSize,
-    visibility: ArtworkVisibility = ArtworkVisibility(true)): ImageRequest {
+    visibility: ArtworkVisibility = ArtworkVisibility(true),
+    fallbackPlaceholderKey: String? = null): ImageRequest {
     val nativeSource = aspectPreservingArtworkUrl(source, size)
     val base = buildOptimizedImageRequest(context, nativeSource, ImageConfig.HERO_BANNER_SIZE, null,
         decodeSize = size, visibility = visibility, crossfadeEnabled = true)
     val metadata = base.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)!!
+    val memory = context.imageLoader.memoryCache
+    val heroKey = "hero-landscape:$nativeSource"
+    val placeholderKey = listOfNotNull(
+        heroKey,
+        fallbackPlaceholderKey,
+        nativeSource,
+        source,
+        providerArtworkUrl(source, 600)
+    ).distinct().firstOrNull { key -> key.isNotBlank() && memory?.get(MemoryCache.Key(key)) != null }
     return base.newBuilder()
         .data(nativeSource)
         .setParameter(ARTWORK_METADATA_PARAMETER, metadata.copy(providerUrl = source, landscapeArtwork = true,
             // Use only the native source selected above. Generic video-frame
             // alternatives can reintroduce an audio upload's blurred side panels.
             allowVideoFallback = false), null)
-        .memoryCacheKey("hero-landscape:$nativeSource")
+        .memoryCacheKey(heroKey)
         .diskCacheKey(nativeSource)
-        .placeholderMemoryCacheKey(null as String?)
+        .placeholderMemoryCacheKey(placeholderKey)
         .precision(Precision.INEXACT)
         .allowRgb565(false)
         .build()

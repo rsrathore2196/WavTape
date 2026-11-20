@@ -68,6 +68,12 @@ sealed interface CatalogDestination {
         if (album.provider == CatalogProvider.JIOSAAVN) "album:${album.id}" else "album:${album.provider}:${album.id}:${album.browseParams.orEmpty()}" }
     data class Playlist(val playlist: CatalogPlaylist) : CatalogDestination { override val key =
         if (playlist.provider == CatalogProvider.JIOSAAVN) "playlist:${playlist.id}" else "playlist:${playlist.provider}:${playlist.id}:${playlist.browseParams.orEmpty()}" }
+    data class TrackInfo(val track: MusicTrack, val sourcePlaylistTitle: String? = null) : CatalogDestination {
+        override val key = "track_info:${track.id}:${sourcePlaylistTitle.orEmpty()}"
+    }
+    data class Genre(val genre: String) : CatalogDestination {
+        override val key = "genre:${CatalogNames.normalize(genre)}"
+    }
 }
 object CatalogNames {
     private val latinText = Regex("[a-z0-9 ]+")
