@@ -1,5 +1,6 @@
 package com.example.updater
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -64,6 +66,7 @@ sealed class UpdateStatus {
 
 object AppUpdateManager {
     private const val LATEST = "https://api.github.com/repos/rsrathore2196/WavTape/releases/latest"
+    private const val LEGACY_LATEST = "https://api.github.com/repos/rsrathore2196/Xtreme-Player/releases/latest"
     private val assetPaths = listOf(
         "/rsrathore2196/WavTape/releases/download/",
         "/rsrathore2196/Xtreme-Player/releases/download/"
@@ -102,6 +105,7 @@ object AppUpdateManager {
     private var initialized = false
     private var foreground = false
     private var downloadJob: Job? = null
+    @Volatile private var activeDownloadCall: Call? = null
     private var checking: Job? = null
     private var checkListeners = UpdateCheckListeners()
     @Volatile private var manualCheckRequested = false
@@ -138,11 +142,13 @@ object AppUpdateManager {
 
     internal fun validAsset(url: String): Boolean {
         val uri = Uri.parse(url)
+        val path = uri.path.orEmpty()
         return uri.scheme.equals("https", ignoreCase = true) &&
             uri.host.equals("github.com", ignoreCase = true) &&
             uri.port == -1 &&
             uri.userInfo == null &&
-            assetPaths.any { uri.path.orEmpty().startsWith(it) } &&
+            !path.contains("..") &&
+            assetPaths.any { path.startsWith(it, ignoreCase = true) } &&
             uri.query == null &&
             uri.fragment == null
     }
@@ -253,7 +259,10 @@ object AppUpdateManager {
 
     fun checkForUpdate(context: Context, isManual: Boolean = false, onResult: ((UpdateStatus) -> Unit)? = null) {
         if (checking?.isActive == true) {
-            if (isManual) manualCheckRequested = true
+            if (isManual) {
+                manualCheckRequested = true
+                com.example.performance.BackgroundWorkCoordinator.admissionChanged()
+            }
             checkListeners.add(onResult)
             return
         }
@@ -317,7 +326,7 @@ object AppUpdateManager {
             } catch (e: Exception) {
                 val error = UpdateStatus.Error(
                     message = e.message ?: "Could not check for updates.",
-                    showNotice = false
+                    showNotice = manualCheckRequested && onResult == null
                 )
                 _updateStatus.value = error
                 listeners.complete(error)
@@ -354,15 +363,32 @@ object AppUpdateManager {
             buffer.readUtf8()
         }
 
+    private fun fetchValidatedText(url: String, maxBytes: Long): String {
+        openValidatedDownloadResponse(url, trackActiveCall = false).use { response ->
+            val body = response.body ?: throw IOException("Empty release checksum file.")
+            val buffer = okio.Buffer()
+            var total = 0L
+            while (total <= maxBytes) {
+                val count = body.source().read(buffer, minOf(8192L, maxBytes + 1 - total))
+                if (count < 0) break
+                total += count
+            }
+            require(total <= maxBytes) { "Release checksum file exceeds the allowed size." }
+            return buffer.readUtf8()
+        }
+    }
+
     private fun latestRelease(): UpdateStatus {
-        val raw = get(LATEST, allowNotFound = true) ?: return UpdateStatus.UpToDate(BuildConfig.VERSION_NAME)
+        val raw = get(LATEST, allowNotFound = true)
+            ?: get(LEGACY_LATEST, allowNotFound = true)
+            ?: return UpdateStatus.UpToDate(BuildConfig.VERSION_NAME)
         return parseReleaseJson(
             rawJson = raw,
             currentVersion = BuildConfig.VERSION_NAME,
             supportedAbis = Build.SUPPORTED_ABIS,
             fetchSidecar = { url ->
                 require(validAsset(url)) { "Untrusted release checksum URL." }
-                get(url, maxBytes = 128_000) ?: throw IOException("Empty release checksum file.")
+                fetchValidatedText(url, maxBytes = 128_000)
             }
         )
     }
@@ -598,7 +624,12 @@ object AppUpdateManager {
                 val tempFile = partFile(app, activeSession)
                 val finalFile = staged(app, activeSession)
 
-                openValidatedDownloadResponse(info.apkDownloadUrl).use { response ->
+                val currentJob = currentCoroutineContext()[Job]
+                openValidatedDownloadResponse(
+                    initialUrl = info.apkDownloadUrl,
+                    trackActiveCall = true,
+                    ensureNotCancelled = { currentJob?.ensureActive() }
+                ).use { response ->
                     val body = response.body ?: throw IOException("Empty APK download response.")
                     val contentLength = body.contentLength()
                     val expectedTotal = when {
@@ -610,51 +641,25 @@ object AppUpdateManager {
                         throw IOException("The APK file size does not match the release.")
                     }
 
-                    var downloaded = 0L
-                    var lastReportTime = 0L
-                    var lastPercent = -1
-                    val buffer = ByteArray(64 * 1024)
-
-                    FileOutputStream(tempFile).use { output ->
-                        body.byteStream().use { input ->
-                            while (true) {
-                                currentCoroutineContext().ensureActive()
-                                val read = input.read(buffer)
-                                currentCoroutineContext().ensureActive()
-                                if (read < 0) break
-                                output.write(buffer, 0, read)
-                                downloaded += read
-
-                                if (info.apkSizeBytes > 0L && downloaded > info.apkSizeBytes) {
-                                    throw IOException("The APK download exceeded the expected release size.")
-                                }
-
-                                val percent = if (expectedTotal > 0L) {
-                                    ((downloaded.toDouble() / expectedTotal) * 100.0).toInt().coerceIn(0, 99)
-                                } else {
-                                    0
-                                }
-                                val now = System.currentTimeMillis()
-                                if (percent != lastPercent || now - lastReportTime >= 150L) {
-                                    lastPercent = percent
-                                    lastReportTime = now
-                                    publishDownloadProgress(activeSession, UpdateStatus.Downloading(
-                                        progressPercent = percent,
-                                        downloadId = activeSession.id,
-                                        updateInfo = info,
-                                        message = "Downloading update...",
-                                        downloadedBytes = downloaded,
-                                        totalBytes = if (expectedTotal > 0L) expectedTotal else downloaded
-                                    ))
-                                }
-                            }
-                            output.flush()
+                    streamResponseToFile(
+                        input = body.byteStream(),
+                        targetFile = tempFile,
+                        expectedSizeBytes = info.apkSizeBytes,
+                        reportedTotalBytes = expectedTotal,
+                        onProgress = { percent, downloaded, total ->
+                            publishDownloadProgress(
+                                activeSession,
+                                UpdateStatus.Downloading(
+                                    progressPercent = percent,
+                                    downloadId = activeSession.id,
+                                    updateInfo = info,
+                                    message = "Downloading update...",
+                                    downloadedBytes = downloaded,
+                                    totalBytes = total
+                                )
+                            )
                         }
-                    }
-
-                    require(downloaded > 0L && (expectedTotal <= 0L || downloaded == expectedTotal)) {
-                        "The APK download was interrupted before completing."
-                    }
+                    )
                 }
 
                 currentCoroutineContext().ensureActive()
@@ -700,6 +705,20 @@ object AppUpdateManager {
                 _downloadProgress.value = 0
                 _updateStatus.value = UpdateStatus.UpToDate(BuildConfig.VERSION_NAME)
             }
+        } catch (e: IOException) {
+            if (!currentCoroutineContext().isActive) {
+                withContext(Dispatchers.IO + NonCancellable) {
+                    runCatching { partFile(app, activeSession).delete() }
+                    runCatching { staged(app, activeSession).delete() }
+                }
+                throw CancellationException("Update download cancelled.", e)
+            }
+            operations.withLock {
+                if (session?.name == activeSession.name) {
+                    downloadJob = null
+                    fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
+                }
+            }
         } catch (e: Exception) {
             operations.withLock {
                 if (session?.name == activeSession.name) {
@@ -707,25 +726,93 @@ object AppUpdateManager {
                     fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
                 }
             }
+        } finally {
+            activeDownloadCall = null
         }
     }
 
-    private fun openValidatedDownloadResponse(initialUrl: String): Response {
+    internal suspend fun streamResponseToFile(
+        input: java.io.InputStream,
+        targetFile: File,
+        expectedSizeBytes: Long,
+        reportedTotalBytes: Long,
+        onProgress: suspend (percent: Int, downloadedBytes: Long, totalBytes: Long) -> Unit
+    ): Long {
+        var downloaded = 0L
+        var lastReportTime = 0L
+        var lastPercent = -1
+        val buffer = ByteArray(64 * 1024)
+
+        FileOutputStream(targetFile).use { output ->
+            input.use { stream ->
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = stream.read(buffer)
+                    currentCoroutineContext().ensureActive()
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    downloaded += read
+
+                    if (expectedSizeBytes > 0L && downloaded > expectedSizeBytes) {
+                        throw IOException("The APK download exceeded the expected release size.")
+                    }
+
+                    val percent = if (reportedTotalBytes > 0L) {
+                        ((downloaded.toDouble() / reportedTotalBytes) * 100.0).toInt().coerceIn(0, 99)
+                    } else {
+                        0
+                    }
+                    val now = System.currentTimeMillis()
+                    if (percent != lastPercent || now - lastReportTime >= 150L) {
+                        lastPercent = percent
+                        lastReportTime = now
+                        onProgress(
+                            percent,
+                            downloaded,
+                            if (reportedTotalBytes > 0L) reportedTotalBytes else downloaded
+                        )
+                    }
+                }
+                output.flush()
+            }
+        }
+
+        require(downloaded > 0L && (reportedTotalBytes <= 0L || downloaded == reportedTotalBytes)) {
+            "The APK download was interrupted before completing."
+        }
+        return downloaded
+    }
+
+    private fun openValidatedDownloadResponse(
+        initialUrl: String,
+        trackActiveCall: Boolean = true,
+        ensureNotCancelled: () -> Unit = {}
+    ): Response {
         var currentUrl = initialUrl
         require(validAsset(currentUrl)) { "Untrusted APK download URL." }
 
         repeat(MAX_REDIRECTS + 1) {
-            val response = downloadClient.newCall(
+            ensureNotCancelled()
+            val call = downloadClient.newCall(
                 Request.Builder()
                     .url(currentUrl)
                     .header("User-Agent", "WavTape-Android/${BuildConfig.VERSION_NAME}")
                     .header("Accept", "application/octet-stream")
+                    .header("Accept-Encoding", "identity")
                     .build()
-            ).execute()
+            )
+            if (trackActiveCall) activeDownloadCall = call
+            val response = try {
+                call.execute()
+            } catch (e: IOException) {
+                if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
+                throw e
+            }
 
             if (response.code in listOf(301, 302, 303, 307, 308)) {
                 val location = response.header("Location")
                 response.close()
+                if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
                 if (location.isNullOrBlank()) {
                     throw IOException("Update server returned an empty redirect.")
                 }
@@ -737,6 +824,7 @@ object AppUpdateManager {
                 if (!response.isSuccessful) {
                     val code = response.code
                     response.close()
+                    if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
                     throw IOException(
                         when (code) {
                             403, 429 -> "Download server rate limit reached. Please try again later."
@@ -786,6 +874,9 @@ object AppUpdateManager {
     private suspend fun clear(app: Context) {
         val old = session
         session = null
+        val activeCall = activeDownloadCall
+        activeDownloadCall = null
+        activeCall?.cancel()
         val job = downloadJob
         downloadJob = null
         if (job != null && job != currentCoroutineContext()[Job]) {
@@ -884,7 +975,18 @@ object AppUpdateManager {
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:${app.packageName}")
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            app.startActivity(permIntent)
+            try {
+                app.startActivity(permIntent)
+            } catch (_: ActivityNotFoundException) {
+                s = s.copy(installRequested = false, waitingPermission = false)
+                session = s
+                persist(app, s)
+                _updateStatus.value = UpdateStatus.ReadyToInstall(
+                    file,
+                    s.info,
+                    "Enable 'Install unknown apps' for WavTape in Settings, then tap Install."
+                )
+            }
             return
         }
 
@@ -901,6 +1003,14 @@ object AppUpdateManager {
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             .apply { clipData = ClipData.newRawUri("App update", uri) }
-        app.startActivity(installIntent)
+        try {
+            app.startActivity(installIntent)
+        } catch (_: ActivityNotFoundException) {
+            _updateStatus.value = UpdateStatus.ReadyToInstall(
+                file,
+                s.info,
+                "No Android package installer was found to open this update."
+            )
+        }
     }
 }

@@ -180,6 +180,7 @@ fun UpdateNotificationBar(
                 )
             ),
             modifier = modifier
+                .padding(vertical = 16.dp)
                 .widthIn(max = 392.dp)
                 .fillMaxWidth(0.92f)
                 .shadow(

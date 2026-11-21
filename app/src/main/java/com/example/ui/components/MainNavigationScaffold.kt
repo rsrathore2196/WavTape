@@ -644,12 +644,7 @@ fun MainNavigationScaffold(
 
                 // Floating 3D Liquid Glass Auto-Update Pop-up Dialog
                 if (!isPlayerExpanded) {
-                    UpdateNotificationBar(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(top = 4.dp)
-                    )
+                    UpdateNotificationBar()
                 }
             }
         }

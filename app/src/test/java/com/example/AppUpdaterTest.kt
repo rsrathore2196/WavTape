@@ -208,4 +208,59 @@ class AppUpdaterTest {
         compose.runOnIdle { AppUpdateManager.showUpdatePopup() }
         compose.onNodeWithTag("auto_update_popup_dialog").assertIsDisplayed()
     }
+
+    @Test fun streamResponseToFileReportsProgressAndRejectsTruncatedOrOversizedStreams() {
+        val payload = ByteArray(150 * 1024) { (it % 251).toByte() }
+        val target = File.createTempFile("wavtape-update-test-", ".part")
+        try {
+            val reportedPercents = mutableListOf<Int>()
+            val written = kotlinx.coroutines.runBlocking {
+                AppUpdateManager.streamResponseToFile(
+                    input = java.io.ByteArrayInputStream(payload),
+                    targetFile = target,
+                    expectedSizeBytes = payload.size.toLong(),
+                    reportedTotalBytes = payload.size.toLong(),
+                    onProgress = { percent, _, _ -> reportedPercents.add(percent) }
+                )
+            }
+            assertEquals(payload.size.toLong(), written)
+            assertArrayEquals(payload, target.readBytes())
+            assertTrue("Expected progress callbacks, got $reportedPercents", reportedPercents.isNotEmpty())
+            assertTrue(reportedPercents.last() in 1..99)
+
+            // Truncated stream must fail
+            assertThrows(IllegalArgumentException::class.java) {
+                kotlinx.coroutines.runBlocking {
+                    AppUpdateManager.streamResponseToFile(
+                        input = java.io.ByteArrayInputStream(payload.copyOf(1024)),
+                        targetFile = target,
+                        expectedSizeBytes = payload.size.toLong(),
+                        reportedTotalBytes = payload.size.toLong(),
+                        onProgress = { _, _, _ -> }
+                    )
+                }
+            }
+
+            // Oversized stream must fail
+            assertThrows(IOException::class.java) {
+                kotlinx.coroutines.runBlocking {
+                    AppUpdateManager.streamResponseToFile(
+                        input = java.io.ByteArrayInputStream(payload),
+                        targetFile = target,
+                        expectedSizeBytes = 1024L,
+                        reportedTotalBytes = 1024L,
+                        onProgress = { _, _, _ -> }
+                    )
+                }
+            }
+        } finally {
+            target.delete()
+        }
+    }
+
+    @Test fun validAssetRejectsPathTraversalAndAcceptsCaseInsensitiveRepoPath() {
+        assertTrue(AppUpdateManager.validAsset("https://github.com/rsrathore2196/wavtape/releases/download/v2.2/WavTape.apk"))
+        assertFalse(AppUpdateManager.validAsset("https://github.com/rsrathore2196/WavTape/releases/download/../other/WavTape.apk"))
+        assertFalse(AppUpdateManager.validAsset("https://github.com/rsrathore2196/WavTape/releases/download/v2.2/WavTape.apk?foo=bar"))
+    }
 }
