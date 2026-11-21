@@ -43,6 +43,9 @@ data class LiquidGlassProfile(
     internal fun blurRadius(requested: Dp, floatingDock: Boolean): Dp =
         if (floatingDock) floatingDockBlurRadius else requested * blurRadiusMultiplier
 
+    internal fun chromeBlurRadius(header: Boolean): Dp =
+        if (header) 24.dp * blurRadiusMultiplier else floatingDockBlurRadius
+
     internal fun surfaceFillAlpha(requested: Float?, fallback: Float, floatingDock: Boolean): Float =
         ((if (floatingDock) baseFillAlphaOverride ?: requested else requested ?: baseFillAlphaOverride)
             ?: fallback).coerceIn(0f, 1f)
@@ -50,7 +53,7 @@ data class LiquidGlassProfile(
     companion object {
         /**
          * Full-fidelity Liquid Glass rendering:
-         * - Original blur radius (20dp default, 8dp floating dock)
+         * - 20dp default, 12dp floating dock, and 24dp header blur
          * - 0.33f backdrop sample scale
          * - Full AGSL lens refraction with 3-channel chromatic dispersion
          * - Multi-pass radial reflections, specular sheen, and full shadows
@@ -58,7 +61,7 @@ data class LiquidGlassProfile(
         val PREMIUM = LiquidGlassProfile(
             name = "Premium",
             blurRadiusMultiplier = 1.0f,
-            floatingDockBlurRadius = 8.dp,
+            floatingDockBlurRadius = 12.dp,
             backdropSampleScale = 0.33f,
             enableLens = true,
             enableDepthEffect = true,
@@ -82,7 +85,7 @@ data class LiquidGlassProfile(
         val BALANCED = LiquidGlassProfile(
             name = "Balanced",
             blurRadiusMultiplier = 0.60f,
-            floatingDockBlurRadius = 5.dp,
+            floatingDockBlurRadius = 7.dp,
             backdropSampleScale = 0.28f,
             enableLens = true,
             enableDepthEffect = false,

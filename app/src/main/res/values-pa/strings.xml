@@ -2,6 +2,9 @@
     <string name="app_language">ਐਪ ਦੀ ਭਾਸ਼ਾ</string>
     <string name="app_language_system">ਸਿਸਟਮ ਦੀ ਭਾਸ਼ਾ</string>
     <string name="app_language_close">ਬੰਦ ਕਰੋ</string>
+    <string name="app_language_search">ਭਾਸ਼ਾ ਲੱਭੋ</string>
+    <string name="app_language_no_results">ਕੋਈ ਭਾਸ਼ਾ ਨਹੀਂ ਮਿਲੀ</string>
+    <string name="app_language_interface_fallback">ਐਪ ਦਾ ਟੈਕਸਟ ਉਪਲਬਧ ਅਨੁਵਾਦਾਂ ਵਿੱਚ ਦਿਸਦਾ ਹੈ</string>
     <string name="nav_home">ਹੋਮ</string>
     <string name="nav_search">ਖੋਜ</string>
     <string name="nav_library">ਲਾਇਬ੍ਰੇਰੀ</string>

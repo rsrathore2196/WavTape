@@ -23,10 +23,44 @@ class AppLanguageTest {
 
     @Test fun systemDefaultFollowsSupportedDeviceLanguagesAndExplicitChoiceWins() {
         val device = LocaleList.forLanguageTags("es-ES,pa-IN,en-GB")
-        assertEquals("pa", AppLanguage.resolve("", device))
+        assertEquals("es", AppLanguage.resolve("", device))
         assertEquals("hi", AppLanguage.resolve("hi", device))
-        assertEquals("en", AppLanguage.resolve("", LocaleList.forLanguageTags("es-ES")))
+        assertEquals("en", AppLanguage.resolve("", LocaleList.forLanguageTags("tlh")))
         assertEquals("", AppLanguage.selection(app))
+    }
+
+    @Test fun configurationIncludesTheSameLanguagesAsThePicker() {
+        val tags = app.resources.getXml(R.xml.app_locales).use { parser ->
+            buildSet {
+                while (parser.next() != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                    if (parser.eventType == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "locale") {
+                        add(parser.getAttributeValue("http://schemas.android.com/apk/res/android", "name"))
+                    }
+                }
+            }
+        }
+        assertEquals(AppLanguage.tags, tags)
+        assertTrue(tags.containsAll("as bn brx doi gom gu hi kn ks mai ml mni-Mtei mr ne or pa sa sat sd ta te ur".split(' ')))
+        assertEquals("zh-TW", AppLanguage.resolve("", LocaleList.forLanguageTags("zh-Hant-HK")))
+        assertEquals("zh-CN", AppLanguage.resolve("", LocaleList.forLanguageTags("zh-Hans-TW")))
+        assertEquals("mni-Mtei", AppLanguage.resolve("mni", LocaleList.getEmptyLocaleList()))
+    }
+
+    @Test fun labelsAreSearchableInEnglishAndNativeScriptAndTranslatedResourcesFollowSelection() {
+        val options = AppLanguage.options(Locale.ENGLISH)
+        val spanish = options.single { it.tag == "es" }
+        assertTrue(spanish.matches(AppLanguage.searchKey("espanol")))
+        assertTrue(spanish.matches(AppLanguage.searchKey("SPANISH")))
+        val tamil = options.single { it.tag == "ta" }
+        assertTrue(tamil.matches(AppLanguage.searchKey("தமிழ்")))
+        assertFalse(options.single { it.tag == "ks" }.hasInterfaceTranslation)
+        fun resource(tag: String, id: Int): String = app.createConfigurationContext(
+            Configuration(app.resources.configuration).apply { setLocales(LocaleList.forLanguageTags(tag)) }
+        ).getString(id)
+        assertEquals("முகப்பு", resource("ta-IN", R.string.nav_home))
+        assertEquals("Idioma de la aplicación", resource("es", R.string.app_language))
+        assertEquals("音樂庫", resource("zh-TW", R.string.nav_library))
+        assertEquals("音乐库", resource("zh-CN", R.string.nav_library))
     }
 
     @Test fun languageResourcesApplyToDifferentAppDestinations() {
@@ -66,6 +100,8 @@ class AppLanguageTest {
         assertEquals("Dil Se (Slowed + Reverb)", CatalogDisplayText.inLanguage(hindi, "en"))
         assertEquals("Geet 1", CatalogDisplayText.inLanguage(punjabi, "en"))
         assertEquals(hindi, CatalogDisplayText.inLanguage(hindi, "hi"))
+        assertEquals(hindi, CatalogDisplayText.inLanguage(hindi, "mr"))
+        assertEquals(hindi, CatalogDisplayText.inLanguage(hindi, "ne"))
         assertEquals(punjabi, CatalogDisplayText.inLanguage(punjabi, "pa"))
         assertEquals("Live Mix (Official Audio)", CatalogDisplayText.inLanguage("Live Mix (Official Audio)", "pa"))
     }

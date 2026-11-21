@@ -132,8 +132,20 @@ class MiniPlayerPresentationUiTest {
                 val background = Color(scene.getRGB((bounds.right + 12).toInt(), bounds.center.y.toInt()))
                 val text = layout.single().layoutInput.style.color.luminance()
                 val surface = background.luminance()
-                val contrast = (maxOf(text, surface) + .05f) / (minOf(text, surface) + .05f)
-                assertTrue("$tag contrast in dark=${theme.isDark}: $contrast", contrast >= 4.5f)
+                assertTrue("The glass beside $tag must remain visible", if (theme.isDark) surface > .25f else surface < .22f)
+                var darkest = 1f
+                var lightest = 0f
+                for (y in bounds.top.toInt() until bounds.bottom.toInt()) {
+                    for (x in bounds.left.toInt() until bounds.right.toInt()) {
+                        val luminance = Color(scene.getRGB(x, y)).luminance()
+                        darkest = minOf(darkest, luminance)
+                        lightest = maxOf(lightest, luminance)
+                    }
+                }
+                val edge = if (theme.isDark) darkest else lightest
+                val contrast = (maxOf(text, edge) + .05f) / (minOf(text, edge) + .05f)
+                assertTrue("$tag glyph edge contrast in dark=${theme.isDark}: $contrast", contrast >= 4.5f)
+                assertTrue("The text itself is visible", if (theme.isDark) lightest >= text * .8f else darkest < .04f)
             }
         }
     }

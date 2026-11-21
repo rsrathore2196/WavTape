@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
@@ -35,6 +37,7 @@ import com.example.ui.components.backdrop.backdrops.rememberLayerBackdrop
 import com.example.ui.components.backdrop.drawBackdrop
 import com.example.ui.components.backdrop.effects.blur
 import com.example.ui.components.backdrop.effects.lens
+import com.example.ui.components.backdrop.internal.ColorFilterEffect
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.theme.LocalAppColors
 
@@ -67,11 +70,6 @@ fun rememberLiquidGlassBackdrop(captureVisibleRegions: Boolean = false): LiquidG
 
 object XtremeLiquidGlassDefaults {
     val BlurRadius: Dp = 20.dp
-    // Floating chrome needs a clearer backdrop than large frosted surfaces.
-    // Keep the same lens/rim finish, with neutral 8dp blur balance.
-    val FloatingDockBlurRadius: Dp = 8.dp
-    const val FloatingDockTintAlpha: Float = 0.04f
-    const val FloatingDockDarkFillAlpha: Float = 0.24f
     const val SurfaceTintAlpha: Float = 0.12f
     val RimBorderWidth: Dp = 0.8.dp
     val PillShape: Shape = CircleShape
@@ -114,9 +112,9 @@ fun Modifier.xtremeLiquidGlassBackground(
     interaction: DockGlassInteraction? = null,
     rimBrush: Brush? = null,
     neutralFinish: Boolean = false,
-    innerWhiteTintAlpha: Float = 0f,
     onSample: (() -> Unit)? = null,
-    floatingDock: Boolean = false
+    floatingDock: Boolean = false,
+    headerGlass: Boolean = false
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
     if (!enabled || !LocalDynamicGlassEnabled.current) return this
@@ -129,25 +127,47 @@ fun Modifier.xtremeLiquidGlassBackground(
             else Modifier.border(borderWidth, appColors.cardBorder, shape))
 
     val density = LocalDensity.current
-    val effectiveBlurRadius = profile.blurRadius(blurRadius, floatingDock)
+    val effectiveBlurRadius = if (floatingDock) profile.chromeBlurRadius(headerGlass) else profile.blurRadius(blurRadius, false)
     val radius = with(density) { effectiveBlurRadius.toPx() }
     val processingScale = backdrop?.sampleScale ?: profile.backdropSampleScale
     val useBackdrop = backdrop != null && radius > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val lensSize = with(density) { 24.dp.toPx() } * processingScale
     val pressDepth = with(density) { 2.dp.toPx() } * processingScale
+    val chromeTone = remember(useBackdrop, floatingDock, headerGlass, appColors.isDark, profile.enableLens) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && useBackdrop && floatingDock && profile.enableLens) {
+            val brightness = if (!headerGlass) .05f else if (appColors.isDark) 0f else .04f
+            val matrix = ColorMatrix().apply {
+                setToSaturation(if (headerGlass) 1.6f else 1.1f)
+                for (channel in 0..2) this[channel, 4] = brightness * 255f
+            }
+            ColorFilterEffect(null, ColorFilter.colorMatrix(matrix))
+        } else null
+    }
     val effects: com.example.ui.components.backdrop.BackdropEffectScope.() -> Unit =
-        remember(radius, processingScale, lensSize, pressDepth, shape, interaction, profile) {
+        remember(radius, processingScale, lensSize, pressDepth, shape, interaction, profile, floatingDock, headerGlass, chromeTone) {
             {
                 // Touch response; reads belong to the backdrop node, not the screen's composition.
                 val press = interaction?.pressProgress?.coerceAtLeast(0f) ?: 0f
+                renderEffect = chromeTone
                 blur(radius * processingScale + pressDepth * press)
                 if (profile.enableLens && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shape is CornerBasedShape) {
                     try {
+                        val aperture = size.minDimension
+                        val height = when {
+                            headerGlass -> (14.dp.toPx() * processingScale).coerceAtMost(aperture / 3f)
+                            floatingDock -> aperture / 6f
+                            else -> lensSize
+                        }
+                        val amount = when {
+                            headerGlass -> (28.dp.toPx() * processingScale).coerceAtMost(aperture / 2f)
+                            floatingDock -> aperture / 2f
+                            else -> lensSize
+                        }
                         lens(
-                            refractionHeight = lensSize + pressDepth * press,
-                            refractionAmount = lensSize,
-                            depthEffect = profile.enableDepthEffect,
-                            chromaticAberration = profile.enableChromaticAberration
+                            refractionHeight = height + pressDepth * press,
+                            refractionAmount = amount,
+                            depthEffect = profile.enableDepthEffect && !floatingDock,
+                            chromaticAberration = profile.enableChromaticAberration && !floatingDock
                         )
                     } catch (_: Throwable) {
                         // Gracefully ignored if size is unspecified or shader unavailable
@@ -157,21 +177,22 @@ fun Modifier.xtremeLiquidGlassBackground(
         }
     // Floating chrome uses the same restrained finish in both color modes.
     val dark = appColors.isDark || neutralFinish
-    val rim = rimBrush ?: remember(dark) {
+    val rim = rimBrush ?: remember(dark, floatingDock) {
         Brush.linearGradient(listOf(
-            Color.White.copy(alpha = if (dark) 0.48f else 0.92f),
+            Color.White.copy(alpha = if (floatingDock) 0.38f else if (dark) 0.48f else 0.92f),
             Color.White.copy(alpha = if (dark) 0.08f else 0.32f),
             Color.White.copy(alpha = if (dark) 0.06f else 0.15f),
             (if (dark) Color.White else Color(0xFF708090)).copy(alpha = 0.30f)
         ))
     }
-    val effectiveElevation = elevation * profile.shadowElevationMultiplier
+    val effectiveElevation = (if (floatingDock && useBackdrop) elevation.coerceAtMost(8.dp) else elevation) *
+        profile.shadowElevationMultiplier
     val shadowModifier = if (profile.enableShadows && effectiveElevation > 0.dp && baseFillAlpha != 0f) {
         Modifier.shadow(
             effectiveElevation,
             shape,
             clip = false,
-            spotColor = Color.Black.copy(alpha = if (dark) 0.42f else 0.14f),
+            spotColor = Color.Black.copy(alpha = if (dark && !floatingDock) 0.42f else 0.14f),
             ambientColor = if (profile.shadowElevationMultiplier >= 1f) Color.Black.copy(alpha = 0.08f) else Color.Transparent
         )
     } else Modifier
@@ -191,17 +212,18 @@ fun Modifier.xtremeLiquidGlassBackground(
             ) else Modifier
         )
         .drawWithCache {
-            // Fast's stronger fill must stay light behind the light theme's
-            // black labels. The neutral specular finish can still use dark rims.
-            val lightDockFill = floatingDock && !appColors.isDark && profile.baseFillAlphaOverride != null
+            val lightDockFill = floatingDock && !appColors.isDark
             val base = baseFillColor ?: if (dark && !lightDockFill) Color(0xFF101013) else Color(0xFFF8FAFD)
             val tint = tintColor.copy(alpha = surfaceTintAlpha.coerceIn(0f, 0.65f) * tintColor.alpha)
             val colorWash = Brush.linearGradient(listOf(tint, Color.Transparent, tint.copy(alpha = tint.alpha * 0.45f)),
                 Offset.Zero, Offset(size.width, size.height))
-            val sheen = Brush.verticalGradient(0f to Color.White.copy(alpha = if (dark) 0.10f else 0.36f),
+            val sheen = if (floatingDock) {
+                Brush.verticalGradient(0f to Color.White.copy(alpha = if (appColors.isDark) .07f else .16f),
+                    .55f to Color.Transparent)
+            } else Brush.verticalGradient(0f to Color.White.copy(alpha = if (dark) 0.10f else 0.36f),
                 0.32f to Color.White.copy(alpha = 0.015f), 0.65f to Color.Transparent,
                 1f to Color.White.copy(alpha = if (dark) 0.055f else 0.14f))
-            val reflection = if (profile.enableRadialReflections) {
+            val reflection = if (profile.enableRadialReflections && !floatingDock) {
                 Brush.radialGradient(
                     listOf(Color.White.copy(alpha = if (dark) 0.065f else 0.18f), Color.Transparent),
                     center = Offset(size.width * 0.72f, size.height * 1.6f),
@@ -217,14 +239,14 @@ fun Modifier.xtremeLiquidGlassBackground(
             val defaultFillAlpha = if (useBackdrop || (backdrop == null && enabled)) {
                 if (dark) 0.50f else 0.64f
             } else 0.90f
-            val fillAlpha = profile.surfaceFillAlpha(baseFillAlpha, defaultFillAlpha, floatingDock)
+            val fillAlpha = if (floatingDock && !useBackdrop) .90f
+                else profile.surfaceFillAlpha(baseFillAlpha, defaultFillAlpha, floatingDock)
 
             onDrawWithContent {
                 if (fillAlpha > 0f) drawRect(base.copy(alpha = fillAlpha))
                 drawRect(colorWash)
                 drawRect(sheen)
                 if (reflection != null) drawRect(reflection)
-                if (innerWhiteTintAlpha > 0f) drawRect(Color.White.copy(alpha = innerWhiteTintAlpha.coerceIn(0f, 1f)))
                 if (touchGlow != null && interaction != null) {
                     val press = interaction.pressProgress.coerceIn(0f, 1f)
                     val touch = interaction.touchPosition

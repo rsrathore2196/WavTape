@@ -86,15 +86,15 @@ private fun GlassHeaderSurface(modifier: Modifier = Modifier, headerTag: String,
             .xtremeLiquidGlassBackground(
                 shape = AbsoluteRoundedCornerShape(bottomLeft = 32.dp, bottomRight = 48.dp),
                 floatingDock = true,
+                headerGlass = true,
                 surfaceTintAlpha = 0f,
                 tintColor = Color.Transparent,
-                borderWidth = 0.8.dp,
+                borderWidth = 1.dp,
                 elevation = 6.dp,
                 appColors = surfaceColors,
                 backdrop = LocalTabHeaderBackdrop.current,
-                baseFillAlpha = XtremeLiquidGlassDefaults.FloatingDockDarkFillAlpha,
-                neutralFinish = true,
-                innerWhiteTintAlpha = if (colors.isDark) 0f else .07f
+                baseFillAlpha = if (colors.isDark) .30f else .46f,
+                neutralFinish = true
             )
             // Covered rows must not receive taps through the translucent chrome.
             .pointerInput(Unit) { detectTapGestures(onTap = {}) })

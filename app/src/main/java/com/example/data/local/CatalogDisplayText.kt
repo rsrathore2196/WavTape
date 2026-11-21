@@ -19,10 +19,11 @@ internal object CatalogDisplayText {
         0x22 to "rh", 0x2B to "f", 0x2F to "y")
     private val punjabiExtras = mapOf(0x59 to "kh", 0x5A to "gh", 0x5B to "z", 0x5C to "r", 0x5E to "f")
     private val scripts = Regex("[\\u0900-\\u097f]+|[\\u0a00-\\u0a7f]+")
+    private val devanagariLocales = setOf("hi", "brx", "doi", "gom", "mai", "mr", "ne", "sa")
 
     fun inLanguage(value: String, language: String): String = scripts.replace(value) { run ->
         val base = if (run.value.first().code < 0x0980) 0x0900 else 0x0A00
-        if (language == if (base == 0x0900) "hi" else "pa") run.value
+        if (if (base == 0x0900) language in devanagariLocales else language == "pa") run.value
         else romanize(run.value, base).replaceFirstChar { it.uppercaseChar() }
     }
 

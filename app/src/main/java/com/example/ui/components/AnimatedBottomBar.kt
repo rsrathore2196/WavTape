@@ -210,13 +210,13 @@ fun AnimatedBottomBar(
         Box(Modifier.matchParentSize().testTag("bottom_bar_outer_glass").xtremeLiquidGlassBackground(
             shape = viewportShape,
             floatingDock = true,
-            surfaceTintAlpha = XtremeLiquidGlassDefaults.FloatingDockTintAlpha,
-            tintColor = ambientGlowColor, borderWidth = 0.8.dp, elevation = 16.dp, appColors = appColors,
-            baseFillAlpha = XtremeLiquidGlassDefaults.FloatingDockDarkFillAlpha,
+            surfaceTintAlpha = .02f,
+            tintColor = ambientGlowColor,
+            borderWidth = 0.8.dp, elevation = 16.dp, appColors = appColors,
+            baseFillAlpha = if (appColors.isDark) .32f else .30f,
             neutralFinish = true,
             interaction = glassInteraction,
-            onSample = sampleMotion,
-            innerWhiteTintAlpha = if (appColors.isDark) 0f else 0.07f
+            onSample = sampleMotion
         ))
         Layout(
             modifier = Modifier.graphicsLayer {

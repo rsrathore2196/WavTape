@@ -56,10 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -75,6 +73,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.example.util.AppHaptics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -127,21 +127,13 @@ fun MiniPlayer(
     val context = LocalContext.current
     val lightTheme = !appColors.isDark
     val protectLabels = appColors.dynamicGlassEnabled && LocalDynamicGlassEnabled.current
-    val labelScrim = (if (lightTheme) Color.White else Color.Black).copy(alpha = .70f)
-    val brightestRisk = labelScrim.compositeOver(if (lightTheme) Color.Black else Color.White)
-    val labelColor = if (lightTheme) Color.Black else if (protectLabels) {
-        remember(appColors.textPrimary) { com.example.ui.theme.LiquidGlass.contrastColor(appColors.textPrimary, listOf(brightestRisk), 4.5f) }
-    } else appColors.textPrimary
-    val artistColor = if (lightTheme) labelColor else if (protectLabels) {
-        remember(appColors.textSecondary) { com.example.ui.theme.LiquidGlass.contrastColor(appColors.textSecondary, listOf(brightestRisk), 4.5f) }
-    } else appColors.textSecondary
+    val labelColor = if (lightTheme) Color.Black else appColors.textPrimary
+    val artistColor = if (lightTheme) labelColor else appColors.textSecondary
+    val outlineColor = if (lightTheme) Color.White else Color.Black
+    var titleLayout by remember(track.id) { mutableStateOf<TextLayoutResult?>(null) }
+    var artistLayout by remember(track.id) { mutableStateOf<TextLayoutResult?>(null) }
     val neutralButtonColor = if (appColors.isDark) Color.White else Color.Black
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
-
-    val cachedColors = remember(track.id) {
-        com.example.ui.util.TrackPaletteCache.get(track.id)
-    }
-    val ambientGlowColor = cachedColors?.accentColor ?: appColors.primaryAccent
 
     Box(
         modifier = modifier
@@ -180,15 +172,13 @@ fun MiniPlayer(
                 .xtremeLiquidGlassBackground(
                     shape = CircleShape,
                     floatingDock = true,
-                    surfaceTintAlpha = XtremeLiquidGlassDefaults.FloatingDockTintAlpha,
-                    tintColor = ambientGlowColor,
+                    surfaceTintAlpha = 0f,
                     borderWidth = 0.8.dp,
                     elevation = 14.dp,
                     appColors = appColors,
-                    baseFillAlpha = XtremeLiquidGlassDefaults.FloatingDockDarkFillAlpha,
+                    baseFillAlpha = .33f,
                     neutralFinish = true,
-                    onSample = sampleMotion,
-                    innerWhiteTintAlpha = if (lightTheme) 0.07f else 0f
+                    onSample = sampleMotion
                 )
         )
 
@@ -242,24 +232,7 @@ fun MiniPlayer(
 
                 // Title & Artist (clean, bold, high contrast, non-overlapping)
                 Column(
-                    modifier = Modifier.weight(1f).then(if (protectLabels) Modifier.drawWithCache {
-                        // Bound the contrast only behind the labels. The rest of the dock
-                        // still samples the original backdrop and uses the selected profile.
-                        val feather = 7.dp.toPx()
-                        val height = size.height + feather * 2
-                        val edge = feather / height
-                        val brush = Brush.verticalGradient(
-                            0f to Color.Transparent, edge to labelScrim,
-                            1f - edge to labelScrim, 1f to Color.Transparent,
-                            startY = -feather, endY = size.height + feather
-                        )
-                        onDrawBehind {
-                            if (size.width > 0f && size.height > 0f) drawRoundRect(
-                                brush = brush, topLeft = Offset(-feather, -feather),
-                                size = Size(size.width + feather * 2, height), cornerRadius = CornerRadius(feather)
-                            )
-                        }
-                    } else Modifier),
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -273,11 +246,13 @@ fun MiniPlayer(
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Clip,
+                            onTextLayout = { if (protectLabels) titleLayout = it },
                             modifier = Modifier.weight(1f, fill = false)
                                 .playerMorphElement(PlayerMorphSide.MINI, PlayerMorphPart.TITLE, track.id)
                                 .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1000,
                                     animationMode = if (interactive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
                                         else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused)
+                                .miniLabelOutline(protectLabels, outlineColor) { titleLayout }
                                 .testTag("mini_player_track_title")
                         )
                         if (uiState.isPlaying) {
@@ -300,12 +275,14 @@ fun MiniPlayer(
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { if (protectLabels) artistLayout = it },
                         modifier = Modifier
                             .testTag("mini_player_track_artist")
                             .playerMorphElement(PlayerMorphSide.MINI, PlayerMorphPart.ARTIST, track.id)
                             .then(if (compact) Modifier.clearAndSetSemantics { } else Modifier)
                             .compactHeight(compactProgress)
                             .graphicsLayer { alpha = 1f - (compactProgress?.value ?: 0f).coerceIn(0f, 1f) }
+                            .miniLabelOutline(protectLabels, outlineColor) { artistLayout }
                     )
                 }
 
@@ -582,6 +559,19 @@ private fun Modifier.compactHeight(progress: State<Float>?): Modifier =
             child.placeRelative(0, 0)
         }
     }
+
+/** Outline the glyphs without painting a backing shape or affecting line measurement. */
+private fun Modifier.miniLabelOutline(
+    enabled: Boolean,
+    color: Color,
+    layout: () -> TextLayoutResult?
+): Modifier = if (!enabled) this else drawWithCache {
+    val edge = Stroke(width = 2.5.dp.toPx(), join = StrokeJoin.Round)
+    onDrawWithContent {
+        layout()?.let { drawText(it, color = color, drawStyle = edge) }
+        drawContent()
+    }
+}
 
 @Composable
 fun MiniAnimatedEqualizerBars(
