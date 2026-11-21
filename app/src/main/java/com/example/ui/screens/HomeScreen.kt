@@ -57,9 +57,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.PlayArrow
 import com.example.ui.components.xtremeLiquidGlassBackground
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -109,6 +111,8 @@ import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.ImageConfig
 import com.example.ui.util.rememberOptimizedImageRequest
 import com.example.ui.viewmodel.MostListenedArtist
+import com.example.ui.viewmodel.ArtistRadioStation
+import com.example.ui.viewmodel.artistRadioStations
 import com.example.ui.viewmodel.HomeViewModel
 import com.example.ui.viewmodel.SectionState
 import com.example.ui.viewmodel.HomeFeedWindow
@@ -211,7 +215,9 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit = {},
-    onOpenCatalog: (CatalogDestination) -> Unit = {}
+    onOpenCatalog: (CatalogDestination) -> Unit = {},
+    onPlayArtistRadio: ((MusicTrack) -> Unit)? = null,
+    isStartingRadio: Boolean = false
 ) {
     val isRefreshing by homeViewModel.isRefreshing.collectAsStateWithLifecycle()
     val scrollMonitor: (Any, Boolean) -> Unit = remember(homeViewModel) {
@@ -227,8 +233,8 @@ fun HomeScreen(
             listState = listState,
             onOpenArtist = onOpenArtist,
             onOpenCatalog = onOpenCatalog,
-            isRadioSession = playerUiState?.isInfiniteRadio == true,
-            isRadioLoading = playerUiState?.isLoading == true,
+            isRadioSession = isStartingRadio || playerUiState?.isInfiniteRadio == true,
+            isRadioLoading = isStartingRadio || playerUiState?.isLoading == true,
             currentTrack = currentTrack ?: playerUiState?.currentTrack,
             isPlaying = isPlaying,
             isAutoplayEnabled = isAutoplayEnabled,
@@ -237,6 +243,7 @@ fun HomeScreen(
             onToggleFavorite = onToggleFavorite,
             onOpenSettings = onOpenSettings,
             onPlayInfiniteRadio = onPlayInfiniteRadio,
+            onPlayArtistRadio = onPlayArtistRadio,
             onAddToQueue = onAddToQueue,
             modifier = modifier,
             isRefreshing = isRefreshing,
@@ -272,7 +279,8 @@ fun HomeScreenContent(
     profileShelf: com.example.data.model.ServerHomeShelf? = null,
     onOpenCatalog: (CatalogDestination) -> Unit = {},
     isRefreshing: Boolean = false,
-    onRefresh: () -> Unit = {}
+    onRefresh: () -> Unit = {},
+    onPlayArtistRadio: ((MusicTrack) -> Unit)? = null
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Only structural visibility is observed by the lazy-list owner. Section
@@ -303,6 +311,12 @@ fun HomeScreenContent(
 
     val nativeCards = homeViewModel?.serverCards?.collectAsStateWithLifecycle()?.value
         ?: remember(serverShelves) { serverShelves.map { HomeShelfPresentation("server_shelf_${it.id}", it, ShelfLoadStatus.SUCCESS) } }
+    val artistStations = if (onPlayArtistRadio == null) emptyList() else
+        homeViewModel?.artistRadio?.collectAsStateWithLifecycle()?.value
+            ?: remember(mostListenedArtists, pillsCardTracks, profileShelf, serverShelves) {
+                artistRadioStations(mostListenedArtists, pillsCardTracks,
+                    profileShelf?.tracks.orEmpty().asSequence() + serverShelves.asSequence().flatMap { it.tracks.asSequence() })
+            }
     val artworkActive = com.example.ui.util.LocalArtworkRequestsActive.current
     val heroPrefetchContext = androidx.compose.ui.platform.LocalContext.current
     val observedHeroSeed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
@@ -579,6 +593,11 @@ fun HomeScreenContent(
                     }
                 }
             }
+            if (onPlayArtistRadio != null && artistStations.isNotEmpty()) {
+                artworkItem(state = listState, key = "artist_radio_shelf", contentType = "artist_shelf") {
+                    ArtistRadioShelf(artistStations, optionalShelvesVisible, onPlayArtistRadio, onOpenArtist)
+                }
+            }
             for (card in cardsToShow) {
                 artworkItem(state = listState, key = card.key, contentType = "server_song_shelf") {
                     when (card.status) {
@@ -641,6 +660,53 @@ private fun rememberHomeRevealModifier(state: LazyListState, reveal: () -> Unit)
         }
     }
     return Modifier.nestedScroll(connection)
+}
+
+@Composable
+private fun ArtistRadioShelf(
+    stations: List<ArtistRadioStation>,
+    portraitsReady: Boolean,
+    onPlay: (MusicTrack) -> Unit,
+    onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit
+) {
+    val colors = LocalAppColors.current
+    val rowState = rememberLazyListState()
+    ObserveHomeScroll(rowState)
+    Column(Modifier.padding(top = 22.dp).testTag("artist_radio_shelf")) {
+        Text(stringResource(R.string.artist_radio), Modifier.padding(horizontal = 20.dp),
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+        Spacer(Modifier.height(12.dp))
+        LazyRow(state = rowState, contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(stations, key = { it.artist }, contentType = { "artist_radio_card" }) { station ->
+                VisibleItemArtwork(rowState, station.artist) {
+                    val artist = com.example.data.repository.ArtistPhotoRepository.cachedArtist(station.artist)
+                    val name = localizedCatalogText(station.artist)
+                    Column(Modifier.width(168.dp).clip(RoundedCornerShape(18.dp)).background(colors.cardBackground)
+                        .clickable { onOpenArtist(artist) }.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(124.8.dp)) {
+                            com.example.ui.components.ArtistPortrait(
+                                artist = artist, deferEnrichment = true, enrichmentAllowed = portraitsReady,
+                                targetSize = with(LocalDensity.current) { 124.8.dp.roundToPx() },
+                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                            )
+                            IconButton(onClick = { onPlay(station.seed) },
+                                modifier = Modifier.align(Alignment.BottomEnd).size(40.dp)
+                                    .clip(CircleShape).background(colors.primaryAccent)
+                                    .testTag("artist_radio_play_${station.artist}")) {
+                                Icon(Icons.Default.PlayArrow, stringResource(R.string.play_artist_radio, name),
+                                    tint = colors.onPrimaryAccent)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(name, Modifier.fillMaxWidth(), color = colors.textPrimary, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

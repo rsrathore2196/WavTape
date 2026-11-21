@@ -570,73 +570,49 @@ object YouTubeMusicApiService {
         candidates.firstOrNull { com.example.data.repository.RecordingIdentity.providerConfidence(seed, it) != null }
 
     /** Direct native YouTube Music radio recommendations preserving server ordering. */
-    suspend fun getRadioRecommendations(videoId: String, limit: Int = 40, countryCode: String? = null): List<MusicTrack> = withContext(Dispatchers.IO) {
-        if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) return@withContext emptyList()
+    suspend fun getRadioRecommendations(videoId: String, limit: Int = 40, countryCode: String? = null,
+        excludedTrackIds: Set<String> = emptySet()): List<MusicTrack> = withContext(Dispatchers.IO) {
+        if (!YouTubeAudioStreamService.isVideoId(videoId) || limit <= 0) return@withContext emptyList()
         val region = countryCode?.takeIf { it.matches(Regex("[A-Za-z]{2}")) }?.uppercase(java.util.Locale.ROOT) ?: "US"
-        // 1. Primary: dedicated native radio request via InnerTubeX discoveryResponse ("radio" operation with playlistId RDAMVM$videoId)
+        val language = com.example.data.local.AppLanguage.catalogTag
         try {
-            val body = YouTubeAudioStreamService.discoveryResponse(
-                operation = "radio",
-                value = videoId,
-                params = "RDAMVM$videoId",
-                countryCode = region
-            )
-            val parsed = withContext(AppDispatchers.CpuBounded) {
-                parseRadioPanelTracks(JSONObject(body), limit)
+            val parsed = loadYouTubeRadioQueue(videoId, excludedTrackIds, limit) { request ->
+                YouTubeAudioStreamService.discoveryResponse("radio", request.videoId.orEmpty(), region,
+                    params = request.playlistId, continuation = request.continuation, languageCode = language)
             }
             if (parsed.isNotEmpty()) return@withContext parsed
         } catch (e: CancellationException) { throw e } catch (_: Exception) {}
 
-        // 2. Direct /youtubei/v1/next with RDAMVM{videoId} fallback
         try {
-            val payload = JSONObject().apply {
-                put("context", JSONObject().put("client", JSONObject()
-                    .put("clientName", "WEB_REMIX").put("clientVersion", "1.20231204.01.00")
-                    .put("hl", "en").put("gl", region)))
-                put("videoId", videoId)
-                put("playlistId", "RDAMVM$videoId")
-                put("isAudioOnly", true)
-            }
-            val request = Request.Builder().url("https://music.youtube.com/youtubei/v1/next")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .header("User-Agent", "Mozilla/5.0").header("Referer", "https://music.youtube.com/").build()
-            val body = httpClient.catalogRequest(request)
-            val parsed = withContext(AppDispatchers.CpuBounded) {
-                parseRadioPanelTracks(JSONObject(body), limit)
-            }
-            if (parsed.isNotEmpty()) return@withContext parsed
-        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
-
-        // 3. Fallback: related endpoint if radio list was unavailable
-        try {
-            val body = YouTubeAudioStreamService.discoveryResponse(
-                operation = "related",
-                value = videoId,
-                countryCode = region
-            )
-            withContext(AppDispatchers.CpuBounded) {
-                parseRadioPanelTracks(JSONObject(body), limit)
-            }
-        } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
-    }
-
-    private fun parseRadioPanelTracks(root: JSONObject, limit: Int): List<MusicTrack> {
-        val tracks = mutableListOf<MusicTrack>()
-        fun visit(value: Any?, depth: Int = 0) {
-            if (depth > 24 || tracks.size >= limit) return
-            when (value) {
-                is JSONObject -> {
-                    if (value.has("playlistPanelVideoRenderer")) {
-                        parseAnyRenderer(value)?.let(tracks::add)
-                    } else {
-                        value.keys().forEach { visit(value.opt(it), depth + 1) }
+            val parsed = loadYouTubeRadioQueue(videoId, excludedTrackIds, limit) { page ->
+                val payload = JSONObject().apply {
+                    put("context", JSONObject().put("client", JSONObject()
+                        .put("clientName", "WEB_REMIX").put("clientVersion", "1.20231204.01.00")
+                        .put("hl", language).put("gl", region)))
+                    if (page.continuation != null) put("continuation", page.continuation)
+                    else {
+                        page.videoId?.let { put("videoId", it) }
+                        put("playlistId", page.playlistId)
+                        put("params", "wAEB")
+                        put("isAudioOnly", true)
                     }
                 }
-                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index), depth + 1)
+                val request = Request.Builder().url("https://music.youtube.com/youtubei/v1/next")
+                    .post(payload.toString().toRequestBody(jsonMediaType))
+                    .header("User-Agent", "Mozilla/5.0").header("Referer", "https://music.youtube.com/").build()
+                httpClient.catalogRequest(request)
             }
-        }
-        visit(root)
-        return tracks.distinctBy { it.id }.take(limit)
+            if (parsed.isNotEmpty()) return@withContext parsed
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+
+        try {
+            loadYouTubeRadioQueue(videoId, excludedTrackIds, limit) { request ->
+                val initial = request.videoId != null
+                YouTubeAudioStreamService.discoveryResponse(if (initial) "related" else "radio",
+                    request.videoId.orEmpty(), region, params = request.playlistId,
+                    continuation = request.continuation, languageCode = language)
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
     }
 
     private fun parseSearchResults(jsonString: String, limit: Int): List<MusicTrack> {

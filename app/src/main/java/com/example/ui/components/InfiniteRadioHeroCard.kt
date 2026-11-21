@@ -62,8 +62,8 @@ fun InfiniteRadioHeroCard(
     val isDark = appColors.isDark
     val glassEnabled = LocalDynamicGlassEnabled.current
     var measuredSize by remember { mutableStateOf(IntSize.Zero) }
-    val playbackActive = isPlaying
-    val radioLoading = isRadioSession && isLoading && !playbackActive
+    val radioLoading = isRadioSession && isLoading
+    val playbackActive = isRadioSession && isPlaying && !radioLoading
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(), label = "radio_press")
@@ -176,7 +176,7 @@ fun InfiniteRadioHeroCard(
                         interactionSource = interaction,
                         indication = null,
                         role = Role.Button,
-                        onClick = { artworkRequested = true; onPlayInfiniteRadio(null) }
+                        onClick = { artworkRequested = true; onPlayInfiniteRadio(seedTrack) }
                     )
                     .padding(horizontal = if (compactLayout) 16.dp else 24.dp, vertical = 13.dp)
                     .testTag("hero_play_infinite_radio_button"),

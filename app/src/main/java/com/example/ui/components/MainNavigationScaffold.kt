@@ -388,6 +388,8 @@ fun MainNavigationScaffold(
                                 onToggleFavorite = onHomeToggleFavorite,
                                 onOpenSettings = onHomeOpenSettings,
                                 onPlayInfiniteRadio = onHomePlayInfiniteRadio,
+                                onPlayArtistRadio = viewModel::playArtistRadio,
+                                isStartingRadio = viewModel.startingHomeRadio.collectAsStateWithLifecycle().value,
                                 onAddToQueue = onHomeAddToQueue,
                                 prepareCoreTabs = viewModel::prepareStartupTabs
                             )

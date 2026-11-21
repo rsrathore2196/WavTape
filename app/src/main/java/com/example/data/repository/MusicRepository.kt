@@ -272,14 +272,12 @@ class MusicRepository private constructor(
         val resolvedVideoId = com.example.data.remote.YouTubeMusicApiService.resolveSeedVideoId(seed) ?: return@withContext emptyList()
         val profile = homeProfile()
         val region = countryCode ?: profile.countryCode
-        val recommendations = com.example.data.remote.YouTubeMusicApiService.getRadioRecommendations(
+        com.example.data.remote.YouTubeMusicApiService.getRadioRecommendations(
             videoId = resolvedVideoId,
-            limit = (limit + excludedIds.size + 4).coerceAtLeast(20),
-            countryCode = region
+            limit = limit,
+            countryCode = region,
+            excludedTrackIds = excludedIds + seed.id
         )
-        withContext(AppDispatchers.CpuBounded) { recommendations.filter { it.id !in excludedIds && it.id != seed.id }
-            .distinctBy { it.id }
-            .take(limit) }
     }
 
     suspend fun syncOnlineCatalog(profile: UserProfile? = null): List<MusicTrack> = getInitialCatalog(profile)

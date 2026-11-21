@@ -39,6 +39,8 @@ internal fun HomeFeedRoute(
     onOpenSettings: () -> Unit,
     onPlayInfiniteRadio: (MusicTrack?) -> Unit,
     onAddToQueue: (MusicTrack) -> Unit,
+    onPlayArtistRadio: (MusicTrack) -> Unit,
+    isStartingRadio: Boolean,
     onOpenCatalog: (com.example.data.repository.CatalogDestination) -> Unit = {},
     prepareCoreTabs: suspend () -> Unit = {}
 ) {
@@ -52,6 +54,7 @@ internal fun HomeFeedRoute(
     }
     HomeScreen(
         homeViewModel = feed,
+        playerUiState = player,
         listState = listState,
         onOpenArtist = onOpenArtist,
         onOpenCatalog = onOpenCatalog,
@@ -63,6 +66,8 @@ internal fun HomeFeedRoute(
         onToggleFavorite = onToggleFavorite,
         onOpenSettings = onOpenSettings,
         onPlayInfiniteRadio = onPlayInfiniteRadio,
-        onAddToQueue = onAddToQueue
+        onAddToQueue = onAddToQueue,
+        onPlayArtistRadio = onPlayArtistRadio,
+        isStartingRadio = isStartingRadio
     )
 }

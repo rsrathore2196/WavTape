@@ -24,6 +24,8 @@
     <string name="music_for_you">Music for You</string>
     <string name="music_for_you_subtitle">Based on your music preferences</string>
     <string name="infinite_radio">Infinite Radio</string>
+    <string name="artist_radio">Artist Radio</string>
+    <string name="play_artist_radio">Play %1$s radio</string>
     <string name="radio_subtitle">A fresh random mix · Endless discoveries</string>
     <string name="now_playing">NOW PLAYING</string>
     <string name="unknown_artist">Unknown Artist</string>

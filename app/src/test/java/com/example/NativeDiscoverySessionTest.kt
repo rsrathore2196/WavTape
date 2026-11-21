@@ -76,6 +76,14 @@ class NativeDiscoverySessionTest {
             assertTrue(requests.last().first.url.encodedPath.endsWith("/next"))
             assertEquals("RDAMVMabcdefghijk", requests.last().second.getString("playlistId"))
             assertEquals("abcdefghijk", requests.last().second.getString("videoId"))
+
+            YouTubeAudioStreamService.requestDiscovery(anonymous, "radio", "", params = "RDAMVMmix_001")
+            assertEquals("RDAMVMmix_001", requests.last().second.getString("playlistId"))
+            assertTrue(requests.last().second.optString("videoId").isBlank())
+
+            YouTubeAudioStreamService.requestDiscovery(anonymous, "radio", "", params = "RDAMVMmix_001", continuation = "radio-page")
+            assertEquals("radio-page", requests.last().second.getString("continuation"))
+            assertTrue(requests.last().second.optString("playlistId").isBlank())
             assertEquals(before, playback.sessionSnapshot())
         } finally { account.close(); anonymous.close(); playback.close(); http.close() }
     }

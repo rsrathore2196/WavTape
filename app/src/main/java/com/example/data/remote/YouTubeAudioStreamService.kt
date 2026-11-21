@@ -256,8 +256,10 @@ object YouTubeAudioStreamService {
         params: String? = null, continuation: String? = null, setLogin: Boolean = false): String {
         val response = when (operation) {
             "accountMenu" -> session.accountMenu(client = YouTubeClient.WEB_REMIX)
-            "radio" -> session.next(client = YouTubeClient.WEB_REMIX, videoId = value,
-                playlistId = params ?: "RDAMVM$value", continuation = continuation)
+            "radio" -> session.next(client = YouTubeClient.WEB_REMIX,
+                videoId = value.takeIf { it.isNotBlank() && continuation == null },
+                playlistId = (params ?: "RDAMVM$value").takeIf { continuation == null },
+                continuation = continuation)
             "related" -> session.next(client = YouTubeClient.WEB_REMIX, videoId = value, continuation = continuation)
             "browse" -> session.browse(client = YouTubeClient.WEB_REMIX,
                 browseId = value.takeIf { continuation == null }, params = params.takeIf { continuation == null },

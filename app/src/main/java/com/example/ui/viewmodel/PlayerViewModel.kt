@@ -1022,40 +1022,66 @@ class PlayerViewModel(
         playbackManager.retryPlayback()
     }
 
-    /**
-     * Plays a seed track (or dynamically chosen candidate) and activates infinite autoplay mode
-     * so that recommendations continue playing infinitely with continuous queue replenishment.
-     */
+    private val _startingHomeRadio = MutableStateFlow(false)
+    internal val startingHomeRadio = _startingHomeRadio.asStateFlow()
+    private var homeRadioRequest: Any? = null
+
     fun playInfiniteRadio(seedTrack: MusicTrack? = null) {
         val state = playbackManager.uiState.value
         if (state.isInfiniteRadio && (state.isPlaying || state.isLoading)) return
+        if (_startingHomeRadio.value) return
+        startHomeRadio(seedTrack ?: state.currentTrack ?: recentlyPlayed.value.firstOrNull())
+    }
+
+    fun playArtistRadio(seedTrack: MusicTrack) = startHomeRadio(seedTrack)
+
+    private fun startHomeRadio(seedTrack: MusicTrack?) {
         activePlaybackLaunchJob?.cancel()
-        activePlaybackLaunchJob = viewModelScope.launch(AppDispatchers.Io) {
+        val request = Any().also { homeRadioRequest = it }
+        activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+            _startingHomeRadio.value = true
             try {
-                val requestKey = com.example.data.cache.HomeCacheIdentity.home(_userProfile.value)
-                val pivot = seedTrack ?: state.currentTrack ?: recentlyPlayed.value.firstOrNull()
-                    ?: com.example.data.cache.HomeCardCache(application).readInitialServer(requestKey)
-                        ?.serverShelves?.firstNotNullOfOrNull { shelf -> shelf.tracks.firstOrNull() }
-                    ?: com.example.data.remote.YouTubeMusicApiService.getHomeRecommendations(com.example.data.cache.HomeCacheIdentity.region(_userProfile.value), essential = true)
-                        .shelves.firstNotNullOfOrNull { shelf -> shelf.tracks.firstOrNull() }
-                if (pivot == null) {
-                    withContext(Dispatchers.Main.immediate) { playbackManager.reportPlaybackLookupFailure("No music is available for radio. Please try again.") }
-                    return@launch
+                val profile = _userProfile.value
+                val requestKey = com.example.data.cache.HomeCacheIdentity.home(profile)
+                val region = com.example.data.cache.HomeCacheIdentity.region(profile)
+                val pivot = seedTrack ?: withContext(AppDispatchers.Io) {
+                    findColdRadioSeed(
+                        cached = {
+                            com.example.data.cache.HomeCardCache(application).readInitialServer(requestKey)
+                                ?.serverShelves.orEmpty().flatMap { it.tracks }
+                        },
+                        home = {
+                            com.example.data.remote.YouTubeMusicApiService.getHomeRecommendations(region, essential = true)
+                                .shelves.flatMap { it.tracks }
+                        },
+                        search = {
+                            val query = profile.languages.firstOrNull()?.takeIf(String::isNotBlank)
+                                ?.let { "$it Hits" } ?: "Top Hits"
+                            com.example.data.remote.YouTubeMusicApiService.searchSongsPage(query, useInnerTubeX = true,
+                                countryCode = region, transportTimeoutMs = 4_000L).tracks
+                        }
+                    )
                 }
-                val excluded = (recentlyPlayed.value.map { it.id } + state.queue.map { it.id } + pivot.id).toSet()
-                val radioTracks = repository.fetchYouTubeRadio(pivot, excluded, limit = 12)
                 ensureActive()
                 if (requestKey != com.example.data.cache.HomeCacheIdentity.home(_userProfile.value)) return@launch
-                val chosen = seedTrack ?: radioTracks.firstOrNull() ?: pivot
-                val queueTracks = (listOf(chosen) + radioTracks.filter { it.id != chosen.id }).distinctBy { it.id }
-                withContext(Dispatchers.Main.immediate) {
-                    playbackManager.setAutoplayEnabled(true)
-                    playbackManager.playTrack(chosen, queueTracks, isExplicitPlaylist = false, isInfiniteRadio = true, preserveQueue = true)
+                if (pivot == null) {
+                    playbackManager.reportPlaybackLookupFailure("No music is available for radio. Please try again.")
+                    return@launch
                 }
+                // The player already replenishes an active queue from native radio.
+                // First audio should never wait for that recommendation request.
+                playbackManager.setAutoplayEnabled(true)
+                playbackManager.playTrack(pivot, listOf(pivot), isExplicitPlaylist = false,
+                    isInfiniteRadio = true, preserveQueue = true)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { withContext(Dispatchers.Main.immediate) {
+            catch (_: Exception) {
                 playbackManager.reportPlaybackLookupFailure("Radio couldn't load. Please try again.")
-            } }
+            } finally {
+                if (homeRadioRequest === request) {
+                    homeRadioRequest = null
+                    _startingHomeRadio.value = false
+                }
+            }
         }
     }
 
