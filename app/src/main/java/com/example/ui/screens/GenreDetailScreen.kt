@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import com.example.ui.util.localizedCatalogText
+
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -161,7 +163,7 @@ fun GenreDetailScreen(
                                 )
                             }
                             Text(
-                                text = playlist.title,
+                                text = localizedCatalogText(playlist.title),
                                 color = colors.textPrimary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -207,7 +209,7 @@ fun GenreDetailScreen(
                                 )
                             }
                             Text(
-                                text = album.title,
+                                text = localizedCatalogText(album.title),
                                 color = colors.textPrimary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,

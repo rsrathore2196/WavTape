@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -178,9 +182,10 @@ fun LibraryScreen(
     if (likedOpen) {
         androidx.activity.compose.BackHandler { likedOpen = false }
         val openedFavorites = favoriteTracksState?.collectAsStateWithLifecycle()?.value ?: favoriteTracks
-        val liked by androidx.compose.runtime.produceState<com.example.data.local.PlaylistWithTracks?>(null, openedFavorites) {
+        val likedTitle = stringResource(R.string.liked_songs)
+        val liked by androidx.compose.runtime.produceState<com.example.data.local.PlaylistWithTracks?>(null, openedFavorites, likedTitle) {
             value = kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.CpuBounded) {
-                com.example.data.local.PlaylistWithTracks(com.example.data.local.PlaylistEntity(-1L, "Liked Songs", "Your favorite songs"),
+                com.example.data.local.PlaylistWithTracks(com.example.data.local.PlaylistEntity(-1L, likedTitle, "Your favorite songs"),
                     openedFavorites.map(com.example.data.local.TrackEntity::fromMusicTrack)).also { it.musicTracks }
             }
         }
@@ -214,13 +219,13 @@ fun LibraryScreen(
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     com.example.ui.components.TabHeaderScaffold(
         modifier.fillMaxSize().background(appColors.scaffoldBackground), header = {
-        com.example.ui.components.AccentPageHeader("Your Library",
-            "Saved music, custom playlists & liked songs", "library_fixed_header") {
+        com.example.ui.components.AccentPageHeader(stringResource(R.string.library_title),
+            stringResource(R.string.library_subtitle), "library_fixed_header") {
             if (selectedTab == 0) {
                 val foreground = androidx.compose.material3.LocalContentColor.current
                 IconButton(onClick = onCreatePlaylistClick, modifier = Modifier.size(46.dp).clip(CircleShape)
                     .background(foreground.copy(alpha = .12f)).testTag("create_playlist_button")) {
-                    Icon(Icons.Default.Add, "Create Playlist", tint = foreground, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Default.Add, stringResource(R.string.create_playlist), tint = foreground, modifier = Modifier.size(26.dp))
                 }
             }
         }
@@ -339,7 +344,7 @@ fun LibraryScreen(
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Import Playlists",
+                                    text = stringResource(R.string.import_playlists),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = if (appColors.isDark) Color.White else appColors.textPrimary
@@ -361,7 +366,7 @@ fun LibraryScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         PlaylistGridCard(
-                            playlist = PlaylistEntity(-1L, "Liked Songs", "$favoriteCount tracks liked"),
+                            playlist = PlaylistEntity(-1L, stringResource(R.string.liked_songs), "$favoriteCount tracks liked"),
                             onClick = { likedOpen = true },
                             modifier = if (landscape) Modifier.width(tileWidth.dp) else Modifier.weight(1f),
                             cardTag = "open_liked_songs", artworkIcon = Icons.Default.Favorite,
@@ -376,7 +381,7 @@ fun LibraryScreen(
                             playButtonTag = "play_liked_songs"
                         )
                         PlaylistGridCard(
-                            playlist = PlaylistEntity(-2L, "Downloads", "$downloadedCount tracks saved"),
+                            playlist = PlaylistEntity(-2L, stringResource(R.string.downloads), "$downloadedCount tracks saved"),
                             onClick = { downloadsOpen = true },
                             modifier = if (landscape) Modifier.width(tileWidth.dp) else Modifier.weight(1f),
                             cardTag = "open_downloads", artworkIcon = Icons.Default.Download,
@@ -442,7 +447,7 @@ fun LibraryScreen(
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
                                     Text(
-                                        text = "Create Playlist",
+                                        text = stringResource(R.string.create_playlist),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.5.sp,
                                         maxLines = 1

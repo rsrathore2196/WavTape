@@ -88,6 +88,7 @@ fun SettingsCategoryItemRow(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val appColors = LocalAppColors.current
+    val title = category.localizedTitle()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -120,7 +121,7 @@ fun SettingsCategoryItemRow(
             ) {
                 Icon(
                     imageVector = category.icon,
-                    contentDescription = category.title,
+                    contentDescription = title,
                     tint = appColors.onAccentGradient,
                     modifier = Modifier.size(22.dp)
                 )
@@ -134,7 +135,7 @@ fun SettingsCategoryItemRow(
                     .padding(end = 12.dp)
             ) {
                 Text(
-                    text = category.title,
+                    text = title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.5.sp,
                     letterSpacing = (-0.2).sp,
@@ -156,7 +157,7 @@ fun SettingsCategoryItemRow(
         // Trailing Chevron arrow (matching screenshot design)
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-            contentDescription = "Open ${category.title}",
+            contentDescription = "Open $title",
             tint = appColors.textMuted,
             modifier = Modifier.size(13.dp)
         )

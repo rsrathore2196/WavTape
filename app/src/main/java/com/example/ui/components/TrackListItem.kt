@@ -1,5 +1,11 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
+import com.example.ui.util.localizedCatalogText
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -131,7 +137,7 @@ fun TrackListItem(
             modifier = Modifier.weight(1f)
         ) {
             Text(
-                text = track.title,
+                text = localizedCatalogText(track.title),
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.SemiBold,
                     fontSize = 15.sp,
@@ -163,7 +169,7 @@ fun TrackListItem(
                 }
 
                 Text(
-                    text = track.artist.ifBlank { "Unknown Artist" },
+                    text = localizedCatalogText(track.artist.ifBlank { stringResource(R.string.unknown_artist) }),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
                         color = appColors.textSecondary

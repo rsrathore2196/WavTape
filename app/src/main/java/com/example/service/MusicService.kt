@@ -1297,6 +1297,7 @@ class MusicService : MediaLibraryService() {
         // 5. MediaLibrarySession Setup for Phone, Tablet, and Android Auto Head Units
         mediaLibrarySession = MediaLibrarySession.Builder(this, player, CustomMediaLibrarySessionCallback())
             .setSessionActivity(pendingIntent)
+            .setBitmapLoader(androidx.media3.session.CacheBitmapLoader(SessionArtworkLoader(this, serviceScope)))
             .build()
         _liveSession.value = true
     }

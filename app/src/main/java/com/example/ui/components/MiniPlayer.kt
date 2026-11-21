@@ -1,5 +1,11 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
+import com.example.ui.util.localizedCatalogText
+
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -48,7 +54,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -115,7 +126,15 @@ fun MiniPlayer(
     val appColors = LocalAppColors.current
     val context = LocalContext.current
     val lightTheme = !appColors.isDark
-    val labelColor = if (lightTheme) Color.Black else appColors.textPrimary
+    val protectLabels = appColors.dynamicGlassEnabled && LocalDynamicGlassEnabled.current
+    val labelScrim = (if (lightTheme) Color.White else Color.Black).copy(alpha = .70f)
+    val brightestRisk = labelScrim.compositeOver(if (lightTheme) Color.Black else Color.White)
+    val labelColor = if (lightTheme) Color.Black else if (protectLabels) {
+        remember(appColors.textPrimary) { com.example.ui.theme.LiquidGlass.contrastColor(appColors.textPrimary, listOf(brightestRisk), 4.5f) }
+    } else appColors.textPrimary
+    val artistColor = if (lightTheme) labelColor else if (protectLabels) {
+        remember(appColors.textSecondary) { com.example.ui.theme.LiquidGlass.contrastColor(appColors.textSecondary, listOf(brightestRisk), 4.5f) }
+    } else appColors.textSecondary
     val neutralButtonColor = if (appColors.isDark) Color.White else Color.Black
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
 
@@ -194,7 +213,7 @@ fun MiniPlayer(
                 // Album Art - rounded rectangle matching Screenshot 2
                 AsyncImage(
                     model = imageRequest,
-                    contentDescription = "Track Artwork",
+                    contentDescription = stringResource(R.string.player_artwork),
                     onSuccess = { state ->
                         morphArtwork = (state.result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap?.asImageBitmap()
                         morphArtworkReady = true
@@ -223,12 +242,29 @@ fun MiniPlayer(
 
                 // Title & Artist (clean, bold, high contrast, non-overlapping)
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).then(if (protectLabels) Modifier.drawWithCache {
+                        // Bound the contrast only behind the labels. The rest of the dock
+                        // still samples the original backdrop and uses the selected profile.
+                        val feather = 7.dp.toPx()
+                        val height = size.height + feather * 2
+                        val edge = feather / height
+                        val brush = Brush.verticalGradient(
+                            0f to Color.Transparent, edge to labelScrim,
+                            1f - edge to labelScrim, 1f to Color.Transparent,
+                            startY = -feather, endY = size.height + feather
+                        )
+                        onDrawBehind {
+                            if (size.width > 0f && size.height > 0f) drawRoundRect(
+                                brush = brush, topLeft = Offset(-feather, -feather),
+                                size = Size(size.width + feather * 2, height), cornerRadius = CornerRadius(feather)
+                            )
+                        }
+                    } else Modifier),
                     verticalArrangement = Arrangement.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = track.fullTitle,
+                            text = localizedCatalogText(track.fullTitle),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.5.sp,
@@ -256,15 +292,16 @@ fun MiniPlayer(
                     Spacer(modifier = Modifier.compactHeight(compactProgress).height(2.dp))
 
                     Text(
-                        text = track.artist,
+                        text = localizedCatalogText(track.artist),
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = if (lightTheme) labelColor else appColors.textSecondary,
+                            color = artistColor,
                             fontSize = 12.sp,
                             fontWeight = if (lightTheme) FontWeight.Bold else FontWeight.Medium
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
+                            .testTag("mini_player_track_artist")
                             .playerMorphElement(PlayerMorphSide.MINI, PlayerMorphPart.ARTIST, track.id)
                             .then(if (compact) Modifier.clearAndSetSemantics { } else Modifier)
                             .compactHeight(compactProgress)

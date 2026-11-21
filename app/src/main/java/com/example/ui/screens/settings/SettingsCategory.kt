@@ -1,5 +1,9 @@
 package com.example.ui.screens.settings
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
@@ -69,3 +73,14 @@ enum class SettingsCategory(
         get() = if (this == ABOUT) "Version $APP_VERSION_DISPLAY · Developer · Audio Engine" else rawSubtitle
 }
 
+
+@androidx.compose.runtime.Composable
+internal fun SettingsCategory.localizedTitle(): String = stringResource(when (this) {
+    SettingsCategory.ACCOUNTS_CONNECTIONS -> R.string.settings_accounts
+    SettingsCategory.THEMES_APP_UI -> R.string.settings_appearance
+    SettingsCategory.MUSIC_PLAYBACK -> R.string.settings_playback
+    SettingsCategory.OTHER_SETTINGS -> R.string.settings_other
+    SettingsCategory.DOWNLOADS -> R.string.downloads
+    SettingsCategory.BACKUP_RESTORE -> R.string.settings_backup
+    SettingsCategory.ABOUT -> R.string.settings_about
+})

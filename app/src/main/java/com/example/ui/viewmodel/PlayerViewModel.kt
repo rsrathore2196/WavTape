@@ -326,7 +326,7 @@ class PlayerViewModel(
     /** Data-only prewarm; early tab actions retain their own foreground request paths. */
     suspend fun prepareStartupTabs() {
         val profile = userProfile.value
-        val key = "${profile.countryCode}|${application.resources.configuration.locales.toLanguageTags()}"
+        val key = "${profile.countryCode}|${com.example.data.local.AppLanguage.catalogTag}"
         val pending = corePreparationMutex.withLock {
             corePreparation?.takeIf { it.first == key }?.second ?: run {
               corePreparation?.second?.cancel()
@@ -1128,7 +1128,7 @@ class PlayerViewModel(
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         if (generation != exploreIndexGeneration.get()) return
         val profile = com.example.data.local.UserProfilePreferences.getUserProfile(application)
-        val context = "${profile.countryCode}|${application.resources.configuration.locales.toLanguageTags()}"
+        val context = "${profile.countryCode}|${com.example.data.local.AppLanguage.catalogTag}"
         val now = android.os.SystemClock.elapsedRealtime()
         if (context != exploreIndexContext) {
             exploreIndexContext = context

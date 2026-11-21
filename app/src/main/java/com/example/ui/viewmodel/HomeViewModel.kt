@@ -284,7 +284,9 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         }
         owner.launch {
             restored.await()
-            accountUpdates.collect { applyUserProfile(_userProfile.value) }
+            merge(accountUpdates.map { Unit }, AppLanguage.changes.map { Unit }).collect {
+                applyUserProfile(_userProfile.value)
+            }
         }
         owner.launch {
             localRestored.await()
@@ -1021,7 +1023,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
             } finally { restoring.complete(Unit) }
             if (visible) requestProfileShelf(false)
         }
-        // Language-only changes retain native data and its completed draw.
+        // Music preference changes keep the native feed; an app locale change gets its own cache key.
         markInitialNativeReady()
     }
     fun setHomeVisible(active: Boolean) {

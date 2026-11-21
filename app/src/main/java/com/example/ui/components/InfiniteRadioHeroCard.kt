@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -138,13 +142,13 @@ fun InfiniteRadioHeroCard(
             verticalArrangement = Arrangement.Bottom,
             horizontalAlignment = Alignment.Start
         ) {
-            Text("Infinite Radio", maxLines = if (compactLayout) 2 else Int.MAX_VALUE,
+            Text(stringResource(R.string.infinite_radio), maxLines = if (compactLayout) 2 else Int.MAX_VALUE,
                 overflow = if (compactLayout) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip,
                 style = MaterialTheme.typography.headlineMedium.copy(
                 color = foreground, fontWeight = FontWeight.Black, fontSize = 26.sp, shadow = textShadow
             ).let { if (compactLayout) it.copy(lineHeight = 30.sp) else it })
             Spacer(Modifier.height(3.dp))
-            Text("A fresh random mix · Endless discoveries", maxLines = if (compactLayout) 2 else Int.MAX_VALUE,
+            Text(stringResource(R.string.radio_subtitle), maxLines = if (compactLayout) 2 else Int.MAX_VALUE,
                 overflow = if (compactLayout) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip,
                 style = MaterialTheme.typography.bodyMedium.copy(
                 color = foreground, fontWeight = FontWeight.Medium,

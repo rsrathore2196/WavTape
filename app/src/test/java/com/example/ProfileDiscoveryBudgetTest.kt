@@ -16,6 +16,15 @@ import org.robolectric.annotation.Config
 class ProfileDiscoveryBudgetTest {
     private fun song(id: String) = MusicTrack(id, id, "Singer", "Album", 180_000, "", "")
 
+    @Test fun playlistTastesDoNotOverrideTheCatalogLocale() = kotlinx.coroutines.runBlocking {
+        val queries = mutableListOf<Pair<String, String>>()
+        YouTubeMusicApiService.profileShelfResult("IN", listOf("Hindi", "Punjabi"), languageCode = "en") { query, locale, _ ->
+            queries += query to locale
+            YouTubeMusicApiService.SongSearchPage(emptyList(), null)
+        }
+        assertEquals(listOf("Hindi Hits" to "en", "Punjabi Hits" to "en"), queries)
+    }
+
     @Test fun transportTimeoutDoesNotDiscardAResponseWaitingForCpuAdmission() = runTest {
         val result = YouTubeMusicApiService.profileShelfResult("IN", listOf("Hindi"), queryOwnsTimeout = true) { _, _, _ ->
             val response = YouTubeMusicApiService.timedSearchTransport(4_000L) { song("received") }

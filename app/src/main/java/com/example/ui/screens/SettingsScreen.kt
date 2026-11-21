@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+import com.example.ui.screens.settings.localizedTitle
+
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.util.landscapeContentBounds
@@ -329,7 +334,7 @@ private fun SettingsTopBar(
         ) {
             Column {
                 Text(
-                    text = subPageTitle ?: (selectedCategory?.title ?: "Settings"),
+                    text = subPageTitle ?: (selectedCategory?.localizedTitle() ?: stringResource(R.string.nav_settings)),
                     fontWeight = if (isMainSettings) FontWeight.Black else FontWeight.Bold,
                     fontSize = if (isMainSettings) 34.sp else 22.sp,
                     letterSpacing = if (isMainSettings) (-0.8).sp else (-0.2).sp,

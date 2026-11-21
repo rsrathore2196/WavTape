@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
+import com.example.ui.util.localizedCatalogText
+
 import android.content.res.Configuration
 import android.graphics.Typeface
 import com.example.data.model.ServerHomeItem
@@ -366,7 +372,7 @@ fun HomeScreenContent(
                 val profile = homeViewModel?.userProfile?.collectAsStateWithLifecycle()?.value ?: userProfile
                 val locale = LocalConfiguration.current.locales[0]
                 val firstName = profile?.name.orEmpty().trim().takeWhile { !it.isWhitespace() }
-                    .ifEmpty { "Listener" }
+                    .ifEmpty { stringResource(R.string.home_listener) }
                     .lowercase(locale).replaceFirstChar { it.titlecase(locale) }
                 val greetingFont = remember {
                     FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
@@ -377,7 +383,7 @@ fun HomeScreenContent(
                         .testTag("home_greeting")
                 ) {
                     Text(
-                        text = "$greeting, $firstName",
+                        text = stringResource(R.string.home_greeting_format, greeting, firstName),
                         modifier = Modifier.padding(start = 8.dp).testTag("home_greeting_text"),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontFamily = greetingFont,
@@ -443,7 +449,7 @@ fun HomeScreenContent(
                             .padding(top = 10.dp, start = 20.dp, end = 20.dp, bottom = 10.dp)
                     ) {
                         Text(
-                            text = "Recently Played",
+                            text = stringResource(R.string.recently_played),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
@@ -501,8 +507,12 @@ fun HomeScreenContent(
             // Independent shelf slots keep successful content and scroll anchors stable.
             if (resolvedProfile != null && resolvedProfile.tracks.isNotEmpty()) {
                 artworkItem(state = listState, key = "profile_shelf", contentType = "server_song_shelf") {
-                    val section = remember(resolvedProfile) {
-                        SectionState(title = resolvedProfile?.title.orEmpty(), subtitle = resolvedProfile?.subtitle.orEmpty(),
+                    val title = if (resolvedProfile.title == "Music for You") stringResource(R.string.music_for_you)
+                        else resolvedProfile.title
+                    val subtitle = if (resolvedProfile.subtitle == "Based on your music preferences") stringResource(R.string.music_for_you_subtitle)
+                        else resolvedProfile.subtitle
+                    val section = remember(resolvedProfile, title, subtitle) {
+                        SectionState(title = title, subtitle = subtitle,
                             tracks = resolvedProfile.tracks, isLoaded = true)
                     }
                     SectionCardLayout(state = section, tracksPrepared = true,
@@ -525,7 +535,7 @@ fun HomeScreenContent(
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "Most Listened Artists",
+                                stringResource(R.string.most_listened_artists),
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
@@ -559,7 +569,7 @@ fun HomeScreenContent(
                                         val marqueeMode = if (effectsActive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
                                             else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
                                         Spacer(Modifier.height(8.dp))
-                                        Text(artist.name, color = textPrimaryColor, fontWeight = FontWeight.SemiBold,
+                                        Text(localizedCatalogText(artist.name), color = textPrimaryColor, fontWeight = FontWeight.SemiBold,
                                             modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, animationMode = marqueeMode),
                                             maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
                                     }
@@ -653,7 +663,7 @@ private fun LandscapeHomeOverview(seed: MusicTrack?, currentPlayingId: String?, 
             radio()
             Column(Modifier.weight(1f).height(240.dp).testTag("landscape_recent_grid"),
                 verticalArrangement = Arrangement.Center) {
-                Text("Recently Played", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold,
+                Text(stringResource(R.string.recently_played), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold,
                     fontSize = 18.sp, color = colors.textPrimary))
                 Spacer(Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -741,7 +751,7 @@ fun SectionCardLayout(
             if (state.isLoading && state.title.isBlank()) Box(Modifier.width(148.dp).height(22.dp)
                 .clip(RoundedCornerShape(4.dp)).then(rememberShimmerBackground()).testTag("home_shelf_heading_loading"))
             else Text(
-                text = state.title,
+                text = localizedCatalogText(state.title),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -751,7 +761,7 @@ fun SectionCardLayout(
             if (state.subtitle.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = state.subtitle,
+                    text = localizedCatalogText(state.subtitle),
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = textMutedColor
                     )
@@ -891,7 +901,7 @@ fun HabitPillItem(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = homeTrackTitle(track),
+                text = localizedCatalogText(homeTrackTitle(track)),
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 color = if (isPlaying) appColors.primaryAccent else textPrimaryColor,
@@ -900,7 +910,7 @@ fun HabitPillItem(
             )
             Spacer(modifier = Modifier.height(1.dp))
             Text(
-                text = track.artist,
+                text = localizedCatalogText(track.artist),
                 fontSize = 11.sp,
                 color = textMutedColor,
                 maxLines = 1,
@@ -1028,7 +1038,7 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = title,
+            text = localizedCatalogText(title),
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = if (isPlaying) appColors.primaryAccent else textPrimaryColor,
@@ -1042,7 +1052,7 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = subtitle,
+            text = localizedCatalogText(subtitle),
             fontSize = 11.sp,
             color = textMutedColor,
             maxLines = 1,
@@ -1055,10 +1065,10 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
 private fun rememberGreeting(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     return when (hour) {
-        in 5..11 -> "Good Morning"
-        in 12..16 -> "Good Afternoon"
-        in 17..22 -> "Good Evening"
-        else -> "Late Night Sessions"
+        in 5..11 -> stringResource(R.string.home_good_morning)
+        in 12..16 -> stringResource(R.string.home_good_afternoon)
+        in 17..22 -> stringResource(R.string.home_good_evening)
+        else -> stringResource(R.string.home_late_night)
     }
 }
 

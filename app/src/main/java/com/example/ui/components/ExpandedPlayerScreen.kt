@@ -1,5 +1,11 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
+import com.example.ui.util.localizedCatalogText
+
 import com.example.downloads.observeRecord
 
 import com.example.performance.AppDispatchers
@@ -803,13 +809,13 @@ fun ExpandedPlayerScreen(
                                                     track.id, 10.dp, active = isLyricsActive == showLyrics, ready = morphArtworkReady)
                                                 .clip(RoundedCornerShape(10.dp)))
                                         Column(Modifier.weight(1f)) {
-                                            Text(track.cleanTitle, color = appColors.textPrimary, fontWeight = FontWeight.Bold,
+                                            Text(localizedCatalogText(track.cleanTitle), color = appColors.textPrimary, fontWeight = FontWeight.Bold,
                                                 fontSize = 18.sp,
                                                 maxLines = 1, modifier = Modifier.playerMorphElement(PlayerMorphSide.EXPANDED,
                                                     PlayerMorphPart.TITLE, track.id, active = lyricsExpanded)
                                                     .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1000,
                                                         animationMode = playerMarqueeMode), softWrap = false)
-                                            Text(singerLabel, color = appColors.textSecondary, fontSize = 14.sp,
+                                            Text(localizedCatalogText(singerLabel), color = appColors.textSecondary, fontSize = 14.sp,
                                                 maxLines = 1, modifier = Modifier.playerMorphElement(PlayerMorphSide.EXPANDED,
                                                     PlayerMorphPart.ARTIST, track.id, active = lyricsExpanded)
                                                     .basicMarquee(animationMode = playerMarqueeMode), softWrap = false)
@@ -1043,7 +1049,7 @@ fun ExpandedPlayerScreen(
                                     .testTag("player_now_playing_title_header")
                             ) {
                                 Text(
-                                    text = "NOW PLAYING",
+                                    text = stringResource(R.string.now_playing),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
@@ -1053,7 +1059,7 @@ fun ExpandedPlayerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = track.cleanTitle,
+                                    text = localizedCatalogText(track.cleanTitle),
                                     style = MaterialTheme.typography.titleSmall.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 17.sp,
@@ -1108,7 +1114,7 @@ fun ExpandedPlayerScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = track.cleanTitle,
+                                    text = localizedCatalogText(track.cleanTitle),
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 22.sp,
@@ -1126,7 +1132,7 @@ fun ExpandedPlayerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = singerLabel,
+                                    text = localizedCatalogText(singerLabel),
                                     style = MaterialTheme.typography.titleSmall.copy(
                                         color = appColors.textSecondary,
                                         fontSize = 16.sp,
@@ -1455,13 +1461,13 @@ fun ExpandedPlayerScreen(
                                                 activeOutputDevice?.isUsb == true -> Icons.Default.Usb
                                                 else -> Icons.Default.Speaker
                                             },
-                                            contentDescription = "Output Devices",
+                                            contentDescription = stringResource(R.string.output_devices),
                                             tint = landscapeOutputContentColor,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(7.dp))
                                         Text(
-                                            text = "Output Devices",
+                                            text = stringResource(R.string.output_devices),
                                             style = MaterialTheme.typography.bodySmall.copy(
                                                 color = landscapeOutputContentColor,
                                                 fontSize = 12.5.sp,
@@ -1608,7 +1614,7 @@ fun ExpandedPlayerScreen(
                         .testTag("player_landscape_now_playing_title_header")
                 ) {
                     Text(
-                        text = "NOW PLAYING",
+                        text = stringResource(R.string.now_playing),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 11.sp,
@@ -1618,7 +1624,7 @@ fun ExpandedPlayerScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = track.cleanTitle,
+                        text = localizedCatalogText(track.cleanTitle),
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
@@ -1707,7 +1713,7 @@ fun ExpandedPlayerScreen(
                                         animatedVisibilityScope = this@AnimatedContent,
                                         boundsTransform = { _, _ -> tween(lyricsArtworkDurationMs, easing = LyricsSharedEasing) }
                                 )) {
-                                    Text(track.cleanTitle, color = appColors.textPrimary,
+                                    Text(localizedCatalogText(track.cleanTitle), color = appColors.textPrimary,
                                         fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1,
                                         modifier = Modifier.fillMaxWidth()
                                             .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.TITLE,
@@ -1715,7 +1721,7 @@ fun ExpandedPlayerScreen(
                                             .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1000,
                                                 animationMode = playerMarqueeMode), softWrap = false)
                                     Spacer(Modifier.height(2.dp))
-                                    Text(singerLabel, color = appColors.textSecondary,
+                                    Text(localizedCatalogText(singerLabel), color = appColors.textSecondary,
                                         fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1,
                                         modifier = Modifier.fillMaxWidth()
                                             .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.ARTIST,
@@ -1977,7 +1983,7 @@ fun ExpandedPlayerScreen(
                                         boundsTransform = { _, _ -> tween(lyricsArtworkDurationMs, easing = LyricsSharedEasing) }
                                 )) {
                                     Text(
-                                        text = track.cleanTitle,
+                                        text = localizedCatalogText(track.cleanTitle),
                                         style = (if (isLandscape) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall).copy(
                                             fontWeight = FontWeight.Bold,
                                             color = appColors.textPrimary
@@ -1994,7 +2000,7 @@ fun ExpandedPlayerScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = singerLabel,
+                                        text = localizedCatalogText(singerLabel),
                                         style = MaterialTheme.typography.titleSmall.copy(
                                             color = appColors.textSecondary,
                                             fontWeight = FontWeight.Medium
@@ -2383,13 +2389,13 @@ fun ExpandedPlayerScreen(
                                     activeOutputDevice?.isUsb == true -> Icons.Default.Usb
                                     else -> Icons.Default.Speaker
                                 },
-                                contentDescription = "Output Devices",
+                                contentDescription = stringResource(R.string.output_devices),
                                 tint = outputContentColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(7.dp))
                             Text(
-                                text = "Output Devices",
+                                text = stringResource(R.string.output_devices),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = outputContentColor,
                                     fontSize = 12.5.sp,

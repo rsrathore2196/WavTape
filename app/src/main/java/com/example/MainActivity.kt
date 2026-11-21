@@ -37,6 +37,10 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.PlayerViewModel
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(com.example.data.local.AppLanguage.localizedContext(newBase))
+    }
+
     private var mediaSearchIntentJob: Job? = null
     private var mediaSearchRequestId: String? = null
     private var mediaSearchDispatched = false
@@ -157,6 +161,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.data.local.AppLanguage.refresh(this)
         enableEdgeToEdge()
 
         // Explicitly enforce hardware acceleration at the window surface level

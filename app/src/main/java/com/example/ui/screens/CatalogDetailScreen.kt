@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import com.example.ui.util.localizedCatalogText
+
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.util.landscapeContentBounds
@@ -196,7 +198,7 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                                 CollectionTargetPlayButton(album.title, CollectionPlaybackTarget.Catalog(CatalogDestination.Album(album)),
                                     Modifier.align(Alignment.BottomEnd))
                             }
-                            Text(album.title, color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            Text(localizedCatalogText(album.title), color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(top = 8.dp))
                         }
                     }
@@ -209,7 +211,7 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                     items(profile.relatedArtists, key = { it.id }, contentType = { "related_artist" }) { artist ->
                         Column(Modifier.width(112.dp).clickable { onOpenArtist(artist) }, horizontalAlignment = Alignment.CenterHorizontally) {
                             ArtistPortrait(artist, Modifier.size(112.dp).clip(CircleShape))
-                            Text(artist.name, color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            Text(localizedCatalogText(artist.name), color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(top = 8.dp))
                         }
                     }
@@ -267,7 +269,7 @@ private fun ArtistProfileHeader(artist: CatalogArtist) {
             backgroundColor = colors.scaffoldBackground)
         Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 24.dp, vertical = 12.dp)) {
             Text("ARTIST", color = colors.textMuted, style = MaterialTheme.typography.labelMedium)
-            Text(artist.name, color = colors.textPrimary, style = MaterialTheme.typography.headlineLarge,
+            Text(localizedCatalogText(artist.name), color = colors.textPrimary, style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.testTag("artist_profile_name"))
         }

@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 
@@ -818,10 +822,16 @@ fun FloatingPillBottomBar(
     compactProgress: State<Float>? = null,
     compact: Boolean = false
 ) {
+    val home = stringResource(R.string.nav_home)
+    val search = stringResource(R.string.nav_search)
+    val library = stringResource(R.string.nav_library)
+    val tabs = remember(home, search, library) {
+        DEFAULT_BOTTOM_BAR_TABS.zip(listOf(home, search, library)) { item, title -> item.copy(title = title) }
+    }
     AnimatedBottomBar(
         selectedTabIndex = selectedTabIndex,
         onTabSelected = onTabSelected,
-        items = DEFAULT_BOTTOM_BAR_TABS,
+        items = tabs,
         modifier = modifier,
         ambientGlowColor = ambientGlowColor,
         compactProgress = compactProgress,

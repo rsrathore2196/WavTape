@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
+import com.example.ui.util.localizedCatalogText
+
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.util.landscapeContentBounds
@@ -157,9 +163,9 @@ private fun RecentSearchList(
         item(key = "history_heading") {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("Recent searches", Modifier.weight(1f), color = colors.textMuted,
+                Text(stringResource(R.string.search_recent), Modifier.weight(1f), color = colors.textMuted,
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text("Clear all", color = colors.textMuted, fontSize = 11.5.sp,
+                Text(stringResource(R.string.clear_all), color = colors.textMuted, fontSize = 11.5.sp,
                     modifier = Modifier.clickable(onClick = onClear).padding(8.dp)
                         .testTag("clear_recent_searches_button"))
             }
@@ -538,8 +544,8 @@ fun SearchScreen(
     com.example.ui.components.TabHeaderScaffold(
         modifier = modifier.fillMaxSize().background(appColors.scaffoldBackground),
         header = {
-            com.example.ui.components.AccentPageHeader("Search Online Music",
-                "Stream millions of Ultra High Quality Tracks", "search_fixed_header")
+            com.example.ui.components.AccentPageHeader(stringResource(R.string.search_title),
+                stringResource(R.string.search_subtitle), "search_fixed_header")
         }
     ) { headerInsets ->
         LazyColumn(
@@ -569,7 +575,7 @@ fun SearchScreen(
                     },
                     placeholder = {
                         Text(
-                            text = "What do you want to play?",
+                            text = stringResource(R.string.search_placeholder),
                             color = appColors.textMuted,
                             fontSize = 14.sp
                         )
@@ -658,7 +664,7 @@ fun SearchScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
+                                    contentDescription = stringResource(R.string.nav_search),
                                     tint = if (isSearchActive) {
                                         if (appColors.isDark) Color.White else appColors.primaryAccent
                                     } else {
@@ -759,7 +765,12 @@ fun SearchScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = filterName,
+                                text = when (filterName) {
+                                    "Tracks" -> stringResource(R.string.filter_tracks)
+                                    "Artists" -> stringResource(R.string.filter_artists)
+                                    "Albums" -> stringResource(R.string.filter_albums)
+                                    else -> stringResource(R.string.filter_all)
+                                },
                                 color = if (isSelected) selectedPillContentColor else (if (appColors.isDark) Color.White else appColors.textPrimary),
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                                 fontSize = 13.5.sp,
@@ -778,7 +789,7 @@ fun SearchScreen(
         if (!hasQuery) {
             item(key = "search_genres_header", contentType = "header") {
                 Text(
-                    text = "Explore Genres",
+                    text = stringResource(R.string.search_explore),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = appColors.textPrimary,
@@ -1368,7 +1379,7 @@ fun SearchScreen(
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = album.title,
+                                                text = localizedCatalogText(album.title),
                                                 color = TextPrimary,
                                                 fontWeight = FontWeight.SemiBold,
                                                 maxLines = 1,

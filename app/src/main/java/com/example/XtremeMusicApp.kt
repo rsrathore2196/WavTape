@@ -122,8 +122,14 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
             .build()
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        com.example.data.local.AppLanguage.refresh(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
+        com.example.data.local.AppLanguage.refresh(this)
         _instance = this
         com.example.performance.DisplayRefreshRatePolicy.applyAdaptiveRefreshRatePolicy()
         // Coil remains a lazy singleton; the first visible image owns cache creation.

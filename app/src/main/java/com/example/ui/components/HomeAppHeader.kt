@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -127,7 +131,7 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
                 .background(foreground.copy(alpha = .12f), CircleShape)
                 .border(1.dp, foreground.copy(alpha = .25f), CircleShape)
                 .testTag("top_settings_button_surface"), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Settings, "Settings", tint = foreground, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Settings, stringResource(R.string.nav_settings), tint = foreground, modifier = Modifier.size(20.dp))
             }
         }
     }

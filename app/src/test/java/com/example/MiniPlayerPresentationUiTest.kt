@@ -7,6 +7,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -96,6 +100,42 @@ class MiniPlayerPresentationUiTest {
         compose.onNodeWithTag("mini_player_play_pause").performClick()
         compose.onNodeWithTag("mini_player_next").performClick()
         compose.runOnIdle { assertEquals(1, playTaps); assertEquals(1, skips); assertEquals(0, opens) }
+    }
+
+    @Test fun bothMiniPlayerLabelsRetainContrastOverOppositeBrightnessArtwork() {
+        var colors by mutableStateOf(DarkAppColors)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            val backdrop = rememberLiquidGlassBackdrop()
+            CompositionLocalProvider(LocalAppColors provides colors,
+                LocalLiquidGlassBackdrop provides backdrop,
+                LocalDynamicGlassEnabled provides true, LocalArtworkRequestsActive provides false) {
+                Box(Modifier.fillMaxSize().testTag("mini_contrast_scene")) {
+                    Box(Modifier.fillMaxSize().xtremeSharedBackdropSource()
+                        .background(if (colors.isDark) Color.White else Color.Black))
+                    MiniPlayer(PlayerUiState(currentTrack = song), {}, {}, {}, {},
+                        modifier = Modifier.padding(16.dp))
+                }
+            }
+        } }
+        for (theme in listOf(DarkAppColors, LightAppColors)) {
+            compose.runOnIdle { colors = theme }
+            settle()
+            capture("mini_contrast_scene")
+            compose.mainClock.advanceTimeByFrame()
+            val scene = capture("mini_contrast_scene")
+            for (tag in listOf("mini_player_track_title", "mini_player_track_artist")) {
+                val node = compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+                val layout = mutableListOf<TextLayoutResult>()
+                node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+                val bounds = node.fetchSemanticsNode().boundsInRoot
+                val background = Color(scene.getRGB((bounds.right + 12).toInt(), bounds.center.y.toInt()))
+                val text = layout.single().layoutInput.style.color.luminance()
+                val surface = background.luminance()
+                val contrast = (maxOf(text, surface) + .05f) / (minOf(text, surface) + .05f)
+                assertTrue("$tag contrast in dark=${theme.isDark}: $contrast", contrast >= 4.5f)
+            }
+        }
     }
 
     @Test fun longTitlesScrollAutomaticallyWhileShortTitlesStayStill() {

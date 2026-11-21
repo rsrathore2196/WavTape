@@ -260,8 +260,7 @@ class MusicRepository private constructor(
         context?.let { UserProfilePreferences.getUserProfile(it) } ?: UserProfile()
     }
 
-    private fun browseLanguage(): String = (context?.resources?.configuration?.locales?.get(0)
-        ?: java.util.Locale.getDefault()).language.ifBlank { "en" }
+    private fun browseLanguage(): String = com.example.data.local.AppLanguage.catalogTag
 
     /** Direct YouTube Music server radio recommendation. Preserves server recommendation ordering. */
     suspend fun fetchYouTubeRadio(

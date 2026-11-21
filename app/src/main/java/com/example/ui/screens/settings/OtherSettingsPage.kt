@@ -1,5 +1,9 @@
 package com.example.ui.screens.settings
 
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
+
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.foundation.BorderStroke
@@ -175,6 +179,8 @@ fun OtherSettingsPage(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        AppLanguageSetting()
+        Spacer(Modifier.height(16.dp))
         PlaybackIntegrationsSection(onOpenSourcesScreen = { showSourcesScreen = true })
         Spacer(Modifier.height(16.dp))
 
@@ -197,7 +203,7 @@ fun OtherSettingsPage(
                     )
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Performance & Refresh Rate", fontSize = 15.sp,
+                        Text(stringResource(R.string.settings_performance), fontSize = 15.sp,
                             fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                         Text(
                             if (performanceSettings.highPerformanceEnabled)
@@ -218,7 +224,7 @@ fun OtherSettingsPage(
                 }
                 if (performanceSettings.highPerformanceEnabled) {
                     HorizontalDivider(Modifier.padding(vertical = 12.dp), color = dividerColor)
-                    Text("Preferred Refresh Rate", fontSize = 13.sp,
+                    Text(stringResource(R.string.settings_preferred_rate), fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, color = appColors.textPrimary)
                     Text(
                         "Uses the nearest supported rate at your current resolution. Turn off to let Android choose automatically.",
@@ -515,7 +521,7 @@ fun OtherSettingsPage(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Clear Cache",
+                            text = stringResource(R.string.settings_clear_cache),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -544,7 +550,7 @@ fun OtherSettingsPage(
                     Icon(Icons.Default.MusicNote, contentDescription = null, tint = LiquidGlass.lightContentColor(appColors, accentColor), modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Lyrics Provider", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
+                        Text(stringResource(R.string.settings_lyrics_provider), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                         Text(lyricsSettings.provider, fontSize = 12.sp, color = appColors.textSecondary)
                     }
                     Text("›", fontSize = 24.sp, color = appColors.textMuted)
@@ -556,7 +562,7 @@ fun OtherSettingsPage(
                     Icon(Icons.Default.Language, contentDescription = null, tint = LiquidGlass.lightContentColor(appColors, accentColor), modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Lyrics Translate Language", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
+                        Text(stringResource(R.string.settings_lyric_language), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                         Text(com.example.data.local.LyricsTranslationLanguages.name(lyricsSettings.translationLanguageTag,
                             androidx.compose.ui.platform.LocalConfiguration.current.locales[0]),
                             fontSize = 12.sp, color = appColors.textSecondary)
@@ -566,8 +572,8 @@ fun OtherSettingsPage(
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = dividerColor)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Lyrics Text Size", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
-                        Text("Adjust lyrics only", fontSize = 11.5.sp, color = appColors.textMuted)
+                        Text(stringResource(R.string.settings_lyric_size), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
+                        Text(stringResource(R.string.settings_adjust_lyrics), fontSize = 11.5.sp, color = appColors.textMuted)
                     }
                     IconButton(onClick = { OtherSettingsPreferences.setLyricsTextSize(context, lyricsSettings.textSizeSp - 2) },
                         enabled = lyricsSettings.textSizeSp > 18) {
@@ -617,7 +623,7 @@ fun OtherSettingsPage(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.padding(end = 8.dp)) {
                             Text(
-                                text = "Haptic Feedback",
+                                text = stringResource(R.string.settings_haptics),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = appColors.textPrimary
@@ -700,7 +706,7 @@ fun OtherSettingsPage(
                 }) { Text("Enable") }
             },
             dismissButton = {
-                TextButton(onClick = { showHighPerformanceConfirmation = false }) { Text("Cancel") }
+                TextButton(onClick = { showHighPerformanceConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -757,12 +763,12 @@ fun OtherSettingsPage(
                         contentColor = Color.White
                     )
                 ) {
-                    Text("Clear", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.action_clear), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearCacheDialog = false }) {
-                    Text("Cancel", color = appColors.textSecondary)
+                    Text(stringResource(R.string.action_cancel), color = appColors.textSecondary)
                 }
             }
         )
@@ -825,7 +831,7 @@ private fun ProxySettingsCard(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.padding(end = 8.dp)) {
                         Text(
-                            text = "Proxy Settings",
+                            text = stringResource(R.string.settings_proxy),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = appColors.textPrimary

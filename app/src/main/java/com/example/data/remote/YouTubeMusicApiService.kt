@@ -98,7 +98,7 @@ object YouTubeMusicApiService {
         useInnerTubeX: Boolean = true, forceRefresh: Boolean = false, countryCode: String? = null, languageCode: String? = null,
         transportTimeoutMs: Long? = null): SongSearchPage = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext SongSearchPage(emptyList(), null)
-        val validLang = languageCode?.let { LanguageCodeMapper.toBcp47(it) } ?: "en"
+        val validLang = languageCode?.let { LanguageCodeMapper.toBcp47(it) } ?: com.example.data.local.AppLanguage.catalogTag
         val key = "${filter.name}|${query.trim().lowercase(java.util.Locale.ROOT)}|${continuation.orEmpty()}|$useInnerTubeX|${countryCode.orEmpty()}|$validLang"
         artistSearchLocks[(key.hashCode() and Int.MAX_VALUE) % artistSearchLocks.size].withLock {
             if (forceRefresh) artistSearchCache.remove(key)
@@ -428,7 +428,7 @@ object YouTubeMusicApiService {
 
     /** Successful empty feeds are authoritative; ordinary failures get one anonymous HTTP fallback. */
     suspend fun getHomeRecommendations(countryCode: String, continuation: String? = null,
-        languageCode: String = "en", includeAccount: Boolean = hasAuthenticatedAccount(), essential: Boolean = false,
+        languageCode: String = com.example.data.local.AppLanguage.catalogTag, includeAccount: Boolean = hasAuthenticatedAccount(), essential: Boolean = false,
         browseId: String = "FEmusic_home"
     ): YouTubeHomeParser.ParsedHomeFeed = withContext(AppDispatchers.Io) {
         require(browseId in setOf("FEmusic_home", "FEmusic_new_releases", "FEmusic_explore"))
@@ -483,13 +483,14 @@ object YouTubeMusicApiService {
         profileShelfResult(countryCode, languages, rotationOffset, queryOwnsTimeout = true) { query, language, region ->
             // One transport per language. The general search helper's native+HTTP
             // fallback can otherwise multiply three optional queries into many requests.
-            searchSongsPage(query, useInnerTubeX = false, countryCode = region, languageCode = language,
-                forceRefresh = forceRefresh, transportTimeoutMs = 4_000L)
+            searchSongsPage(query, useInnerTubeX = false, countryCode = region,
+                languageCode = language, forceRefresh = forceRefresh, transportTimeoutMs = 4_000L)
         }
     }
 
     internal suspend fun profileShelfResult(countryCode: String, languages: List<String>, rotationOffset: Int = 0,
-        queryOwnsTimeout: Boolean = false, query: suspend (String, String, String) -> SongSearchPage): ProfileShelfResult {
+        queryOwnsTimeout: Boolean = false, languageCode: String = com.example.data.local.AppLanguage.catalogTag,
+        query: suspend (String, String, String) -> SongSearchPage): ProfileShelfResult {
         val region = countryCode.takeIf { it.matches(Regex("[A-Za-z]{2}")) }?.uppercase(java.util.Locale.ROOT) ?: "US"
         val cleaned = languages.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(java.util.Locale.ROOT) }
         
@@ -499,18 +500,16 @@ object YouTubeMusicApiService {
             (0 until minOf(3, cleaned.size)).map { cleaned[(offset + it) % cleaned.size] }
         }
 
-        val queries = if (selectedLanguages.isEmpty()) listOf("Top Hits" to "en") else selectedLanguages.map { lang ->
-            "$lang Hits" to LanguageCodeMapper.toBcp47(lang)
-        }
+        val queries = selectedLanguages.map { "$it Hits" }.ifEmpty { listOf("Top Hits") }
         val results = mutableListOf<List<MusicTrack>>()
         var hadResponse = false
-        for ((q, langCode) in queries) {
+        for (q in queries) {
             val page = try {
                 com.example.performance.BackgroundWorkCoordinator.awaitOptionalBatch()
                 // Production searches time only their transport. An admitted CPU
                 // continuation may wait through a gesture without losing its response.
-                if (queryOwnsTimeout) query(q, langCode, region)
-                else kotlinx.coroutines.withTimeoutOrNull(4_000L) { query(q, langCode, region) }
+                if (queryOwnsTimeout) query(q, languageCode, region)
+                else kotlinx.coroutines.withTimeoutOrNull(4_000L) { query(q, languageCode, region) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) { null }

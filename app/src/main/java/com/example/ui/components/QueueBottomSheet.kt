@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import com.example.ui.util.localizedCatalogText
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -338,7 +340,7 @@ fun QueueBottomSheet(
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = track.fullTitle,
+                                        text = localizedCatalogText(track.fullTitle),
                                         color = if (isCurrentlyPlaying) {
                                             appColors.primaryAccent
                                         } else {
@@ -418,7 +420,7 @@ fun QueueBottomSheet(
                                         Spacer(modifier = Modifier.width(4.dp))
                                     }
                                     Text(
-                                        text = track.artist,
+                                        text = localizedCatalogText(track.artist),
                                         color = appColors.textSecondary,
                                         fontSize = 12.sp,
                                         maxLines = 1,

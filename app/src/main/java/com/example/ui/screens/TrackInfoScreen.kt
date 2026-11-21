@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import com.example.ui.util.localizedCatalogText
+
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -239,7 +241,7 @@ fun TrackInfoScreen(
                                     .border(1.dp, colors.cardBorder, CircleShape)
                             )
                             Text(
-                                text = artist.name,
+                                text = localizedCatalogText(artist.name),
                                 color = colors.textPrimary,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
@@ -306,7 +308,7 @@ fun TrackInfoScreen(
                             }
                         }
                         Text(
-                            text = album.title,
+                            text = localizedCatalogText(album.title),
                             color = colors.textPrimary,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
