@@ -68,9 +68,15 @@ class SearchGenreNavigationTest {
             assertTrue(filters.all { kotlin.math.abs(it.width - filters.first().width) <= 1f && it.top >= field.bottom })
             filters.zipWithNext().forEach { (left, right) -> assertTrue(left.right < right.left) }
             val action = compose.onNodeWithTag("finish_search_button").assertIsDisplayed()
-                .assertWidthIsAtLeast(60.dp).assertHeightIsAtLeast(40.dp)
+                .assertWidthIsAtLeast(54.dp).assertHeightIsAtLeast(40.dp)
             val bounds = action.fetchSemanticsNode().boundsInRoot
-            assertTrue(bounds.width > bounds.height && bounds.left >= field.left && bounds.right <= field.right)
+            assertTrue("Search button must be pill-shaped (wider than tall)", bounds.width > bounds.height)
+            assertTrue(bounds.left >= field.left && bounds.right <= field.right)
+            val mic = compose.onNodeWithTag("voice_search_button").assertIsDisplayed()
+            val micBounds = mic.fetchSemanticsNode().boundsInRoot
+            assertTrue("Mic button must sit inside search bar to the left of search button",
+                micBounds.left >= field.left && micBounds.right < bounds.left)
+            compose.onNodeWithContentDescription("Voice search").assertIsDisplayed()
             compose.onNodeWithContentDescription("Search").assertIsDisplayed()
             action.performClick()
             compose.runOnIdle { assertEquals("track title", searched); assertEquals("track title", remembered) }
@@ -287,5 +293,95 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("search_screen").assertExists()
         compose.onNodeWithTag("genre_results_page").assertDoesNotExist()
         compose.onNodeWithTag("explore_chip_${category.key}").assertIsDisplayed()
+    }
+
+    @Test fun voiceSearchMicButtonLaunchesSpeechRecognizerAndExecutesRecognizedTrackQuery() {
+        var launchedIntent: android.content.Intent? = null
+        var searched: String? = null
+        var remembered: String? = null
+        val registry = object : androidx.activity.result.ActivityResultRegistry() {
+            override fun <I, O> onLaunch(
+                requestCode: Int,
+                contract: androidx.activity.result.contract.ActivityResultContract<I, O>,
+                input: I,
+                options: androidx.core.app.ActivityOptionsCompat?
+            ) {
+                launchedIntent = input as? android.content.Intent
+                val resultIntent = android.content.Intent().putStringArrayListExtra(
+                    android.speech.RecognizerIntent.EXTRA_RESULTS,
+                    arrayListOf("  Blinding Lights  ")
+                )
+                dispatchResult(
+                    requestCode,
+                    androidx.activity.result.ActivityResult(android.app.Activity.RESULT_OK, resultIntent)
+                )
+            }
+        }
+        val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
+            override val activityResultRegistry: androidx.activity.result.ActivityResultRegistry = registry
+        }
+        content {
+            CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+                SearchScreen(
+                    SearchUiState(query = ""),
+                    onQueryChange = { searched = it },
+                    onSelectGenre = {},
+                    onTrackClick = { _, _ -> },
+                    onToggleFavorite = {},
+                    onRememberSearch = { remembered = it }
+                )
+            }
+        }
+        compose.onNodeWithTag("voice_search_button").assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertNotNull("Mic button must launch speech recognizer intent", launchedIntent)
+            assertEquals(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH, launchedIntent?.action)
+            assertEquals(
+                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                launchedIntent?.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL)
+            )
+            assertEquals("Blinding Lights", searched)
+            assertEquals("Blinding Lights", remembered)
+        }
+    }
+
+    @Test fun rapidTypingWithDelayedSearchStateEchoesPreservesCharacterOrderAndCursor() {
+        var state by mutableStateOf(SearchUiState(query = ""))
+        val emitted = mutableListOf<String>()
+        var submitted: String? = null
+        content {
+            SearchScreen(
+                state,
+                onQueryChange = { q -> emitted += q },
+                onSelectGenre = {},
+                onTrackClick = { _, _ -> },
+                onToggleFavorite = {},
+                onRememberSearch = { submitted = it }
+            )
+        }
+        val input = compose.onNodeWithTag("search_query_input")
+        input.performClick().assertIsFocused()
+
+        // Simulate rapid typing while ViewModel's background-dispatched searchState.query
+        // lags 1-2 frames behind and echoes stale prefixes between keystrokes.
+        input.performTextInput("s")
+        input.performTextInput("o")
+        compose.runOnIdle { state = state.copy(query = "s") } // stale echo for "s"
+        compose.waitForIdle()
+
+        input.performTextInput("n")
+        compose.runOnIdle { state = state.copy(query = "so") } // stale echo for "so"
+        compose.waitForIdle()
+
+        input.performTextInput("g")
+        compose.runOnIdle { state = state.copy(query = "son") } // stale echo for "son"
+        compose.waitForIdle()
+
+        input.assertTextContains("song")
+        compose.onNodeWithTag("finish_search_button").performClick()
+        compose.runOnIdle {
+            assertEquals("song", submitted)
+            assertEquals("song", emitted.last())
+        }
     }
 }

@@ -6,13 +6,21 @@ import androidx.compose.ui.res.stringResource
 
 import com.example.ui.util.localizedCatalogText
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.res.Configuration
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import com.example.ui.util.landscapeContentBounds
 
 import com.example.ui.components.VisibleCircularProgressIndicator
-
-import androidx.activity.compose.BackHandler
+import java.util.Locale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,6 +66,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -102,8 +111,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -422,7 +433,46 @@ fun SearchScreen(
         }
     }
 
-    val hasQuery = searchState.query.isNotBlank()
+    var queryFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = searchState.query,
+                selection = TextRange(searchState.query.length)
+            )
+        )
+    }
+    val pendingLocalQueries = remember { ArrayDeque<String>() }
+    var lastExternalQuery by remember { mutableStateOf(searchState.query) }
+    if (searchState.query != lastExternalQuery) {
+        val external = searchState.query
+        lastExternalQuery = external
+        val pendingIndex = pendingLocalQueries.indexOf(external)
+        if (pendingIndex >= 0) {
+            repeat(pendingIndex + 1) { pendingLocalQueries.removeFirst() }
+        } else if (external != queryFieldValue.text) {
+            pendingLocalQueries.clear()
+            queryFieldValue = TextFieldValue(
+                text = external,
+                selection = TextRange(external.length)
+            )
+        }
+    }
+
+    val dispatchTypedQuery: (String) -> Unit = { text ->
+        if (pendingLocalQueries.size >= 32) pendingLocalQueries.removeFirst()
+        pendingLocalQueries.addLast(text)
+        onQueryChange(text)
+    }
+    val setExplicitQuery: (String) -> Unit = { text ->
+        pendingLocalQueries.clear()
+        queryFieldValue = TextFieldValue(text = text, selection = TextRange(text.length))
+        if (text != searchState.query) {
+            pendingLocalQueries.addLast(text)
+        }
+        onQueryChange(text)
+    }
+
+    val hasQuery = queryFieldValue.text.isNotBlank() || searchState.query.isNotBlank()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isGenreActive = searchState.selectedExploreCategory != null || !searchState.selectedGenre.equals("All", ignoreCase = true)
     val exploreVisibilityChanged by rememberUpdatedState(onExploreVisibilityChanged)
@@ -491,7 +541,7 @@ fun SearchScreen(
         } else if (selectedTypeFilter != null) {
             onSelectType("All")
         } else if (hasQuery) {
-            onQueryChange("")
+            setExplicitQuery("")
         }
     }
 
@@ -521,7 +571,27 @@ fun SearchScreen(
         focusManager.clearFocus()
         if (clean.isNotEmpty()) {
             onRememberSearch(clean)
-            onQueryChange(clean)
+            setExplicitQuery(clean)
+        }
+    }
+
+    val context = LocalContext.current
+    val voicePrompt = stringResource(R.string.voice_search_prompt)
+    val voiceUnavailableText = stringResource(R.string.voice_search_unavailable)
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        extractVoiceSearchQuery(result.resultCode, result.data)?.let(triggerSearch)
+    }
+    val launchVoiceSearch: () -> Unit = {
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        try {
+            voiceSearchLauncher.launch(buildVoiceSearchIntent(voicePrompt))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, voiceUnavailableText, Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(context, voiceUnavailableText, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -563,14 +633,19 @@ fun SearchScreen(
         item(key = "search_input", contentType = "search_input") {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp)) {
                 OutlinedTextField(
-                    value = searchState.query,
-                    onValueChange = { newText ->
-                        if (newText.contains('\n')) {
+                    value = queryFieldValue,
+                    onValueChange = { newValue ->
+                        val previousText = queryFieldValue.text
+                        if (newValue.text.contains('\n')) {
+                            val clean = newValue.text.replace("\n", "").trim()
                             keyboardController?.hide()
                             focusManager.clearFocus()
-                            onQueryChange(newText.replace("\n", "").trim())
+                            setExplicitQuery(clean)
                         } else {
-                            onQueryChange(newText)
+                            queryFieldValue = newValue
+                            if (newValue.text != previousText) {
+                                dispatchTypedQuery(newValue.text)
+                            }
                         }
                     },
                     placeholder = {
@@ -594,13 +669,16 @@ fun SearchScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                             } else if (hasQuery) {
-                                IconButton(
-                                    onClick = { 
-                                        onQueryChange("") 
-                                        keyboardController?.hide()
-                                        focusManager.clearFocus()
-                                    },
-                                    modifier = Modifier.size(26.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            setExplicitQuery("")
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
+                                        },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Clear,
@@ -609,14 +687,30 @@ fun SearchScreen(
                                         modifier = Modifier.size(15.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
                             }
 
-                            // Wide pill-shaped 3D clear water glass search action button (icon only)
-                            val searchPillShape = CircleShape
+                            // Icon-only voice search mic button directly in the search bar (no background)
+                            IconButton(
+                                onClick = launchVoiceSearch,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("voice_search_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = stringResource(R.string.voice_search),
+                                    tint = if (appColors.isDark) Color.White.copy(alpha = 0.85f) else appColors.textMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            // Pill-shaped 3D clear water glass search action button (icon only)
+                            val searchButtonShape = CircleShape
                             val isSearchActive = hasQuery
 
-                            val searchPillBrush = if (!appColors.dynamicGlassEnabled) {
+                            val searchButtonBrush = if (!appColors.dynamicGlassEnabled) {
                                 Brush.verticalGradient(listOf(appColors.cardBackground, appColors.cardBackground))
                             } else if (isSearchActive) {
                                 Brush.verticalGradient(
@@ -629,7 +723,7 @@ fun SearchScreen(
                                 LiquidGlass.miniPlayerAndBottomBarBrush(appColors)
                             }
 
-                            val searchPillBorder = BorderStroke(
+                            val searchButtonBorder = BorderStroke(
                                 1.2.dp,
                                 if (!appColors.dynamicGlassEnabled) {
                                     Brush.verticalGradient(listOf(appColors.cardBorder, appColors.cardBorder))
@@ -647,13 +741,14 @@ fun SearchScreen(
 
                             Box(
                                 modifier = Modifier
-                                    .size(width = 64.dp, height = 40.dp)
-                                    .clip(searchPillShape)
-                                    .background(searchPillBrush)
-                                    .border(searchPillBorder, searchPillShape)
+                                    .size(width = 56.dp, height = 40.dp)
+                                    .clip(searchButtonShape)
+                                    .background(searchButtonBrush)
+                                    .border(searchButtonBorder, searchButtonShape)
                                     .clickable {
-                                        if (searchState.query.isNotBlank()) {
-                                            triggerSearch(searchState.query)
+                                        val activeText = queryFieldValue.text
+                                        if (activeText.isNotBlank()) {
+                                            triggerSearch(activeText)
                                         } else {
                                             keyboardController?.hide()
                                             focusManager.clearFocus()
@@ -680,13 +775,13 @@ fun SearchScreen(
                     ),
                     keyboardActions = KeyboardActions(
                         onSearch = {
-                            triggerSearch(searchState.query)
+                            triggerSearch(queryFieldValue.text)
                         },
                         onDone = {
-                            triggerSearch(searchState.query)
+                            triggerSearch(queryFieldValue.text)
                         },
                         onGo = {
-                            triggerSearch(searchState.query)
+                            triggerSearch(queryFieldValue.text)
                         }
                     ),
                     singleLine = true,
@@ -1583,3 +1678,20 @@ private fun <T> orderExplorePills(items: List<Pair<String, T>>): List<Pair<Strin
 
     return sortedTop + middleItems + sortedBottom
 }
+
+internal fun buildVoiceSearchIntent(prompt: String): Intent =
+    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+    }
+
+internal fun extractVoiceSearchQuery(resultCode: Int, data: Intent?): String? {
+    if (resultCode != Activity.RESULT_OK) return null
+    return data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        ?.firstOrNull { !it.isNullOrBlank() }
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+

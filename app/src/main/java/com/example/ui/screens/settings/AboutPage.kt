@@ -233,7 +233,6 @@ fun AboutPage(
                 val context = LocalContext.current
                 val updateStatus by com.example.updater.AppUpdateManager.updateStatus.collectAsStateWithLifecycle()
                 val downloadProgress by com.example.updater.AppUpdateManager.downloadProgress.collectAsStateWithLifecycle()
-                var showReleaseNotesDialog by remember { mutableStateOf(false) }
 
                 val isChecking = updateStatus is com.example.updater.UpdateStatus.Checking
                 val isDownloading = updateStatus is com.example.updater.UpdateStatus.Downloading
@@ -241,24 +240,19 @@ fun AboutPage(
                 val isReadyToInstall = updateStatus is com.example.updater.UpdateStatus.ReadyToInstall
                 val availableInfo = (updateStatus as? com.example.updater.UpdateStatus.UpdateAvailable)?.updateInfo
 
-                val releaseNotes = availableInfo?.let {
-                    it.releaseNotes + if (it.sha256 == null)
-                        "\n\nNo trusted SHA-256 checksum is published. Package and signing compatibility will still be checked."
-                    else "\n\nThe published SHA-256 checksum will be verified."
-                }.orEmpty()
-
                 Surface(
                     onClick = {
                         when (val status = updateStatus) {
-                            is com.example.updater.UpdateStatus.UpdateAvailable -> {
-                                showReleaseNotesDialog = true
+                            is com.example.updater.UpdateStatus.UpdateAvailable,
+                            is com.example.updater.UpdateStatus.Downloading -> {
+                                com.example.updater.AppUpdateManager.showUpdatePopup()
                             }
                             is com.example.updater.UpdateStatus.ReadyToInstall -> {
+                                com.example.updater.AppUpdateManager.showUpdatePopup()
                                 com.example.updater.AppUpdateManager.installDownloadedApk(context, status.apkFile)
                             }
-                            is com.example.updater.UpdateStatus.Checking,
-                            is com.example.updater.UpdateStatus.Downloading -> {
-                                // Already in progress
+                            is com.example.updater.UpdateStatus.Checking -> {
+                                // Already checking
                             }
                             else -> {
                                 com.example.updater.AppUpdateManager.checkForUpdate(
@@ -330,13 +324,15 @@ fun AboutPage(
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = appColors.textPrimary
+                                        color = appColors.textPrimary,
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = "$downloadProgress%",
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = accentColor
+                                        color = LiquidGlass.lightContentColor(appColors, accentColor)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -355,7 +351,7 @@ fun AboutPage(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = appColors.onPrimaryAccent,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -363,7 +359,7 @@ fun AboutPage(
                                     text = "Install Update",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = appColors.onPrimaryAccent
                                 )
                             }
                         } else if (isAvailable && availableInfo != null) {
@@ -371,15 +367,15 @@ fun AboutPage(
                                 Icon(
                                     imageVector = Icons.Default.Download,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = appColors.onPrimaryAccent,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Download Update v${availableInfo.versionName}",
+                                    text = "Update Available v${availableInfo.versionName}",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = appColors.onPrimaryAccent
                                 )
                             }
                         } else {
@@ -402,108 +398,6 @@ fun AboutPage(
                             }
                         }
                     }
-                }
-
-                // Modal Dialog for Update Available with Release Notes
-                if (showReleaseNotesDialog && availableInfo != null) {
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { showReleaseNotesDialog = false },
-                        containerColor = appColors.cardBackgroundElevated,
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = null,
-                                    tint = LiquidGlass.lightContentColor(appColors, accentColor),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Update Available",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = appColors.textPrimary
-                                )
-                            }
-                        },
-                        text = {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "Version v${availableInfo.versionName} is available to download.",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = appColors.textPrimary
-                                )
-                                if (availableInfo.releaseTitle.isNotBlank() && availableInfo.releaseTitle != availableInfo.versionName) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = availableInfo.releaseTitle,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = accentColor
-                                    )
-                                }
-                                if (releaseNotes.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        text = "Release Notes:",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = appColors.textMuted
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(140.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(if (appColors.isDark) Color.Black.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.05f))
-                                            .padding(10.dp)
-                                            .verticalScroll(rememberScrollState())
-                                    ) {
-                                        Text(
-                                            text = releaseNotes,
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp,
-                                            color = appColors.textSecondary
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            com.example.ui.theme.AccentButton(
-                                onClick = {
-                                    showReleaseNotesDialog = false
-                                    com.example.updater.AppUpdateManager.downloadAndInstallUpdate(context, availableInfo)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = accentColor,
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = "Download Now",
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        },
-                        dismissButton = {
-                            androidx.compose.material3.TextButton(
-                                onClick = { showReleaseNotesDialog = false }
-                            ) {
-                                Text(
-                                    text = "Later",
-                                    color = appColors.textMuted
-                                )
-                            }
-                        }
-                    )
                 }
 
                 HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))

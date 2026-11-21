@@ -2836,44 +2836,52 @@ internal fun Modifier.headerArtworkEdgeBlend(
     bottomMargin: Float = 0.02f
 ): Modifier = graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithCache {
-        // Confine the upper and lower blending transitions strictly to 10% each,
-        // leaving the central 80% completely unshaded and fully opaque (alpha = 1.0f).
-        val effectiveTopFade = topFade.coerceIn(0.02f, 0.30f)
-        val effectiveBottomFade = bottomFade.coerceIn(0.02f, 0.30f)
-        val mTop = topMargin.coerceIn(0f, effectiveTopFade * 0.3f)
-        val mBottom = bottomMargin.coerceIn(0f, effectiveBottomFade * 0.3f)
+        // Confine active upper/lower blending transitions to their configured edges,
+        // leaving the unblended region completely unshaded and fully opaque (alpha = 1.0f).
+        val effectiveTopFade = if (topFade <= 0f) 0f else topFade.coerceIn(0.02f, 0.30f)
+        val effectiveBottomFade = if (bottomFade <= 0f) 0f else bottomFade.coerceIn(0.02f, 0.30f)
+        val mTop = if (effectiveTopFade <= 0f) 0f else topMargin.coerceIn(0f, effectiveTopFade * 0.3f)
+        val mBottom = if (effectiveBottomFade <= 0f) 0f else bottomMargin.coerceIn(0f, effectiveBottomFade * 0.3f)
         val fadeTopRange = effectiveTopFade - mTop
         val fadeBottomRange = effectiveBottomFade - mBottom
         val bottomFadeStart = 1f - effectiveBottomFade
 
         val stops = ArrayList<Pair<Float, Color>>(60)
-        // 1. Upper blend: 0f to effectiveTopFade (0.00f -> 0.10f)
-        if (mTop > 0f) {
-            stops += 0f to Color.Transparent
-            stops += mTop to Color.Transparent
-        }
-        for (i in 0..20) {
-            val t = i / 20f
-            val alpha = t * t * (3f - 2f * t)
-            val pos = mTop + t * fadeTopRange
-            stops += pos to Color.White.copy(alpha = alpha)
+        // 1. Upper blend (when enabled): 0f to effectiveTopFade
+        if (effectiveTopFade > 0f) {
+            if (mTop > 0f) {
+                stops += 0f to Color.Transparent
+                stops += mTop to Color.Transparent
+            }
+            for (i in 0..20) {
+                val t = i / 20f
+                val alpha = t * t * (3f - 2f * t)
+                val pos = mTop + t * fadeTopRange
+                stops += pos to Color.White.copy(alpha = alpha)
+            }
+            stops += effectiveTopFade to Color.White
+        } else {
+            stops += 0f to Color.White
         }
 
-        // 2. Central 80% plateau: explicitly 100% solid white, no unintended darkening or transparency
-        stops += effectiveTopFade to Color.White
+        // 2. Central opaque plateau: explicitly 100% solid white, no unintended darkening or transparency
         stops += bottomFadeStart to Color.White
 
-        // 3. Lower blend: bottomFadeStart to 1.0f (0.90f -> 1.00f)
-        for (i in 0..20) {
-            val t = i / 20f
-            val alpha = 1f - t * t * (3f - 2f * t)
-            val pos = bottomFadeStart + t * fadeBottomRange
-            stops += pos to Color.White.copy(alpha = alpha)
-        }
-        if (mBottom > 0f) {
-            val bottomMarginStart = 1f - mBottom
-            stops += bottomMarginStart to Color.Transparent
-            stops += 1f to Color.Transparent
+        // 3. Lower blend (when enabled): bottomFadeStart to 1.0f
+        if (effectiveBottomFade > 0f) {
+            for (i in 0..20) {
+                val t = i / 20f
+                val alpha = 1f - t * t * (3f - 2f * t)
+                val pos = bottomFadeStart + t * fadeBottomRange
+                stops += pos to Color.White.copy(alpha = alpha)
+            }
+            if (mBottom > 0f) {
+                val bottomMarginStart = 1f - mBottom
+                stops += bottomMarginStart to Color.Transparent
+                stops += 1f to Color.Transparent
+            }
+        } else {
+            stops += 1f to Color.White
         }
 
         val edges = Brush.verticalGradient(*stops.toTypedArray(), startY = 0f, endY = size.height)

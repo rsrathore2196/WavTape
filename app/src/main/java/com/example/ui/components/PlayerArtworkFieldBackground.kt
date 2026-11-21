@@ -20,25 +20,39 @@ import androidx.compose.ui.unit.IntSize
 import com.example.ui.util.ArtworkColorField
 import kotlin.math.roundToInt
 
-/** Retain the previous prepared texture until the next one is ready; animate only its opacity. */
+/** Retain the previous prepared textures until the next ones are ready; animate only their opacity. */
 @Composable
 internal fun PlayerArtworkFieldBackground(field: ArtworkColorField, artworkBounds: State<Rect?>?, modifier: Modifier = Modifier) {
-    val image = remember(field) {
+    val coverImage = remember(field) {
         Bitmap.createBitmap(field.pixels, field.dimension, field.dimension, Bitmap.Config.ARGB_8888).asImageBitmap()
     }
-    var shown by remember { mutableStateOf(image) }
-    var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
+    val bottomImage = remember(field) {
+        Bitmap.createBitmap(field.bottomPixels, field.dimension, field.dimension, Bitmap.Config.ARGB_8888).asImageBitmap()
+    }
+    var shownCover by remember { mutableStateOf(coverImage) }
+    var shownBottom by remember { mutableStateOf(bottomImage) }
+    var incomingCover by remember { mutableStateOf<ImageBitmap?>(null) }
+    var incomingBottom by remember { mutableStateOf<ImageBitmap?>(null) }
     val opacity = remember { Animatable(0f) }
     val origin = remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(image) {
-        incoming?.let { shown = it }
-        incoming = null
-        if (shown === image) return@LaunchedEffect
-        incoming = image
+    LaunchedEffect(coverImage, bottomImage) {
+        val prevCover = incomingCover
+        val prevBottom = incomingBottom
+        if (prevCover != null && prevBottom != null) {
+            shownCover = prevCover
+            shownBottom = prevBottom
+        }
+        incomingCover = null
+        incomingBottom = null
+        if (shownCover === coverImage && shownBottom === bottomImage) return@LaunchedEffect
+        incomingCover = coverImage
+        incomingBottom = bottomImage
         opacity.snapTo(0f)
         opacity.animateTo(1f, tween(380))
-        shown = image
-        incoming = null
+        shownCover = coverImage
+        shownBottom = bottomImage
+        incomingCover = null
+        incomingBottom = null
     }
     Canvas(modifier.fillMaxSize().onGloballyPositioned { origin.value = it.positionInRoot() }) {
         val bounds = artworkBounds?.value
@@ -46,18 +60,42 @@ internal fun PlayerArtworkFieldBackground(field: ArtworkColorField, artworkBound
         val bottom = ((bounds?.bottom ?: (origin.value.y + size.height)) - origin.value.y).roundToInt()
             .coerceIn(top, size.height.roundToInt())
         clipRect {
-            drawArtworkField(shown, top, bottom, 1f)
-            incoming?.let { drawArtworkField(it, top, bottom, opacity.value) }
+            drawArtworkField(shownCover, shownBottom, top, bottom, 1f)
+            val nextCover = incomingCover
+            val nextBottom = incomingBottom
+            if (nextCover != null && nextBottom != null) {
+                drawArtworkField(nextCover, nextBottom, top, bottom, opacity.value)
+            }
         }
     }
 }
 
-private fun DrawScope.drawArtworkField(image: ImageBitmap, top: Int, bottom: Int, alpha: Float) {
+private fun DrawScope.drawArtworkField(
+    coverImage: ImageBitmap,
+    bottomImage: ImageBitmap,
+    top: Int,
+    bottom: Int,
+    alpha: Float
+) {
     val width = size.width.roundToInt().coerceAtLeast(1)
-    if (top > 0) drawImage(image, srcOffset = IntOffset.Zero, srcSize = IntSize(image.width, 1),
-        dstSize = IntSize(width, top), alpha = alpha)
-    if (bottom > top) drawImage(image, dstOffset = IntOffset(0, top), dstSize = IntSize(width, bottom - top), alpha = alpha)
+    if (top > 0) drawImage(
+        coverImage,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(coverImage.width, 1),
+        dstSize = IntSize(width, top),
+        alpha = alpha
+    )
+    if (bottom > top) drawImage(
+        coverImage,
+        dstOffset = IntOffset(0, top),
+        dstSize = IntSize(width, bottom - top),
+        alpha = alpha
+    )
     val remaining = size.height.roundToInt() - bottom
-    if (remaining > 0) drawImage(image, srcOffset = IntOffset(0, image.height - 1), srcSize = IntSize(image.width, 1),
-        dstOffset = IntOffset(0, bottom), dstSize = IntSize(width, remaining), alpha = alpha)
+    if (remaining > 0) drawImage(
+        bottomImage,
+        dstOffset = IntOffset(0, bottom),
+        dstSize = IntSize(width, remaining),
+        alpha = alpha
+    )
 }

@@ -10,9 +10,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.sp
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AppThemeMode
 import com.example.playback.AudioEffectsState
@@ -101,6 +104,22 @@ class SettingsScrollingUiTest {
         compose.onNodeWithTag("settings_cat_about").assertIsDisplayed().performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("settings_page_ABOUT").assertIsDisplayed()
+    }
+
+    @Test fun subSettingsHeaderTitleAndDescriptionAreScaledUpByTwentyFivePercent() {
+        showSettings()
+        compose.onNodeWithTag("settings_cat_about").performScrollTo().performClick()
+        compose.waitForIdle()
+        val titleLayouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("settings_subpage_title")
+            .assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLayouts) }
+        val subtitleLayouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("settings_subpage_subtitle")
+            .assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(subtitleLayouts) }
+        assertEquals(27.5.sp, titleLayouts.single().layoutInput.style.fontSize)
+        assertEquals(14.375.sp, subtitleLayouts.single().layoutInput.style.fontSize)
     }
 
     private fun assertLastRowClearsDock() {

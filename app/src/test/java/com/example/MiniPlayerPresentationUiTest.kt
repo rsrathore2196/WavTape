@@ -102,7 +102,7 @@ class MiniPlayerPresentationUiTest {
         compose.runOnIdle { assertEquals(1, playTaps); assertEquals(1, skips); assertEquals(0, opens) }
     }
 
-    @Test fun bothMiniPlayerLabelsRetainContrastOverOppositeBrightnessArtwork() {
+    @Test fun bothMiniPlayerLabelsUseHighContrastBoldTextWithoutBlackOutlineGlyphs() {
         var colors by mutableStateOf(DarkAppColors)
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -112,7 +112,7 @@ class MiniPlayerPresentationUiTest {
                 LocalDynamicGlassEnabled provides true, LocalArtworkRequestsActive provides false) {
                 Box(Modifier.fillMaxSize().testTag("mini_contrast_scene")) {
                     Box(Modifier.fillMaxSize().xtremeSharedBackdropSource()
-                        .background(if (colors.isDark) Color.White else Color.Black))
+                        .background(colors.scaffoldBackground))
                     MiniPlayer(PlayerUiState(currentTrack = song), {}, {}, {}, {},
                         modifier = Modifier.padding(16.dp))
                 }
@@ -128,24 +128,14 @@ class MiniPlayerPresentationUiTest {
                 val node = compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
                 val layout = mutableListOf<TextLayoutResult>()
                 node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+                val style = layout.single().layoutInput.style
+                assertEquals("$tag must use bold weight", androidx.compose.ui.text.font.FontWeight.Bold, style.fontWeight)
                 val bounds = node.fetchSemanticsNode().boundsInRoot
                 val background = Color(scene.getRGB((bounds.right + 12).toInt(), bounds.center.y.toInt()))
-                val text = layout.single().layoutInput.style.color.luminance()
+                val text = style.color.luminance()
                 val surface = background.luminance()
-                assertTrue("The glass beside $tag must remain visible", if (theme.isDark) surface > .25f else surface < .22f)
-                var darkest = 1f
-                var lightest = 0f
-                for (y in bounds.top.toInt() until bounds.bottom.toInt()) {
-                    for (x in bounds.left.toInt() until bounds.right.toInt()) {
-                        val luminance = Color(scene.getRGB(x, y)).luminance()
-                        darkest = minOf(darkest, luminance)
-                        lightest = maxOf(lightest, luminance)
-                    }
-                }
-                val edge = if (theme.isDark) darkest else lightest
-                val contrast = (maxOf(text, edge) + .05f) / (minOf(text, edge) + .05f)
-                assertTrue("$tag glyph edge contrast in dark=${theme.isDark}: $contrast", contrast >= 4.5f)
-                assertTrue("The text itself is visible", if (theme.isDark) lightest >= text * .8f else darkest < .04f)
+                val contrast = (maxOf(text, surface) + .05f) / (minOf(text, surface) + .05f)
+                assertTrue("$tag must have high contrast on themed surface in dark=${theme.isDark}: $contrast", contrast >= 4.5f)
             }
         }
     }

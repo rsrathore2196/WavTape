@@ -52,5 +52,46 @@ class ArtworkColorFieldTest {
             assertEquals(1f, color.alpha, 0f)
             assertTrue("Background must support white controls: $color", color.luminance() <= .18f)
         }
+        for (pixel in first.bottomPixels) {
+            val color = Color(pixel)
+            assertEquals(1f, color.alpha, 0f)
+            assertTrue("Bottom field must support white controls: $color", color.luminance() <= .18f)
+        }
+    }
+
+    @Test fun bottomFieldMergesSeamlesslyWithCoverBottomRowAndAdaptsMultipleArtworkColors() {
+        // Multi-color album art (warm red-orange left, rich teal-blue right) with a dark bottom edge.
+        val w = 120
+        val h = 120
+        val pixels = IntArray(w * h) { index ->
+            val x = index % w
+            val y = index / w
+            when {
+                y >= h - 10 -> 0xff0d0d12.toInt()
+                x < w / 2 -> 0xffd84315.toInt()
+                else -> 0xff00838f.toInt()
+            }
+        }
+        val field = extractPlayerArtworkColors(pixels, w, h)!!.colorField!!
+        val dim = field.dimension
+        assertEquals(dim * dim, field.bottomPixels.size)
+
+        // Row 0 of bottomPixels must be bit-for-bit identical to the final row of pixels -> zero seam.
+        for (x in 0 until dim) {
+            assertEquals(
+                "Bottom field top row must match cover field bottom row at x=$x",
+                field.pixels[(dim - 1) * dim + x],
+                field.bottomPixels[x]
+            )
+        }
+
+        // Lower region of bottomPixels must bloom multiple distinct hues extracted from the artwork
+        // rather than repeating only the dark bottom edge row vertically.
+        val lowerRow = dim * (dim * 2 / 3)
+        val lowerLeft = Color(field.bottomPixels[lowerRow + 4])
+        val lowerRight = Color(field.bottomPixels[lowerRow + dim - 5])
+        assertTrue("Left bottom field must carry warm red artwork color: $lowerLeft", lowerLeft.red > lowerLeft.blue * 1.4f)
+        assertTrue("Right bottom field must carry cool teal/blue artwork color: $lowerRight", lowerRight.blue > lowerRight.red * 1.4f)
+        assertNotEquals("Bottom field must transition beyond its top seam row", field.bottomPixels[4], field.bottomPixels[lowerRow + 4])
     }
 }

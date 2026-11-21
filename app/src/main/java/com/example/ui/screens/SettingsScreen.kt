@@ -325,7 +325,7 @@ private fun SettingsTopBar(
             .fillMaxWidth()
             .padding(
                 horizontal = 20.dp,
-                vertical = if (isMainSettings) 16.dp else 12.dp
+                vertical = if (isMainSettings) 16.dp else 10.dp
             )
     ) {
         Row(
@@ -336,17 +336,21 @@ private fun SettingsTopBar(
                 Text(
                     text = subPageTitle ?: (selectedCategory?.localizedTitle() ?: stringResource(R.string.nav_settings)),
                     fontWeight = if (isMainSettings) FontWeight.Black else FontWeight.Bold,
-                    fontSize = if (isMainSettings) 34.sp else 22.sp,
-                    letterSpacing = if (isMainSettings) (-0.8).sp else (-0.2).sp,
+                    fontSize = if (isMainSettings) 34.sp else 27.5.sp,
+                    lineHeight = if (isMainSettings) 40.sp else 33.sp,
+                    letterSpacing = if (isMainSettings) (-0.8).sp else (-0.4).sp,
                     color = appColors.textPrimary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (!isMainSettings) Modifier.testTag("settings_subpage_title") else Modifier
                 )
                 if (!isMainSettings) {
                     Text(
                         text = subPageSubtitle ?: "Tap to customize options",
-                        fontSize = 11.5.sp,
-                        color = appColors.textMuted
+                        fontSize = 14.375.sp,
+                        lineHeight = 19.sp,
+                        color = appColors.textMuted,
+                        modifier = Modifier.testTag("settings_subpage_subtitle")
                     )
                 }
             }

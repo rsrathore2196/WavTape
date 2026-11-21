@@ -200,6 +200,7 @@ fun LibraryScreen(
             onBackClick = { likedOpen = false }, onPlayTrack = onTrackClick, onToggleFavorite = onToggleFavorite,
             onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = likedScroll,
             artworkIcon = Icons.Default.Favorite, artworkBrush = likedSongsArtworkBrush(),
+            blendTopArtworkEdge = false,
             downloadCollectionKey = "library:liked", downloadStore = downloadStore) }
         return
     }

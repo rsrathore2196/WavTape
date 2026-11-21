@@ -127,7 +127,8 @@ fun PlaylistDetailScreen(
     menuMode: TrackRowMenuMode = if (readOnly) TrackRowMenuMode.STANDARD else TrackRowMenuMode.CUSTOM_PLAYLIST,
     onRemoveTrackRequest: ((MusicTrack) -> Unit)? = null,
     onTrackInfo: ((MusicTrack) -> Unit)? = null,
-    showHeaderArtwork: Boolean = true
+    showHeaderArtwork: Boolean = true,
+    blendTopArtworkEdge: Boolean = true
 ) {
     val playlist = playlistWithTracks.playlist
     val tracks = playlistWithTracks.musicTracks
@@ -362,7 +363,12 @@ fun PlaylistDetailScreen(
                         ) {
                             val artworkModifier = Modifier.fillMaxWidth().aspectRatio(1f)
                                 .testTag("playlist_profile_artwork")
-                                .headerArtworkEdgeBlend(topFade = 0.10f, bottomFade = 0.10f, topMargin = 0.01f, bottomMargin = 0.02f)
+                                .headerArtworkEdgeBlend(
+                                    topFade = if (blendTopArtworkEdge) 0.10f else 0f,
+                                    bottomFade = 0.10f,
+                                    topMargin = if (blendTopArtworkEdge) 0.01f else 0f,
+                                    bottomMargin = 0.02f
+                                )
                             if (artworkIcon != null) LibraryCollectionArtwork(artworkIcon, artworkModifier, artworkBrush ?: downloadsArtworkBrush())
                             else AsyncImage(model = rememberPlaylistCoverRequest(playlist.coverUrl, 1200),
                                 contentDescription = title, contentScale = ContentScale.Fit, modifier = artworkModifier)

@@ -640,8 +640,8 @@ fun MainNavigationScaffold(
                     }
                 )
 
-                // Floating 3D Liquid Glass Auto-Update Pop-up Bar at top of main screen
-                if (!isPlayerExpanded && !isSettingsSubpageOpen) {
+                // Floating 3D Liquid Glass Auto-Update Pop-up Dialog
+                if (!isPlayerExpanded) {
                     UpdateNotificationBar(
                         modifier = Modifier
                             .align(Alignment.TopCenter)

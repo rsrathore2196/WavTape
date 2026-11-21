@@ -139,6 +139,7 @@ fun LibraryDownloadsScreen(
                 onToggleFavorite = { track -> onToggleFavorite((store.records.value[track.id]?.track ?: track).copy(isLiked = track.isLiked)) },
                 onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = listState,
                 showDownloadAction = false, artworkIcon = Icons.Default.Download, artworkBrush = downloadsArtworkBrush(),
+                blendTopArtworkEdge = false,
                 collectionLabel = "OFFLINE COLLECTION", emptyTitle = "No downloads yet",
                 emptyDescription = "Download songs from their track menu to listen here without internet.",
                 menuMode = TrackRowMenuMode.DOWNLOADS,

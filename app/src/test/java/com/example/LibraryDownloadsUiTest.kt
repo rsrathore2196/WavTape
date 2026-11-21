@@ -262,6 +262,48 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithTag("download_collection").assertDoesNotExist()
     }
 
+    @Test fun likedSongsAndDownloadsHeaderArtworkStartsCleanlyFromTopWithoutBlackFade() {
+        save("downloaded-song", 1)
+        showLibrary(DarkAppColors)
+
+        // Liked Songs portrait header artwork top row must show purple/pink artwork, not black fade
+        compose.onNodeWithTag("open_liked_songs").performClick()
+        awaitCollection()
+        val likedFile = File.createTempFile("liked-top-art-", ".png")
+        val likedImage = try {
+            compose.onNodeWithTag("playlist_profile_artwork").captureRoboImage(
+                likedFile.absolutePath,
+                roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record)
+            )
+            javax.imageio.ImageIO.read(likedFile)
+        } finally { likedFile.delete() }
+        val likedTop = java.awt.Color(likedImage.getRGB(likedImage.width / 2, 0))
+        val likedMid = java.awt.Color(likedImage.getRGB(likedImage.width / 2, likedImage.height / 4))
+        assertTrue("Liked Songs top edge must not be black/faded (got $likedTop)", likedTop.red > 80 || likedTop.blue > 120)
+        assertTrue("Liked Songs top edge should stay close to full artwork luminance",
+            kotlin.math.abs(likedTop.blue - likedMid.blue) < 90)
+
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithTag("library_screen").assertExists()
+
+        // Downloads portrait header artwork top row must show teal/blue artwork, not black fade
+        compose.onNodeWithTag("open_downloads").performClick()
+        awaitDownloads()
+        val downloadsFile = File.createTempFile("downloads-top-art-", ".png")
+        val downloadsImage = try {
+            compose.onNodeWithTag("playlist_profile_artwork").captureRoboImage(
+                downloadsFile.absolutePath,
+                roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record)
+            )
+            javax.imageio.ImageIO.read(downloadsFile)
+        } finally { downloadsFile.delete() }
+        val downloadsTop = java.awt.Color(downloadsImage.getRGB(downloadsImage.width / 2, 0))
+        val downloadsMid = java.awt.Color(downloadsImage.getRGB(downloadsImage.width / 2, downloadsImage.height / 4))
+        assertTrue("Downloads top edge must not be black/faded (got $downloadsTop)", downloadsTop.green > 70 || downloadsTop.blue > 100)
+        assertTrue("Downloads top edge should stay close to full artwork luminance",
+            kotlin.math.abs(downloadsTop.blue - downloadsMid.blue) < 90)
+    }
+
     @Test fun pinnedRoundPlayButtonsAreCompactAndPlayWithoutOpeningTheCollection() {
         save("older", 1)
         save("newer", 2)

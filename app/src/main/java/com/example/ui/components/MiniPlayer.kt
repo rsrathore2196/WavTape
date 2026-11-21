@@ -54,10 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -73,8 +70,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.example.util.AppHaptics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,12 +121,8 @@ fun MiniPlayer(
     val appColors = LocalAppColors.current
     val context = LocalContext.current
     val lightTheme = !appColors.isDark
-    val protectLabels = appColors.dynamicGlassEnabled && LocalDynamicGlassEnabled.current
-    val labelColor = if (lightTheme) Color.Black else appColors.textPrimary
-    val artistColor = if (lightTheme) labelColor else appColors.textSecondary
-    val outlineColor = if (lightTheme) Color.White else Color.Black
-    var titleLayout by remember(track.id) { mutableStateOf<TextLayoutResult?>(null) }
-    var artistLayout by remember(track.id) { mutableStateOf<TextLayoutResult?>(null) }
+    val labelColor = if (lightTheme) Color.Black else Color.White
+    val artistColor = if (lightTheme) Color(0xFF111827) else Color(0xFFF3F4F6)
     val neutralButtonColor = if (appColors.isDark) Color.White else Color.Black
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
 
@@ -246,13 +237,11 @@ fun MiniPlayer(
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Clip,
-                            onTextLayout = { if (protectLabels) titleLayout = it },
                             modifier = Modifier.weight(1f, fill = false)
                                 .playerMorphElement(PlayerMorphSide.MINI, PlayerMorphPart.TITLE, track.id)
                                 .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1000,
                                     animationMode = if (interactive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
                                         else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused)
-                                .miniLabelOutline(protectLabels, outlineColor) { titleLayout }
                                 .testTag("mini_player_track_title")
                         )
                         if (uiState.isPlaying) {
@@ -271,18 +260,16 @@ fun MiniPlayer(
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = artistColor,
                             fontSize = 12.sp,
-                            fontWeight = if (lightTheme) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = FontWeight.Bold
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        onTextLayout = { if (protectLabels) artistLayout = it },
                         modifier = Modifier
                             .testTag("mini_player_track_artist")
                             .playerMorphElement(PlayerMorphSide.MINI, PlayerMorphPart.ARTIST, track.id)
                             .then(if (compact) Modifier.clearAndSetSemantics { } else Modifier)
                             .compactHeight(compactProgress)
                             .graphicsLayer { alpha = 1f - (compactProgress?.value ?: 0f).coerceIn(0f, 1f) }
-                            .miniLabelOutline(protectLabels, outlineColor) { artistLayout }
                     )
                 }
 
@@ -559,19 +546,6 @@ private fun Modifier.compactHeight(progress: State<Float>?): Modifier =
             child.placeRelative(0, 0)
         }
     }
-
-/** Outline the glyphs without painting a backing shape or affecting line measurement. */
-private fun Modifier.miniLabelOutline(
-    enabled: Boolean,
-    color: Color,
-    layout: () -> TextLayoutResult?
-): Modifier = if (!enabled) this else drawWithCache {
-    val edge = Stroke(width = 2.5.dp.toPx(), join = StrokeJoin.Round)
-    onDrawWithContent {
-        layout()?.let { drawText(it, color = color, drawStyle = edge) }
-        drawContent()
-    }
-}
 
 @Composable
 fun MiniAnimatedEqualizerBars(

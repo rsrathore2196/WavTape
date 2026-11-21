@@ -105,7 +105,7 @@ private fun GlassHeaderSurface(modifier: Modifier = Modifier, headerTag: String,
 @Composable
 private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
     val colors = LocalAppColors.current
-    val foreground = LocalContentColor.current
+    val settingsIconTint = if (colors.isDark) Color.White else Color(0xFF0E1117)
     Row(Modifier.widthIn(max = 640.dp).fillMaxWidth().statusBarsPadding()
         .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -124,14 +124,38 @@ private fun HomeHeaderContent(onOpenSettings: (() -> Unit)?) {
                 adaptForLightSurface = !colors.isDark
             )
         }
-        Box(Modifier.size(48.dp)
-            .clickable { onOpenSettings?.invoke() }.testTag("top_settings_button"),
-            contentAlignment = Alignment.Center) {
-            Box(Modifier.size(40.dp).clip(CircleShape)
-                .background(foreground.copy(alpha = .12f), CircleShape)
-                .border(1.dp, foreground.copy(alpha = .25f), CircleShape)
-                .testTag("top_settings_button_surface"), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Settings, stringResource(R.string.nav_settings), tint = foreground, modifier = Modifier.size(20.dp))
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable { onOpenSettings?.invoke() }
+                .testTag("top_settings_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .xtremeLiquidGlassBackground(
+                        shape = CircleShape,
+                        floatingDock = true,
+                        surfaceTintAlpha = .02f,
+                        tintColor = colors.primaryAccent,
+                        borderWidth = 0.8.dp,
+                        elevation = 16.dp,
+                        appColors = colors,
+                        backdrop = LocalTabHeaderBackdrop.current,
+                        baseFillAlpha = if (colors.isDark) .32f else .30f,
+                        neutralFinish = true
+                    )
+                    .testTag("top_settings_button_surface"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.Settings,
+                    stringResource(R.string.nav_settings),
+                    tint = settingsIconTint,
+                    modifier = Modifier.size(21.dp)
+                )
             }
         }
     }
