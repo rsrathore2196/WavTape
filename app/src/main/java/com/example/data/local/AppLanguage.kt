@@ -89,7 +89,18 @@ internal object AppLanguage {
 
     fun refresh(context: Context) {
         val system = if (Build.VERSION.SDK_INT >= 33) {
-            context.getSystemService(LocaleManager::class.java)?.systemLocales
+            context.getSystemService(LocaleManager::class.java)?.let { manager ->
+                val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                if (preferences.contains(KEY)) {
+                    val tag = supportedTag(Locale.forLanguageTag(preferences.getString(KEY, "").orEmpty()))
+                    if (tag != null && manager.applicationLocales.isEmpty) {
+                        manager.applicationLocales = LocaleList.forLanguageTags(tag)
+                    }
+                    // Android owns the choice after migration, including a later reset to system default.
+                    preferences.edit().remove(KEY).apply()
+                }
+                manager.systemLocales
+            }
         } else null
         val locales = system ?: Resources.getSystem().configuration.locales
         active.value = resolve(selection(context), locales)

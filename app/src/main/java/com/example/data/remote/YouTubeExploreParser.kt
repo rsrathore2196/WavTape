@@ -247,6 +247,10 @@ internal object YouTubeExploreParser {
         return linked
     }
 
+    // Retain corroborated unlinked performers for listening history without changing linked artist identity.
+    internal fun singerCredits(display: List<String>, linked: List<String>): String =
+        if (linked.isNotEmpty() && display.size > linked.size) display.joinToString(", ") else ""
+
     private fun artists(value: JSONObject): List<CatalogArtist> {
         val rows = runs(value.optJSONObject("subtitle")) + value.optJSONArray("flexColumns")?.let { columns ->
             (1 until columns.length()).flatMap { index -> runs(columns.optJSONObject(index)
@@ -349,7 +353,7 @@ internal object YouTubeExploreParser {
         val display = displayArtists(value, credits)
         return MusicTrack("yt_$id", name, display.joinToString(", ").ifBlank { "Unknown" }, "Unknown",
             0, thumbnail(value), "", bitrateKbps = 0, qualityBadge = "", source = "YouTube Music", primaryArtists = credits,
-            originalProviderTitle = name)
+            originalProviderTitle = name, singers = singerCredits(display, credits))
     }
     private fun containerToken(value: JSONObject): String? {
         val continuations = value.optJSONArray("continuations")

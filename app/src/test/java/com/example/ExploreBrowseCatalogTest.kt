@@ -383,6 +383,8 @@ class ExploreBrowseCatalogTest {
         assertTrue(parsed.tracks[0].primaryArtists.isEmpty())
         assertEquals("Pritam, Shilpa Rao", parsed.tracks[1].artist)
         assertEquals(listOf("Pritam"), parsed.tracks[1].primaryArtists)
+        assertEquals(listOf("Pritam", "Shilpa Rao"),
+            com.example.recommendation.HomeRecommendationPolicy.listeningArtists(parsed.tracks[1], parsed.tracks[1]))
         // A playlist track with only play count must NOT inherit the playlist curator or show "25M plays".
         assertEquals("Unknown", parsed.tracks[2].artist)
     }

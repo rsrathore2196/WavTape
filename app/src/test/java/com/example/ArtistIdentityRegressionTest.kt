@@ -97,6 +97,15 @@ class ArtistIdentityRegressionTest {
         assertEquals(listOf("Lead"), HomeRecommendationPolicy.mainArtists(duet.copy(artist = "Lead feat. Guest")))
     }
 
+    @Test fun listeningCreditsPreserveLegacyCollaborationsAndStructuredNames() {
+        val collaboration = song().copy(artist = "Lead Artist x Second Singer (feat. Guest Singer), Third Singer",
+            singers = "", writer = "")
+        assertEquals(listOf("Lead Artist", "Second Singer", "Guest Singer", "Third Singer"),
+            HomeRecommendationPolicy.listeningArtists(collaboration, collaboration))
+        val group = collaboration.copy(artist = "Simon & Garfunkel", primaryArtists = listOf("Simon & Garfunkel"))
+        assertEquals(listOf("Simon & Garfunkel"), HomeRecommendationPolicy.listeningArtists(group, group))
+    }
+
     @Test fun persistentVerifiedPortraitsRestoreWithoutCatalogOrAlbumFallbacks() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences("artist_images_v2", Context.MODE_PRIVATE)

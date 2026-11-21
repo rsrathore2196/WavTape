@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import android.app.LocaleManager
 import android.content.Context
 import android.content.res.Configuration
 import android.os.LocaleList
@@ -104,5 +105,30 @@ class AppLanguageTest {
         assertEquals(hindi, CatalogDisplayText.inLanguage(hindi, "ne"))
         assertEquals(punjabi, CatalogDisplayText.inLanguage(punjabi, "pa"))
         assertEquals("Live Mix (Official Audio)", CatalogDisplayText.inLanguage("Live Mix (Official Audio)", "pa"))
+    }
+
+    @Test @Config(sdk = [34])
+    fun androidUpgradeTransfersTheExistingLanguageChoiceOnlyOnce() {
+        val prefs = app.getSharedPreferences("app_language", Context.MODE_PRIVATE)
+        val localeManager = app.getSystemService(LocaleManager::class.java)
+        try {
+            prefs.edit().putString("language_tag", "pa").commit()
+            AppLanguage.refresh(app)
+            assertEquals("pa", AppLanguage.selection(app))
+            assertEquals("pa", AppLanguage.catalogTag)
+            localeManager.applicationLocales = LocaleList.getEmptyLocaleList()
+            AppLanguage.refresh(app)
+            assertEquals("", AppLanguage.selection(app))
+
+            localeManager.applicationLocales = LocaleList.forLanguageTags("ta")
+            prefs.edit().putString("language_tag", "pa").commit()
+            AppLanguage.refresh(app)
+            assertEquals("ta", AppLanguage.selection(app))
+            assertFalse(prefs.contains("language_tag"))
+        } finally {
+            localeManager.applicationLocales = LocaleList.getEmptyLocaleList()
+            prefs.edit().remove("language_tag").commit()
+            AppLanguage.refresh(app)
+        }
     }
 }

@@ -730,7 +730,8 @@ object YouTubeMusicApiService {
             }
             val performingArtists = YouTubeExploreParser.performingArtists(r)
             val linkedArtists = performingArtists.ifEmpty { artists.distinct() }
-            val artist = YouTubeExploreParser.displayArtists(r, linkedArtists).joinToString(", ").ifBlank { "Unknown" }
+            val displayArtists = YouTubeExploreParser.displayArtists(r, linkedArtists)
+            val artist = displayArtists.joinToString(", ").ifBlank { "Unknown" }
 
             // Video ID
             var videoId = r.optJSONObject("playlistItemData")?.optString("videoId", "") ?: ""
@@ -784,6 +785,7 @@ object YouTubeMusicApiService {
                 year = releaseYear,
                 isrc = r.optString("isrc", ""),
                 source = "YouTube Music",
+                singers = YouTubeExploreParser.singerCredits(displayArtists, linkedArtists),
                 primaryArtists = performingArtists
             )
         } catch (e: Exception) {
@@ -1102,8 +1104,9 @@ object YouTubeMusicApiService {
             } else title?.optString("simpleText").orEmpty()
             val byline = pvr.optJSONObject("longBylineText") ?: pvr.optJSONObject("shortBylineText")
             val credits = YouTubeExploreParser.performingArtists(pvr)
+            val displayArtists = if (credits.isEmpty()) emptyList() else YouTubeExploreParser.displayArtists(pvr, credits)
             val bylineRuns = byline?.optJSONArray("runs")
-            val rawArtist = credits.joinToString(", ").ifBlank {
+            val rawArtist = displayArtists.joinToString(", ").ifBlank {
                 // Preserve the complete leading byline, excluding view/like counts.
                 (0 until (bylineRuns?.length() ?: 0)).map { bylineRuns?.optJSONObject(it)?.optString("text").orEmpty() }
                     .takeWhile { !it.contains('•') && !it.contains('·') }.joinToString("").trim()
@@ -1127,6 +1130,7 @@ object YouTubeMusicApiService {
                     qualityBadge = "HQ Stream",
                     genre = "Unknown",
                     source = "YouTube Music",
+                    singers = YouTubeExploreParser.singerCredits(displayArtists, credits),
                     primaryArtists = credits
                 )
             }

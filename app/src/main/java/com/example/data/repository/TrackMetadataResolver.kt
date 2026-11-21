@@ -29,7 +29,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 
 @Immutable
 data class ResolvedTrackMetadata(
@@ -686,30 +685,12 @@ object TrackMetadataResolver {
             val results = root.optJSONArray("results") ?: return null
             var bestId: String? = null
             var bestScore = 0
-            val targetTitle = CatalogNames.normalize(cleanTitle)
-            val targetArtists = current.artists.map { CatalogNames.normalize(it.name) }.filter { it.isNotBlank() }
             for (i in 0 until results.length()) {
                 val obj = results.optJSONObject(i) ?: continue
                 val id = obj.optString("id").trim()
                 if (id.isBlank()) continue
                 val parsed = OnlineMusicApiService.parseSong(obj, allowMissingStream = true) ?: continue
-                val candTitle = CatalogNames.normalize(parsed.cleanTitle.ifBlank { parsed.title })
-                val titleMatch = candTitle == targetTitle ||
-                    CatalogNames.spellingEquivalent(candTitle, targetTitle) ||
-                    (targetTitle.length >= 4 && (candTitle.startsWith(targetTitle) || targetTitle.startsWith(candTitle)))
-                if (!titleMatch) continue
-                val candArtists = splitNames(parsed.singers.ifBlank { parsed.artist })
-                    .map { CatalogNames.normalize(it) }
-                val artistMatch = targetArtists.isEmpty() || targetArtists.any { target ->
-                    candArtists.any { cand -> cand == target || CatalogNames.spellingEquivalent(cand, target) }
-                }
-                if (!artistMatch) continue
-                val durDiff = if (track.durationMs > 0L && parsed.durationMs > 0L) {
-                    abs(track.durationMs - parsed.durationMs)
-                } else 0L
-                if (durDiff > 18_000L) continue
-                val score = (if (candTitle == targetTitle) 50 else 30) +
-                    (if (durDiff <= 5_000L) 20 else 5)
+                val score = metadataMatchScore(track, current.artists, parsed) ?: continue
                 if (score > bestScore) {
                     bestScore = score
                     bestId = id
@@ -742,32 +723,14 @@ object TrackMetadataResolver {
                 .build()
             val root = JSONObject(client.catalogGet(url.toString()))
             val results = root.optJSONArray("results") ?: return null
-            val targetTitle = CatalogNames.normalize(cleanTitle)
-            val targetArtists = current.artists.map { CatalogNames.normalize(it.name) }.filter { it.isNotBlank() }
             var best: JSONObject? = null
             var bestScore = 0
             for (i in 0 until results.length()) {
                 val obj = results.optJSONObject(i) ?: continue
-                val candRawTitle = obj.optString("trackName").trim()
-                val candTitle = CatalogNames.normalize(
-                    MusicTrack(
-                        id = "", title = candRawTitle, artist = "", album = "",
-                        durationMs = 0L, coverUrl = "", audioUrl = ""
-                    ).cleanTitle
-                )
-                val titleMatch = candTitle == targetTitle ||
-                    CatalogNames.spellingEquivalent(candTitle, targetTitle) ||
-                    (targetTitle.length >= 4 && (candTitle.startsWith(targetTitle) || targetTitle.startsWith(candTitle)))
-                if (!titleMatch) continue
-                val candArtists = splitNames(obj.optString("artistName")).map { CatalogNames.normalize(it) }
-                val artistMatch = targetArtists.isEmpty() || targetArtists.any { target ->
-                    candArtists.any { cand -> cand == target || CatalogNames.spellingEquivalent(cand, target) }
-                }
-                if (!artistMatch) continue
-                val candDuration = obj.optLong("trackTimeMillis", 0L)
-                val durDiff = if (track.durationMs > 0L && candDuration > 0L) abs(track.durationMs - candDuration) else 0L
-                if (durDiff > 18_000L) continue
-                val score = (if (candTitle == targetTitle) 50 else 30) + (if (durDiff <= 5_000L) 20 else 5)
+                val candidate = MusicTrack(id = "", title = obj.optString("trackName").trim(),
+                    artist = obj.optString("artistName"), album = obj.optString("collectionName"),
+                    durationMs = obj.optLong("trackTimeMillis"), coverUrl = "", audioUrl = "")
+                val score = metadataMatchScore(track, current.artists, candidate) ?: continue
                 if (score > bestScore) {
                     bestScore = score
                     best = obj
@@ -805,6 +768,13 @@ object TrackMetadataResolver {
         } catch (_: Exception) {
             null
         }
+    }
+
+    internal fun metadataMatchScore(track: MusicTrack, artists: List<CatalogArtist>, candidate: MusicTrack): Int? {
+        val requested = if (track.primaryArtists.isEmpty() && artists.isNotEmpty()) {
+            track.copy(primaryArtists = artists.map { it.name })
+        } else track
+        return RecordingIdentity.providerConfidence(requested, candidate)
     }
 
     /** Resolves an album name (+ optional artist) into a real official CatalogAlbum with full tracklist. */

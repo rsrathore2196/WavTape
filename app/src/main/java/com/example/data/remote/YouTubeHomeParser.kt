@@ -100,7 +100,8 @@ object YouTubeHomeParser {
 
             val subtitleObj = twoRow.optJSONObject("subtitle")
             val credits = extractCredits(subtitleObj)
-            val rawArtist = YouTubeExploreParser.displayArtists(twoRow, credits).joinToString(", ")
+            val displayArtists = YouTubeExploreParser.displayArtists(twoRow, credits)
+            val rawArtist = displayArtists.joinToString(", ")
                 .ifBlank { text(subtitleObj).takeWhile { it != '•' && it != '·' }.trim() }
                 .ifBlank { "YouTube Music" }
 
@@ -121,6 +122,7 @@ object YouTubeHomeParser {
                 qualityBadge = "HQ Stream",
                 genre = "Unknown",
                 source = "YouTube Music",
+                singers = YouTubeExploreParser.singerCredits(displayArtists, credits),
                 primaryArtists = credits.ifEmpty { listOf(rawArtist).filter { it != "YouTube Music" } }
             )
         }
