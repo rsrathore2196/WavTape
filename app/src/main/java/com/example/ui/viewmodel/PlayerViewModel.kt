@@ -2,6 +2,7 @@ package com.example.ui.viewmodel
 
 import com.example.performance.AppDispatchers
 import com.example.downloads.playableSavedTracks
+import com.example.downloads.playableQueue
 import kotlinx.coroutines.isActive
 
 import androidx.lifecycle.ViewModel
@@ -888,9 +889,15 @@ class PlayerViewModel(
         get() = playbackLaunches.current
         set(value) { playbackLaunches.current = value }
 
-    suspend fun playDownloads(store: com.example.downloads.OfflineDownloads): Boolean = withContext(Dispatchers.Main.immediate) {
-        val request = playbackLaunches.prepare(viewModelScope, load = { store.playableSavedTracks() }) { songs ->
-            val first = songs.firstOrNull()
+    suspend fun playDownloads(
+        store: com.example.downloads.OfflineDownloads,
+        selected: MusicTrack? = null,
+        tracks: List<MusicTrack>? = null
+    ): Boolean = withContext(Dispatchers.Main.immediate) {
+        val request = playbackLaunches.prepare(viewModelScope, load = {
+            if (tracks == null) store.playableSavedTracks() else store.playableQueue(tracks)
+        }) { songs ->
+            val first = if (selected == null) songs.firstOrNull() else songs.firstOrNull { it.id == selected.id }
             if (first == null) false else {
                 playbackManager.playTrack(first, songs, isExplicitPlaylist = true)
                 true

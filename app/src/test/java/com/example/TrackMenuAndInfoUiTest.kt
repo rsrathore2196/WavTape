@@ -265,7 +265,7 @@ class TrackMenuAndInfoUiTest {
                 ) {
                     LibraryDownloadsScreen(
                         onBackClick = {},
-                        onPlayTrack = { _, _ -> },
+                        onPlayTrack = { _, _ -> false },
                         onToggleFavorite = {},
                         store = store
                     )

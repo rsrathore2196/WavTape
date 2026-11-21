@@ -25,12 +25,21 @@ import java.io.IOException
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class PolicyResolvingMediaSource(
     item: MediaItem,
-    private val factory: MediaSource.Factory,
+    private val createSource: (MediaItem) -> MediaSource,
     private val scope: CoroutineScope,
     private val resolutionTimeoutMs: Long = com.example.data.repository.StreamResolver.PLAYBACK_RESOLUTION_TIMEOUT_MS,
     private val resolvedIsCurrent: (MediaItem) -> Boolean = { true },
     private val resolve: suspend (MediaItem) -> MediaItem
 ) : CompositeMediaSource<Unit>() {
+    constructor(
+        item: MediaItem,
+        factory: MediaSource.Factory,
+        scope: CoroutineScope,
+        resolutionTimeoutMs: Long = com.example.data.repository.StreamResolver.PLAYBACK_RESOLUTION_TIMEOUT_MS,
+        resolvedIsCurrent: (MediaItem) -> Boolean = { true },
+        resolve: suspend (MediaItem) -> MediaItem
+    ) : this(item, factory::createMediaSource, scope, resolutionTimeoutMs, resolvedIsCurrent, resolve)
+
     private var item = item
     private var child: MediaSource? = null
     private var job: Job? = null
@@ -55,7 +64,7 @@ internal class PolicyResolvingMediaSource(
                             com.example.playback.PlaybackDiagnostics.Reason.POLICY,
                             com.example.playback.PlaybackDiagnostics.Stage.VALIDATION)
                         item = resolved
-                        val prepared = factory.createMediaSource(resolved)
+                        val prepared = createSource(resolved)
                         child = prepared // A cached child can publish its timeline synchronously.
                         prepareChildSource(Unit, prepared)
                     } catch (error: Exception) { failure = IOException("Unable to prepare the resolved stream", error) }

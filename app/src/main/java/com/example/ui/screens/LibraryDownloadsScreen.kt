@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -33,7 +34,6 @@ import com.example.data.local.TrackEntity
 import com.example.data.model.MusicTrack
 import com.example.downloads.OfflineDownloads
 import com.example.downloads.observeSavedRecords
-import com.example.downloads.playableQueue
 import com.example.performance.AppDispatchers
 import com.example.ui.components.CollectionActionSize
 import com.example.ui.components.CollectionActionSurfaceSize
@@ -60,7 +60,7 @@ internal fun LibraryCollectionArtwork(icon: ImageVector, modifier: Modifier, bru
 @Composable
 fun LibraryDownloadsScreen(
     onBackClick: () -> Unit,
-    onPlayTrack: (MusicTrack, List<MusicTrack>) -> Unit,
+    onPlayTrack: suspend (MusicTrack, List<MusicTrack>) -> Boolean,
     onToggleFavorite: (MusicTrack) -> Unit,
     currentPlayingTrackId: String? = null,
     store: OfflineDownloads = OfflineDownloads.get(LocalContext.current),
@@ -95,12 +95,9 @@ fun LibraryDownloadsScreen(
     fun playSaved(selected: MusicTrack, queue: List<MusicTrack>) {
         scope.launch {
             try {
-                // Preserve play/shuffle order and offline URIs. Missing downloads
-                // are excluded; playback never falls back to an online stream.
-                val offline = store.playableQueue(queue)
-                val playable = offline.firstOrNull { it.id == selected.id }
-                if (playable == null) error = "Saved audio is missing. Download this track again."
-                else onPlayTrack(playable, offline)
+                if (!onPlayTrack(selected, queue)) {
+                    error = "Saved audio is missing. Download this track again."
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { error = "Saved audio could not be opened. Try downloading it again." }
         }
@@ -141,7 +138,7 @@ fun LibraryDownloadsScreen(
                 onBackClick = onBackClick, onPlayTrack = ::playSaved,
                 onToggleFavorite = { track -> onToggleFavorite((store.records.value[track.id]?.track ?: track).copy(isLiked = track.isLiked)) },
                 onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = listState,
-                showDownloadAction = false, showHeaderArtwork = false,
+                showDownloadAction = false, artworkIcon = Icons.Default.Download, artworkBrush = downloadsArtworkBrush(),
                 collectionLabel = "OFFLINE COLLECTION", emptyTitle = "No downloads yet",
                 emptyDescription = "Download songs from their track menu to listen here without internet.",
                 menuMode = TrackRowMenuMode.DOWNLOADS,

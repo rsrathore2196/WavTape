@@ -75,15 +75,23 @@ class LibraryDownloadsUiTest {
     }
 
     private fun showLibrary(colors: AppThemeColors = DarkAppColors, onCreate: () -> Unit = {}, onImport: () -> Unit = {}) {
-        compose.setContent {
-            MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors.copy(dynamicGlassEnabled = false),
-                LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false,
-                LocalCollectionPlayback provides CollectionPlaybackActions(play = { quickPlay = it }),
-                LocalArtworkRequestsActive provides false) {
-                LibraryScreen(listOf(liked), playlists, onTrackClick = { track, queue -> play = track to queue },
-                    onPlayDownloadedTrack = { track, queue -> play = track to queue }, onToggleFavorite = {},
-                    onOpenPlaylist = { openedPlaylist = it }, onCreatePlaylistClick = onCreate, onImportPlaylistClick = onImport, downloadStore = store)
-            } }
+        // Commit the first layout before the test host auto-advances animations
+        // while the saved-count flow posts its initial value from IO.
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.setContent {
+                MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors.copy(dynamicGlassEnabled = false),
+                    LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false,
+                    LocalCollectionPlayback provides CollectionPlaybackActions(play = { quickPlay = it }),
+                    LocalArtworkRequestsActive provides false) {
+                    LibraryScreen(listOf(liked), playlists, onTrackClick = { track, queue -> play = track to queue },
+                        onToggleFavorite = {},
+                        onOpenPlaylist = { openedPlaylist = it }, onCreatePlaylistClick = onCreate, onImportPlaylistClick = onImport, downloadStore = store)
+                } }
+            }
+            compose.mainClock.advanceTimeByFrame()
+        } finally {
+            compose.mainClock.autoAdvance = true
         }
         compose.waitForIdle()
     }
@@ -224,33 +232,33 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithTag("download_storage_summary").assertExists()
     }
 
-    @Test fun likedSongsStartsWithItsTitleAndKeepsPlaybackWorking() = checkLikedSongsPage()
+    @Test fun likedSongsShowsDefaultArtworkAndKeepsPlaybackWorking() = checkLikedSongsPage()
 
     @Test @Config(qualifiers = "w740dp-h600dp-land")
-    fun landscapeLikedSongsStartsWithItsTitleAndKeepsPlaybackWorking() = checkLikedSongsPage()
+    fun landscapeLikedSongsShowsDefaultArtworkAndKeepsPlaybackWorking() = checkLikedSongsPage()
 
     private fun checkLikedSongsPage() {
         showLibrary()
         compose.onNodeWithTag("open_liked_songs").performClick()
         awaitCollection()
-        assertTitleAboveActionsWithoutArtwork()
+        assertDefaultArtworkBeforePlaybackActions()
         compose.onNodeWithTag("download_collection").assertExists()
         compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         assertEquals(liked.id, play!!.first.id)
         assertEquals(listOf(liked.id), play!!.second.map { it.id })
     }
 
-    @Test fun downloadsStartsWithItsTitle() = checkDownloadsPage()
+    @Test fun downloadsShowsDefaultArtwork() = checkDownloadsPage()
 
     @Test @Config(qualifiers = "w740dp-h600dp-land")
-    fun landscapeDownloadsStartsWithItsTitle() = checkDownloadsPage()
+    fun landscapeDownloadsShowsDefaultArtwork() = checkDownloadsPage()
 
     private fun checkDownloadsPage() {
         save("downloaded-song", 1)
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
-        assertTitleAboveActionsWithoutArtwork()
+        assertDefaultArtworkBeforePlaybackActions()
         compose.onNodeWithTag("download_collection").assertDoesNotExist()
     }
 
@@ -368,14 +376,17 @@ class LibraryDownloadsUiTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("playlist_profile_name").fetchSemanticsNodes().isNotEmpty() }
     }
 
-    private fun assertTitleAboveActionsWithoutArtwork() {
-        compose.onNodeWithTag("playlist_profile_artwork").assertDoesNotExist()
-        compose.onNodeWithTag("landscape_playlist_artwork").assertDoesNotExist()
-        val page = compose.onNodeWithTag("playlist_detail_screen").fetchSemanticsNode().boundsInRoot
+    private fun assertDefaultArtworkBeforePlaybackActions() {
+        val portrait = compose.onAllNodesWithTag("playlist_profile_artwork").fetchSemanticsNodes().singleOrNull()
+        val artwork = portrait ?: compose.onNodeWithTag("landscape_playlist_artwork").assertIsDisplayed().fetchSemanticsNode()
+        val art = artwork.boundsInRoot
+        assertEquals(art.width, art.height, .5f)
+        compose.onNodeWithTag("library_collection_symbol", useUnmergedTree = true).assertIsDisplayed()
         val title = compose.onNodeWithTag("playlist_profile_name").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val play = compose.onNodeWithContentDescription("Play all").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue("The title starts near the top of the page", title.top - page.top < page.height / 4f)
-        assertTrue("Actions follow the title", play.top >= title.bottom)
+        val play = compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        if (portrait != null) assertTrue("Artwork precedes the playlist details", art.bottom <= title.top)
+        else assertTrue("Artwork sits alongside the playlist details", art.right <= title.left)
+        assertTrue("Actions follow artwork and title", play.top >= maxOf(art.bottom, title.bottom))
     }
 
     private fun awaitDownloads() {

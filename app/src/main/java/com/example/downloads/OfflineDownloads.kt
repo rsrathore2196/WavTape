@@ -23,6 +23,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.example.data.model.MusicTrack
+import com.example.service.PolicyResolvingMediaSource
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +48,7 @@ class OfflineDownloads internal constructor(
     private val lock = Mutex()
     private val commands = Mutex()
     private var loaded = false
+    private var queueReconciliationStarted = false
     private val root get() = File(context.noBackupFilesDir, "offline_audio").apply { mkdirs() }
     private val _records = MutableStateFlow<Map<String, DownloadRecord>>(emptyMap())
     val records = _records.asStateFlow()
@@ -102,7 +105,12 @@ class OfflineDownloads internal constructor(
     }
 
     suspend fun load() = withContext(Dispatchers.IO) {
-        val first = lock.withLock { val first = !loaded; loadLocked(); first }
+        val first = lock.withLock {
+            loadLocked()
+            val needsReconciliation = !queueReconciliationStarted
+            queueReconciliationStarted = true
+            needsReconciliation
+        }
         if (first) reconcileQueue()
     }
     private suspend fun reconcileQueue() {
@@ -346,8 +354,17 @@ class OfflineDownloads internal constructor(
             coverUrl = saved.artwork.takeIf { File(it).isFile }?.let { Uri.fromFile(File(it)).toString() } ?: track.coverUrl,
             bitrateKbps = saved.track.bitrateKbps, qualityBadge = saved.track.qualityBadge,
             isLossless = saved.track.isLossless, isCached = true)
+    /** Restored queues can reference a download before the ledger has been loaded. */
+    internal fun source(item: MediaItem, scope: CoroutineScope): MediaSource =
+        PolicyResolvingMediaSource(item, ::savedSource, scope) {
+            // Audio preparation only needs the ledger. Worker reconciliation
+            // stays with the Downloads entry points that manage transfers.
+            lock.withLock { loadLocked() }
+            it
+        }
+
     /** Loader opens only the saved cache. A miss fails locally rather than silently streaming. */
-    internal fun source(item: MediaItem): MediaSource {
+    private fun savedSource(item: MediaItem): MediaSource {
         val record = records.value[item.mediaId]?.takeIf { it.status == DownloadStatus.COMPLETE }
             ?: throw IOException("This download is no longer on the device")
         val plan = record.plan ?: throw IOException("Downloaded audio is incomplete")

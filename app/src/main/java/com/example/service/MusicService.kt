@@ -851,7 +851,7 @@ class MusicService : MediaLibraryService() {
             override fun createMediaSource(item: MediaItem): androidx.media3.exoplayer.source.MediaSource {
                 val address = item.localConfiguration?.uri
                 if (address?.scheme == com.example.downloads.OfflineDownloads.SCHEME)
-                    return com.example.downloads.OfflineDownloads.get(this@MusicService).source(item)
+                    return com.example.downloads.OfflineDownloads.get(this@MusicService).source(item, serviceScope)
                 if (address?.scheme == MusicCache.OFFLINE_SCHEME &&
                     item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
                     return MusicCache.cachedSource(this@MusicService, item)

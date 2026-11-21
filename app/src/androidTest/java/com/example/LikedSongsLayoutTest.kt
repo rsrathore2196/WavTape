@@ -32,8 +32,8 @@ class LikedSongsLayoutTest {
         } }
         compose.onNodeWithTag("open_liked_songs").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("playlist_profile_name").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("playlist_profile_artwork").assertDoesNotExist()
-        compose.onNodeWithTag("landscape_playlist_artwork").assertDoesNotExist()
+        compose.onNode(hasTestTag("playlist_profile_artwork") or hasTestTag("landscape_playlist_artwork")).assertIsDisplayed()
+        compose.onNodeWithTag("library_collection_symbol", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("liked_songs_play").assertDoesNotExist()
         compose.onNodeWithTag("liked_songs_shuffle").assertDoesNotExist()
         compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsDisplayed()

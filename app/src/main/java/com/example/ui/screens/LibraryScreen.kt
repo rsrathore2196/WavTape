@@ -118,6 +118,7 @@ import com.example.data.local.PlaylistEntity
 import com.example.data.model.MusicTrack
 import com.example.data.model.CollectionPlaybackTarget
 import com.example.downloads.playableSavedTracks
+import com.example.downloads.playableQueue
 import com.example.ui.components.CollectionCardPlayButton
 import com.example.ui.components.LocalCollectionPlayback
 import androidx.compose.runtime.rememberCoroutineScope
@@ -155,7 +156,12 @@ fun LibraryScreen(
     onPlayLikedSongs: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
-    onPlayDownloadedTrack: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick,
+    onPlayDownloadedTrack: suspend (OfflineDownloads, MusicTrack, List<MusicTrack>) -> Boolean = { store, selected, queue ->
+        val offline = store.playableQueue(queue)
+        val track = offline.firstOrNull { it.id == selected.id }
+        if (track != null) onTrackClick(track, offline)
+        track != null
+    },
     downloadStore: OfflineDownloads = OfflineDownloads.get(LocalContext.current),
     onPrepareDownloads: (suspend (OfflineDownloads) -> Boolean)? = null
 ) {
@@ -174,7 +180,8 @@ fun LibraryScreen(
         androidx.activity.compose.BackHandler { downloadsOpen = false }
         val openedFavorites = favoriteTracksState?.collectAsStateWithLifecycle()?.value ?: favoriteTracks
         val likedIds = remember(openedFavorites) { openedFavorites.mapTo(mutableSetOf()) { it.id } }
-        LibraryDownloadsScreen(onBackClick = { downloadsOpen = false }, onPlayTrack = onPlayDownloadedTrack,
+        LibraryDownloadsScreen(onBackClick = { downloadsOpen = false },
+            onPlayTrack = { track, queue -> onPlayDownloadedTrack(downloadStore, track, queue) },
             onToggleFavorite = onToggleFavorite, currentPlayingTrackId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id,
             store = downloadStore, listState = downloadsScroll, likedIds = likedIds)
         return
@@ -192,7 +199,7 @@ fun LibraryScreen(
         liked?.let { PlaylistDetailScreen(it, currentPlayingTrackId = currentPlayingTrackId,
             onBackClick = { likedOpen = false }, onPlayTrack = onTrackClick, onToggleFavorite = onToggleFavorite,
             onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = likedScroll,
-            showHeaderArtwork = false,
+            artworkIcon = Icons.Default.Favorite, artworkBrush = likedSongsArtworkBrush(),
             downloadCollectionKey = "library:liked", downloadStore = downloadStore) }
         return
     }
@@ -393,7 +400,7 @@ fun LibraryScreen(
                                         val played = if (onPrepareDownloads != null) onPrepareDownloads(downloadStore) else {
                                             val queue = downloadStore.playableSavedTracks()
                                             val first = queue.firstOrNull()
-                                            if (first == null) false else { onPlayDownloadedTrack(first, queue); true }
+                                            if (first == null) false else { onTrackClick(first, queue); true }
                                         }
                                         if (!played) android.widget.Toast.makeText(context, "No saved audio is available. Download the tracks again.", android.widget.Toast.LENGTH_SHORT).show()
                                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
