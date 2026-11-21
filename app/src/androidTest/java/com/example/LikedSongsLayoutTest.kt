@@ -31,15 +31,15 @@ class LikedSongsLayoutTest {
                 onToggleFavorite = {}, onOpenPlaylist = {}, onCreatePlaylistClick = {})
         } }
         compose.onNodeWithTag("open_liked_songs").performClick()
-        compose.waitUntil(30_000) { compose.onAllNodesWithTag("playlist_profile_artwork").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("playlist_profile_name").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("playlist_profile_artwork").assertDoesNotExist()
+        compose.onNodeWithTag("landscape_playlist_artwork").assertDoesNotExist()
         compose.onNodeWithTag("liked_songs_play").assertDoesNotExist()
         compose.onNodeWithTag("liked_songs_shuffle").assertDoesNotExist()
         compose.onNodeWithContentDescription("Play all").performScrollTo().assertIsDisplayed()
-        val art = compose.onNodeWithTag("playlist_profile_artwork").fetchSemanticsNode().boundsInRoot
         val title = compose.onNodeWithTag("playlist_profile_name").fetchSemanticsNode().boundsInRoot
         val play = compose.onNodeWithContentDescription("Play all").fetchSemanticsNode().boundsInRoot
         val shuffle = compose.onNodeWithContentDescription("Shuffle").fetchSemanticsNode().boundsInRoot
-        assertTrue("Artwork precedes the playlist title", title.top >= art.bottom)
         assertTrue("Actions follow the playlist details", play.top >= title.bottom)
         assertEquals("Play and shuffle share the same row", play.center.y, shuffle.center.y, 1f)
         assertTrue("Shuffle sits to the left of play", shuffle.right < play.left)

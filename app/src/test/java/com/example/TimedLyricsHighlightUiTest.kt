@@ -188,9 +188,13 @@ class TimedLyricsHighlightUiTest {
         val scaleY = plain.height.toFloat() / layout.size.height
         val bottom = ceil(layout.getLineBottom(0) * scaleY).toInt().coerceAtMost(plain.height)
         // Use the rendered outline as the reference: the existing active-line
-        // graphics transform also scales the captured pixels.
+        // graphics transform scales the pixels, including antialiased edge pixels.
+        fun pixelInk(image: BufferedImage, x: Int, y: Int): Int {
+            val pixel = image.getRGB(x, y)
+            return ((pixel ushr 16) and 255) * ((pixel ushr 24) and 255) / 255
+        }
         val edge = (0 until plain.width).last { x ->
-            (0 until bottom).any { y -> (plain.getRGB(x, y) and 255) > 230 }
+            (0 until bottom).any { y -> pixelInk(plain, x, y) >= 5 }
         }
         fun outsideWordInk(): Int {
             val (image, _) = captureLine()
@@ -199,8 +203,7 @@ class TimedLyricsHighlightUiTest {
             var maximum = 0
             for (y in 0 until bottom) {
                 for (x in edge + 1 until right.coerceAtMost(image.width)) {
-                    val pixel = image.getRGB(x, y)
-                    maximum = maxOf(maximum, ((pixel ushr 16) and 255) * ((pixel ushr 24) and 255) / 255)
+                    maximum = maxOf(maximum, pixelInk(image, x, y))
                 }
             }
             return maximum

@@ -115,6 +115,10 @@ import kotlin.math.sin
 import kotlin.math.ceil
 import kotlin.math.floor
 
+private val LyricsFontFamily by lazy {
+    FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD))
+}
+
 /**
  * Word metadata pre-mapped to character index ranges inside line.text.
  */
@@ -250,7 +254,7 @@ fun SyncedLyricsView(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val lyricStyle = LocalTextStyle.current.copy(fontSize = lyricsTextSize.sp, lineHeight = (40 * lyricsTextScale).sp,
-        fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.SansSerif, textAlign = TextAlign.Start)
+        fontWeight = FontWeight.ExtraBold, fontFamily = LyricsFontFamily, textAlign = TextAlign.Start)
     val romanizationStyle = LocalTextStyle.current.copy(fontSize = (14 * lyricsTextScale).sp, lineHeight = (18 * lyricsTextScale).sp,
         fontWeight = FontWeight.Medium, textAlign = TextAlign.Start)
     val rowHeights = remember(lyrics?.trackId, lines, viewportWidth, density, lyricStyle, romanizationStyle,
@@ -550,7 +554,7 @@ private fun KaraokeLineItem(
             text = line.text,
             fontSize = fontSize,
             fontWeight = fontWeight,
-            fontFamily = FontFamily.SansSerif,
+            fontFamily = LyricsFontFamily,
             lineHeight = lineHeight,
             color = activeTextColor,
             textAlign = TextAlign.Start,
@@ -614,7 +618,7 @@ private fun KaraokeLineItem(
         text = line.text,
         fontSize = fontSize,
         fontWeight = fontWeight,
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = LyricsFontFamily,
         lineHeight = lineHeight,
         // Sung and upcoming inactive lines share a fainter color; the live reveal stays unchanged.
         color = baseTextColor,

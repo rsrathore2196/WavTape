@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -168,7 +167,9 @@ class LibraryDownloadsUiTest {
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
-        compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
+        val playAll = hasContentDescription("Play all") and isEnabled()
+        compose.waitUntil(5_000) { compose.onAllNodes(playAll).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(playAll).performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Saved audio is missing. Download this track again.").fetchSemanticsNodes().isNotEmpty() }
         assertNull(play)
         // Bring the next lazy item into view; it is not required to be prefetched.
@@ -223,23 +224,33 @@ class LibraryDownloadsUiTest {
         compose.onNodeWithTag("download_storage_summary").assertExists()
     }
 
-    @Test fun likedSongsUsesItsOwnHeartArtworkAtTheTopAndKeepsPlaybackWorking() {
+    @Test fun likedSongsStartsWithItsTitleAndKeepsPlaybackWorking() = checkLikedSongsPage()
+
+    @Test @Config(qualifiers = "w740dp-h600dp-land")
+    fun landscapeLikedSongsStartsWithItsTitleAndKeepsPlaybackWorking() = checkLikedSongsPage()
+
+    private fun checkLikedSongsPage() {
         showLibrary()
         compose.onNodeWithTag("open_liked_songs").performClick()
         awaitCollection()
-        assertArtworkStartsAtTop("liked-songs")
+        assertTitleAboveActionsWithoutArtwork()
         compose.onNodeWithTag("download_collection").assertExists()
         compose.onNodeWithContentDescription("Play all").performScrollTo().performClick()
         assertEquals(liked.id, play!!.first.id)
         assertEquals(listOf(liked.id), play!!.second.map { it.id })
     }
 
-    @Test fun downloadsArtworkStartsAtTheTopAndKeepsItsEdgeBlends() {
-        save("top-artwork", 1)
+    @Test fun downloadsStartsWithItsTitle() = checkDownloadsPage()
+
+    @Test @Config(qualifiers = "w740dp-h600dp-land")
+    fun landscapeDownloadsStartsWithItsTitle() = checkDownloadsPage()
+
+    private fun checkDownloadsPage() {
+        save("downloaded-song", 1)
         showLibrary()
         compose.onNodeWithTag("open_downloads").performClick()
         awaitDownloads()
-        assertArtworkStartsAtTop("downloads")
+        assertTitleAboveActionsWithoutArtwork()
         compose.onNodeWithTag("download_collection").assertDoesNotExist()
     }
 
@@ -354,25 +365,17 @@ class LibraryDownloadsUiTest {
     }
 
     private fun awaitCollection() {
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("playlist_profile_artwork").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("playlist_profile_name").fetchSemanticsNodes().isNotEmpty() }
     }
 
-    private fun assertArtworkStartsAtTop(name: String) {
-        awaitCollection()
-        compose.onNodeWithTag("library_collection_symbol", useUnmergedTree = true).assertExists()
-        val artwork = compose.onNodeWithTag("playlist_profile_artwork")
-        val bounds = artwork.fetchSemanticsNode().boundsInRoot
-        val header = compose.onNodeWithTag("playlist_profile_header").fetchSemanticsNode().boundsInRoot
-        assertEquals("Collection artwork starts at the page's top", 0f, header.top, .5f)
-        assertEquals(header.top, bounds.top, .5f)
-        val file = File("build/reports/collection-header-review/$name-art.png").apply { parentFile?.mkdirs() }
-        artwork.captureRoboImage(file.absolutePath, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
-        val bitmap = javax.imageio.ImageIO.read(file)
-        assertEquals("The upper edge keeps the shared artwork blend", DarkAppColors.scaffoldBackground.toArgb(),
-            bitmap.getRGB(bitmap.width / 2, 1))
-        assertTrue("The collection uses its own colored artwork", java.awt.Color(bitmap.getRGB(bitmap.width / 2, bitmap.height / 3)).blue > 100)
-        assertEquals("The lower edge keeps its existing blend", DarkAppColors.scaffoldBackground.toArgb(),
-            bitmap.getRGB(bitmap.width / 2, bitmap.height - 1))
+    private fun assertTitleAboveActionsWithoutArtwork() {
+        compose.onNodeWithTag("playlist_profile_artwork").assertDoesNotExist()
+        compose.onNodeWithTag("landscape_playlist_artwork").assertDoesNotExist()
+        val page = compose.onNodeWithTag("playlist_detail_screen").fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithTag("playlist_profile_name").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val play = compose.onNodeWithContentDescription("Play all").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("The title starts near the top of the page", title.top - page.top < page.height / 4f)
+        assertTrue("Actions follow the title", play.top >= title.bottom)
     }
 
     private fun awaitDownloads() {

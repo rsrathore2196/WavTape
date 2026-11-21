@@ -224,16 +224,18 @@ class ListeningStatsRepository internal constructor(context: Context, suppliedDa
         // Reuse rich catalog metadata already owned by the library. The service's
         // decoder metadata must not replace credits, language, artwork or favorites.
         val saved = database.musicDao().getTrackById(snapshot.track.id)
-        val (track, artist) = withContext(AppDispatchers.CpuBounded) {
+        val (track, artists) = withContext(AppDispatchers.CpuBounded) {
             val original = saved?.toMusicTrack() ?: snapshot.track
             val metadata = original.copy(
                 durationMs = snapshot.track.durationMs.takeIf { it > 0 } ?: original.durationMs,
                 isrc = RecordingIdentity.isrc(snapshot.track.isrc) ?: original.isrc,
                 primaryArtists = original.primaryArtists.ifEmpty { snapshot.track.primaryArtists })
-            metadata to HomeRecommendationPolicy.mainArtists(metadata).firstOrNull()?.let(ArtistPhotoRepository::cachedArtist)
+            metadata to HomeRecommendationPolicy.listeningArtists(original, snapshot.track)
+                .map(ArtistPhotoRepository::cachedArtist)
+                .distinctBy { it.id.ifBlank { CatalogNames.normalize(it.name) } }
         }
         val key = ListeningClock.songKey(track)
-        val artistKey = artist?.let { it.id.ifBlank { CatalogNames.normalize(it.name) } }.orEmpty()
+        val credits = artists.joinToString(", ") { it.name }
         val origin = origin
         var changed = false
         var rekeyed = false
@@ -267,13 +269,18 @@ class ListeningStatsRepository internal constructor(context: Context, suppliedDa
                 val plays = (total.plays - old.plays).coerceAtLeast(0)
                 if (millis == 0L && plays == 0L) continue
                 changed = true
-                for (bucket in listOf(day, day.take(7))) for (kind in listOf("song", "artist")) {
-                    if (kind == "artist" && artistKey.isBlank()) continue
-                    val id = if (kind == "song") key else artistKey
-                    val existing = dao.row(origin, bucket, kind, id)
-                    dao.put(ListeningTotal(origin, bucket, kind, id, track.id, track.title,
-                        artist?.name ?: track.artist, artist?.id.orEmpty(), track.coverUrl, track.durationMs, track.isrc,
-                        (existing?.listenedMs ?: 0) + millis, (existing?.plays ?: 0) + plays))
+                for (bucket in listOf(day, day.take(7))) {
+                    suspend fun addTotal(kind: String, id: String, artist: String, artistId: String) {
+                        val existing = dao.row(origin, bucket, kind, id)
+                        dao.put(ListeningTotal(origin, bucket, kind, id, track.id, track.title,
+                            artist, artistId, track.coverUrl, track.durationMs, track.isrc,
+                            (existing?.listenedMs ?: 0) + millis, (existing?.plays ?: 0) + plays))
+                    }
+                    addTotal("song", key, credits.ifBlank { track.artist }, artists.firstOrNull()?.id.orEmpty())
+                    for (artist in artists) {
+                        val id = artist.id.ifBlank { CatalogNames.normalize(artist.name) }
+                        addTotal("artist", id, artist.name, artist.id)
+                    }
                 }
             }
             // Home/history keeps its existing ranking semantics and reads this
@@ -285,7 +292,8 @@ class ListeningStatsRepository internal constructor(context: Context, suppliedDa
             val listened = cumulative.values.sumOf { it.millis }
             val event = ListeningEventEntity.fromTrack(track, snapshot.occurrence, listened,
                 track.durationMs, "ACTUAL_PLAY", completed = track.durationMs > 0 && listened >= track.durationMs * .9,
-                skipped = snapshot.finished && listened < 15_000).copy(id = eventId)
+                skipped = snapshot.finished && listened < 15_000)
+                .let { it.copy(id = eventId, artistName = credits.ifBlank { it.artistName }) }
             val history = database.listeningEventDao()
             val priorEvent = lastHistoryRecord?.takeIf { it.id == eventId && it.sessionId == snapshot.occurrence }
                 ?: if (eventId > 0) history.getEventsByIds(listOf(eventId)).firstOrNull() else null

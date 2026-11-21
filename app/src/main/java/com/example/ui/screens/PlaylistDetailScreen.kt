@@ -126,7 +126,8 @@ fun PlaylistDetailScreen(
     trailingPlaybackAction: (@Composable () -> Unit)? = null,
     menuMode: TrackRowMenuMode = if (readOnly) TrackRowMenuMode.STANDARD else TrackRowMenuMode.CUSTOM_PLAYLIST,
     onRemoveTrackRequest: ((MusicTrack) -> Unit)? = null,
-    onTrackInfo: ((MusicTrack) -> Unit)? = null
+    onTrackInfo: ((MusicTrack) -> Unit)? = null,
+    showHeaderArtwork: Boolean = true
 ) {
     val playlist = playlistWithTracks.playlist
     val tracks = playlistWithTracks.musicTracks
@@ -330,12 +331,14 @@ fun PlaylistDetailScreen(
             if (landscape) item("landscape_playlist_header") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    val artworkModifier = Modifier.size(112.dp).clip(RoundedCornerShape(16.dp))
-                        .background(appColors.cardBackgroundElevated).testTag("landscape_playlist_artwork")
-                    if (artworkIcon != null) LibraryCollectionArtwork(artworkIcon, artworkModifier, artworkBrush ?: downloadsArtworkBrush())
-                    else AsyncImage(rememberPlaylistCoverRequest(playlist.coverUrl, ImageConfig.PLAYLIST_HEADER_SIZE),
-                        contentDescription = null, contentScale = ContentScale.Crop, modifier = artworkModifier)
-                    Spacer(Modifier.width(20.dp))
+                    if (showHeaderArtwork) {
+                        val artworkModifier = Modifier.size(112.dp).clip(RoundedCornerShape(16.dp))
+                            .background(appColors.cardBackgroundElevated).testTag("landscape_playlist_artwork")
+                        if (artworkIcon != null) LibraryCollectionArtwork(artworkIcon, artworkModifier, artworkBrush ?: downloadsArtworkBrush())
+                        else AsyncImage(rememberPlaylistCoverRequest(playlist.coverUrl, ImageConfig.PLAYLIST_HEADER_SIZE),
+                            contentDescription = null, contentScale = ContentScale.Crop, modifier = artworkModifier)
+                        Spacer(Modifier.width(20.dp))
+                    }
                     Column(Modifier.weight(1f)) {
                         CollectionTitleRow(title, MaterialTheme.typography.headlineMedium, "playlist_profile_name") {
                             if (!readOnly) PlaylistTitleActions(
@@ -350,8 +353,8 @@ fun PlaylistDetailScreen(
                 }
             } else {
                 item("portrait_playlist_header") {
-                    Column(Modifier.fillMaxWidth()) {
-                        Box(
+                    Column(Modifier.fillMaxWidth().then(if (showHeaderArtwork) Modifier else Modifier.statusBarsPadding())) {
+                        if (showHeaderArtwork) Box(
                             Modifier
                                 .fillMaxWidth()
                                 .background(appColors.scaffoldBackground)

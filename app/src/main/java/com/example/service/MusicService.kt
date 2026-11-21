@@ -407,6 +407,7 @@ class MusicService : MediaLibraryService() {
             bitrateKbps = extras?.getInt("bitrate") ?: 0, qualityBadge = extras?.getString("qualityBadge").orEmpty(),
             source = extras?.getString("media_source").orEmpty(), isLossless = extras?.getBoolean("isLossless") == true,
             playlistEntryId = extras?.getLong("playlist_entry_id", 0L) ?: 0L,
+            singers = extras?.getString("singers").orEmpty(), writer = extras?.getString("writer").orEmpty(),
             primaryArtists = extras?.getStringArrayList("primaryArtists")?.toList().orEmpty(), isrc = extras?.getString("isrc").orEmpty(),
             originalProviderTitle = extras?.getString("originalProviderTitle").orEmpty())
     }

@@ -109,8 +109,18 @@ class ListeningStatsTest {
             repository.record(first); repository.record(first); repository.flush()
             assertEquals(1, db.listeningEventDao().getActualPlays().size)
             val rows = db.listeningStatsDao().all()
-            assertEquals(8, rows.size)
-            assertTrue(rows.filter { it.kind == "artist" }.all { it.artist == "Primary" })
+            assertEquals(12, rows.size)
+            val artistRows = rows.filter { it.kind == "artist" }
+            assertEquals(setOf("Primary", "Guest"), artistRows.map { it.artist }.toSet())
+            for (artist in listOf("Primary", "Guest")) {
+                val daily = artistRows.filter { it.artist == artist && it.bucket.length == 10 }
+                val monthly = artistRows.filter { it.artist == artist && it.bucket.length == 7 }
+                assertEquals(60_000, daily.sumOf { it.listenedMs })
+                assertEquals(60_000, monthly.sumOf { it.listenedMs })
+                assertEquals(1, daily.sumOf { it.plays })
+                assertEquals(1, monthly.sumOf { it.plays })
+            }
+            assertEquals("Primary, Guest", db.listeningEventDao().getActualPlays().single().artistName)
             assertEquals(60_000, rows.filter { it.kind == "song" && it.bucket.length == 10 }.sumOf { it.listenedMs })
             assertEquals(60_000, rows.filter { it.kind == "song" && it.bucket.length == 7 }.sumOf { it.listenedMs })
             val week = repository.summary(ListeningPeriod.WEEKLY, LocalDate.of(2026, 11, 1))

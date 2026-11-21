@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -142,7 +141,7 @@ fun LibraryDownloadsScreen(
                 onBackClick = onBackClick, onPlayTrack = ::playSaved,
                 onToggleFavorite = { track -> onToggleFavorite((store.records.value[track.id]?.track ?: track).copy(isLiked = track.isLiked)) },
                 onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = listState,
-                showDownloadAction = false, artworkIcon = Icons.Default.Download,
+                showDownloadAction = false, showHeaderArtwork = false,
                 collectionLabel = "OFFLINE COLLECTION", emptyTitle = "No downloads yet",
                 emptyDescription = "Download songs from their track menu to listen here without internet.",
                 menuMode = TrackRowMenuMode.DOWNLOADS,

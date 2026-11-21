@@ -192,7 +192,7 @@ fun LibraryScreen(
         liked?.let { PlaylistDetailScreen(it, currentPlayingTrackId = currentPlayingTrackId,
             onBackClick = { likedOpen = false }, onPlayTrack = onTrackClick, onToggleFavorite = onToggleFavorite,
             onDeletePlaylist = {}, onRemoveTrack = {}, readOnly = true, listState = likedScroll,
-            artworkIcon = Icons.Default.Favorite, artworkBrush = likedSongsArtworkBrush(),
+            showHeaderArtwork = false,
             downloadCollectionKey = "library:liked", downloadStore = downloadStore) }
         return
     }

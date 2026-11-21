@@ -120,6 +120,24 @@ class HomeArtistStatsSyncTest {
         withTimeout(5_000) { vm.mostListenedArtists.first { it.isEmpty() } }
         assertFalse(vm.hasListenedArtists.value)
     }
+    @Test fun homeRanksAllPerformersEvenWhenSavedMetadataLacksTheSingers() = runBlocking<Unit> {
+        val stats = ListeningStatsRepository(app, db, File(app.noBackupFilesDir, "collaborators-test.json"))
+        val saved = song(1).copy(artist = "Lead, Lyric Writer", writer = "Lyric Writer")
+        db.musicDao().insertOrUpdateTrack(TrackEntity.fromMusicTrack(saved))
+        val playing = saved.copy(singers = "Lead, Singer B, Singer C, Singer B")
+        val day = "2026-11-02"
+        try {
+            stats.record(ListeningSnapshot("collaboration", playing, mapOf(day to ListeningDay(60_000, 1)), 60_000, false))
+            stats.record(ListeningSnapshot("solo", song(2), mapOf(day to ListeningDay(70_000, 1)), 70_000, false))
+            stats.flush()
+            val artists = listOf(song(2).artist, "Lead", "Singer B", "Singer C")
+            val vm = model()
+            withTimeout(5_000) { vm.mostListenedArtists.first { it.map { artist -> artist.name } == artists } }
+            assertTrue(vm.mostListenedArtists.value.all { it.playCount == 1 })
+            assertEquals("Lead, Singer B, Singer C", db.listeningEventDao().getActualPlays()
+                .single { it.trackId == saved.id }.artistName)
+        } finally { stats.close() }
+    }
     @Test fun importingLegacyStatsWhileHomeIsAlreadyOpenQualifiesTheRestoredUser() = runBlocking<Unit> {
         val vm = model()
         withTimeout(5_000) { vm.userMode.first { it == com.example.recommendation.HomeUserMode.NEW_USER } }

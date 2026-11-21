@@ -122,6 +122,29 @@ object HomeRecommendationPolicy {
 
     fun mainArtistKey(name: String): String = CatalogNames.normalize(ArtistPhotoRepository.canonicalName(name))
 
+    /** Listening totals credit featured singers as well as primary performers. */
+    internal fun listeningArtists(saved: MusicTrack, playing: MusicTrack): List<String> {
+        fun split(credits: String): List<String> {
+            val guest = guestCredit.find(credits) ?: return credits.split(artistSeparator)
+            val featured = credits.substring(guest.range.last + 1).trimEnd()
+            val names = when {
+                '(' in guest.value -> featured.removeSuffix(")")
+                '[' in guest.value -> featured.removeSuffix("]")
+                else -> featured
+            }
+            return credits.substring(0, guest.range.first).split(artistSeparator) + names.split(artistSeparator)
+        }
+        val primary = saved.primaryArtists + playing.primaryArtists
+        val singers = split(saved.singers) + split(playing.singers)
+        val writers = (split(saved.writer) + split(playing.writer)).map(CatalogNames::normalize).toSet()
+        val artists = primary.ifEmpty {
+            (split(saved.artist) + split(playing.artist)).filter { CatalogNames.normalize(it) !in writers }
+        }
+        return (artists + singers).map { CatalogNames.clean(it).replace(topicSuffix, "").trim() }
+            .filter { known(it) && !secondaryRole.containsMatchIn(it) }
+            .distinctBy(::mainArtistKey)
+    }
+
     fun metadataKey(track: MusicTrack): String = metadataKey(track, artists(track))
 
     private fun metadataKey(track: MusicTrack, artistNames: List<String>): String {
