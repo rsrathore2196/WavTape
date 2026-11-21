@@ -118,6 +118,135 @@ internal object YouTubeExploreParser {
         ?: runs(title(value)).firstNotNullOfOrNull { endpoint(it.optJSONObject("navigationEndpoint")) }
     private fun pageType(target: JSONObject): String = target.optJSONObject("browseEndpointContextSupportedConfigs")
         ?.optJSONObject("browseEndpointContextMusicConfig")?.optString("pageType").orEmpty()
+    private val durationPattern = Regex("""^\d{1,2}:\d{2}(?::\d{2})?$""")
+    private val yearPattern = Regex("""^(?:19|20)\d{2}$""")
+    private val countPattern = Regex(
+        """(?i)^(?:no\s+(?:views|plays|songs|tracks)|[\d.,]+\s*[KMBT]?\+?(?:\s*(?:plays?|views?|streams?|likes?|songs?|tracks?|episodes?|videos?|listeners?|subscribers?|monthly\s+(?:listeners|audience)|lakh\s+(?:views?|plays?)|crore\s+(?:views?|plays?)))?)$"""
+    )
+    private val relativeTimePattern = Regex("""(?i)^\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago$""")
+    private val nonArtistLabels = setOf(
+        "song", "songs", "video", "videos", "music video", "album", "single", "ep",
+        "playlist", "podcast", "episode", "live", "mix", "station", "radio", "audio",
+        "audiobook", "track", "tracks", "explicit", "e", "official", "chart", "charts",
+        "artist", "various artists", "unknown", "unknown artist", "youtube", "youtube music"
+    )
+    private val artistSeparatorPattern = Regex("""^(?:[,&/|+•·\-–—]|\band\b|\bfeat\.?\b|\bft\.?\b|\bx\b)+$""", RegexOption.IGNORE_CASE)
+    private val albumTypeLabels = setOf("album", "single", "ep", "audiobook")
+
+    internal fun isUnknownArtist(name: String): Boolean {
+        val normalized = name.trim().lowercase()
+        return normalized.isBlank() || normalized in setOf("unknown", "unknown artist", "various artists", "youtube music", "youtube artist")
+    }
+
+    private fun isNonArtistMetadata(raw: String): Boolean {
+        val value = raw.trim()
+        if (value.isBlank()) return true
+        if (artistSeparatorPattern.matches(value)) return true
+        val lower = value.lowercase()
+        if (lower in nonArtistLabels) return true
+        if (durationPattern.matches(value) || yearPattern.matches(value)) return true
+        if (countPattern.matches(value) || relativeTimePattern.matches(value)) return true
+        return false
+    }
+
+    private fun isNonArtistEndpoint(nav: JSONObject?): Boolean {
+        if (nav == null) return false
+        if (nav.has("watchEndpoint")) return true
+        val target = endpoint(nav) ?: return false
+        val id = string(target, "browseId")
+        val type = pageType(target)
+        if (type == "MUSIC_PAGE_TYPE_ARTIST" || type == "MUSIC_PAGE_TYPE_USER_CHANNEL" || id.startsWith("UC")) return false
+        return id.isNotBlank() || type.isNotBlank()
+    }
+
+    private fun extractArtistsFromTextObject(textObj: JSONObject?): List<String> {
+        if (textObj == null) return emptyList()
+        val runList = runs(textObj)
+        if (runList.isEmpty()) {
+            val plain = text(textObj)
+            if (plain.isBlank()) return emptyList()
+            for (segment in plain.split('•', '·')) {
+                val cleaned = segment.trim()
+                if (!isNonArtistMetadata(cleaned)) return listOf(cleaned)
+            }
+            return emptyList()
+        }
+        // Split runs into bullet-delimited segments (e.g. "Song • Artist A & Artist B • 3:45").
+        val segments = mutableListOf<MutableList<Pair<String, JSONObject?>>>()
+        var current = mutableListOf<Pair<String, JSONObject?>>()
+        for (run in runList) {
+            val rawText = string(run, "text")
+            val nav = run.optJSONObject("navigationEndpoint")
+            if (rawText.contains('•') || rawText.contains('·')) {
+                val parts = rawText.split('•', '·')
+                parts.forEachIndexed { idx, part ->
+                    if (part.isNotBlank()) current.add(part to nav)
+                    if (idx < parts.lastIndex) {
+                        if (current.isNotEmpty()) segments.add(current)
+                        current = mutableListOf()
+                    }
+                }
+            } else {
+                current.add(rawText to nav)
+            }
+        }
+        if (current.isNotEmpty()) segments.add(current)
+
+        for (segment in segments) {
+            val fullSegmentText = segment.joinToString("") { it.first }.trim()
+            if (isNonArtistMetadata(fullSegmentText)) continue
+            val names = mutableListOf<String>()
+            val buffer = StringBuilder()
+            var sawExcludedEndpointOnly = true
+            fun flushBuffer() {
+                val candidate = buffer.toString().trim().trim(',', '&', '-', '–', '—', '•', '·')
+                buffer.setLength(0)
+                if (!isNonArtistMetadata(candidate)) names.add(candidate)
+            }
+            for ((part, nav) in segment) {
+                if (isNonArtistEndpoint(nav)) {
+                    flushBuffer()
+                    continue
+                }
+                sawExcludedEndpointOnly = false
+                val trimmed = part.trim()
+                if (trimmed.isEmpty()) {
+                    if (buffer.isNotEmpty() && !buffer.endsWith(" ")) buffer.append(' ')
+                } else if (artistSeparatorPattern.matches(trimmed)) {
+                    flushBuffer()
+                } else {
+                    if (buffer.isNotEmpty() && !buffer.endsWith(" ") && !part.startsWith(" ")) buffer.append(' ')
+                    buffer.append(trimmed)
+                }
+            }
+            flushBuffer()
+            if (!sawExcludedEndpointOnly && names.isNotEmpty()) {
+                return names.distinctBy(CatalogNames::normalize)
+            }
+        }
+        return emptyList()
+    }
+
+    internal fun fallbackArtistNames(value: JSONObject): List<String> {
+        val flexCol1 = value.optJSONArray("flexColumns")?.optJSONObject(1)
+            ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text")
+        extractArtistsFromTextObject(flexCol1).takeIf { it.isNotEmpty() }?.let { return it }
+        extractArtistsFromTextObject(value.optJSONObject("subtitle")).takeIf { it.isNotEmpty() }?.let { return it }
+        extractArtistsFromTextObject(value.optJSONObject("longBylineText") ?: value.optJSONObject("shortBylineText"))
+            .takeIf { it.isNotEmpty() }?.let { return it }
+        return emptyList()
+    }
+
+    /** Display artist list combining linked artists with unlinked singer runs while excluding metadata/views. */
+    internal fun displayArtists(value: JSONObject, linked: List<String> = performingArtists(value)): List<String> {
+        val fallback = fallbackArtistNames(value)
+        if (linked.isEmpty()) return fallback
+        if (fallback.size > linked.size && linked.all { credit -> fallback.any { CatalogNames.same(it, credit) } }) {
+            return fallback
+        }
+        return linked
+    }
+
     private fun artists(value: JSONObject): List<CatalogArtist> {
         val rows = runs(value.optJSONObject("subtitle")) + value.optJSONArray("flexColumns")?.let { columns ->
             (1 until columns.length()).flatMap { index -> runs(columns.optJSONObject(index)
@@ -136,6 +265,56 @@ internal object YouTubeExploreParser {
     internal fun performingArtists(value: JSONObject): List<String> = artists(value).map { it.name }
         .distinctBy(CatalogNames::normalize)
 
+    private fun headerLinkedArtists(textObj: JSONObject?): List<CatalogArtist> = runs(textObj).mapNotNull { row ->
+        val target = endpoint(row.optJSONObject("navigationEndpoint")) ?: return@mapNotNull null
+        val id = string(target, "browseId")
+        val name = string(row, "text").trim()
+        if (!isUnknownArtist(name) && (id.startsWith("UC") || pageType(target) == "MUSIC_PAGE_TYPE_ARTIST"))
+            CatalogArtist(id, name) else null
+    }.distinctBy { it.id.ifBlank { CatalogNames.normalize(it.name) } }
+
+    private fun albumHeaderArtists(root: JSONObject, isAlbumCollection: Boolean): List<CatalogArtist> {
+        var header: JSONObject? = null
+        for (section in listOf(root.opt("header"), root.opt("contents"))) {
+            if (header != null) break
+            walk(section, {}) { node ->
+                if (node.has("musicShelfRenderer") || node.has("musicPlaylistShelfRenderer") || node.has("musicCarouselShelfRenderer")) {
+                    return@walk false
+                }
+                val editable = node.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")?.optJSONObject("header")
+                val found = node.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: node.optJSONObject("musicDetailHeaderRenderer")
+                    ?: editable?.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: editable?.optJSONObject("musicDetailHeaderRenderer")
+                if (found != null && header == null) header = found
+                found == null
+            }
+        }
+        val albumHeader = header ?: return emptyList()
+        val subtitleObj = albumHeader.optJSONObject("subtitle")
+        val subtitleSegments = text(subtitleObj).split('•', '·').map { it.trim().lowercase() }
+        val looksLikeAlbum = isAlbumCollection || subtitleSegments.any { it in albumTypeLabels }
+        if (!looksLikeAlbum) return emptyList()
+
+        val strapline = albumHeader.optJSONObject("straplineTextOne")
+        val straplineLinked = headerLinkedArtists(strapline)
+        val straplineFallback = extractArtistsFromTextObject(strapline).filterNot(::isUnknownArtist)
+        if (straplineLinked.isNotEmpty()) {
+            if (straplineFallback.size > straplineLinked.size &&
+                straplineLinked.all { credit -> straplineFallback.any { CatalogNames.same(it, credit.name) } }) {
+                return straplineFallback.map { name ->
+                    straplineLinked.firstOrNull { CatalogNames.same(it.name, name) } ?: CatalogArtist("", name)
+                }
+            }
+            return straplineLinked
+        }
+        if (straplineFallback.isNotEmpty()) return straplineFallback.map { CatalogArtist("", it) }
+
+        val subtitleLinked = headerLinkedArtists(subtitleObj)
+        if (subtitleLinked.isNotEmpty()) return subtitleLinked
+        return extractArtistsFromTextObject(subtitleObj).filterNot(::isUnknownArtist).map { CatalogArtist("", it) }
+    }
+
     internal fun collection(value: JSONObject, country: String, language: String): CatalogDestination? {
         val target = browseEndpoint(value) ?: return null
         val id = string(target, "browseId")
@@ -144,9 +323,14 @@ internal object YouTubeExploreParser {
         val type = pageType(target)
         val params = nullable(target, "params")
         return when {
-            type == "MUSIC_PAGE_TYPE_ALBUM" || id.startsWith("MPRE") || id.startsWith("OLAK5uy_") ->
-                CatalogDestination.Album(CatalogAlbum(id, name, artists(value), thumbnail(value), "",
+            type == "MUSIC_PAGE_TYPE_ALBUM" || id.startsWith("MPRE") || id.startsWith("OLAK5uy_") -> {
+                val linked = artists(value)
+                val albumArtists = linked.ifEmpty {
+                    fallbackArtistNames(value).filterNot(::isUnknownArtist).map { CatalogArtist("", it) }
+                }
+                CatalogDestination.Album(CatalogAlbum(id, name, albumArtists, thumbnail(value), "",
                     CatalogProvider.YOUTUBE_MUSIC, params, country, language))
+            }
             type == "MUSIC_PAGE_TYPE_PLAYLIST" || id.startsWith("VL") ->
                 CatalogDestination.Playlist(CatalogPlaylist(id, name, thumbnail(value),
                     CatalogProvider.YOUTUBE_MUSIC, params, country, language))
@@ -162,7 +346,8 @@ internal object YouTubeExploreParser {
         val name = text(title(value))
         if (!YouTubeAudioStreamService.isVideoId(id) || name.isBlank()) return null
         val credits = artists(value).map { it.name }
-        return MusicTrack("yt_$id", name, credits.joinToString(", ").ifBlank { "Unknown" }, "Unknown",
+        val display = displayArtists(value, credits)
+        return MusicTrack("yt_$id", name, display.joinToString(", ").ifBlank { "Unknown" }, "Unknown",
             0, thumbnail(value), "", bitrateKbps = 0, qualityBadge = "", source = "YouTube Music", primaryArtists = credits,
             originalProviderTitle = name)
     }
@@ -184,8 +369,12 @@ internal object YouTubeExploreParser {
     }
 
     fun page(root: JSONObject, country: String, language: String, collectionOnly: Boolean = false,
-        checkpoint: () -> Unit = {}): CatalogPage {
+        isAlbumCollection: Boolean = false, checkpoint: () -> Unit = {}): CatalogPage {
         validate(root)
+        val headerArtists = if (collectionOnly) albumHeaderArtists(root, isAlbumCollection) else emptyList()
+        val headerArtistText = headerArtists.joinToString(", ") { it.name }
+        val headerPrimaryArtists = headerArtists.filter { it.id.startsWith("UC") }.map { it.name }
+            .distinctBy(CatalogNames::normalize)
         val tracks = linkedMapOf<String, MusicTrack>()
         val albums = linkedMapOf<String, CatalogAlbum>()
         val playlists = linkedMapOf<String, CatalogPlaylist>()
@@ -208,9 +397,17 @@ internal object YouTubeExploreParser {
                     else -> Unit
                 }
             }
-            val song = YouTubeMusicApiService.parseAnyRenderer(node)
+            val parsedSong = YouTubeMusicApiService.parseAnyRenderer(node)
                 ?: node.optJSONObject("musicTwoRowItemRenderer")?.let(::twoRowTrack)
-            if (song != null) tracks.putIfAbsent(song.id, song.copy(audioUrl = "", bitrateKbps = 0, qualityBadge = ""))
+            if (parsedSong != null) {
+                val resolvedSong = if (headerArtistText.isNotBlank() && isUnknownArtist(parsedSong.artist)) {
+                    parsedSong.copy(
+                        artist = headerArtistText,
+                        primaryArtists = parsedSong.primaryArtists.ifEmpty { headerPrimaryArtists }
+                    )
+                } else parsedSong
+                tracks.putIfAbsent(resolvedSong.id, resolvedSong.copy(audioUrl = "", bitrateKbps = 0, qualityBadge = ""))
+            }
             // A renderer's inner metadata can contain the same endpoint again.
             !(node.has("musicResponsiveListItemRenderer") || node.has("musicTwoRowItemRenderer") ||
                 node.has("playlistVideoRenderer") || node.has("playlistPanelVideoRenderer"))

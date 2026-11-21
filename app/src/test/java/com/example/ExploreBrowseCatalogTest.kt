@@ -274,4 +274,116 @@ class ExploreBrowseCatalogTest {
         val page = CatalogPage(tracks = many)
         assertEquals(100, YouTubeExploreParser.decodePage(YouTubeExploreParser.encodePage(page), "US", "en").tracks.size)
     }
+
+    private fun flexColumn(vararg runs: JSONObject) = JSONObject().put(
+        "musicResponsiveListItemFlexColumnRenderer",
+        JSONObject().put("text", JSONObject().put("runs", JSONArray(runs.toList())))
+    )
+
+    private fun runText(text: String, browseId: String? = null, pageType: String? = null): JSONObject =
+        JSONObject().put("text", text).apply {
+            if (browseId != null || pageType != null) {
+                val browse = JSONObject().apply {
+                    if (browseId != null) put("browseId", browseId)
+                    if (pageType != null) {
+                        put("browseEndpointContextSupportedConfigs", JSONObject().put(
+                            "browseEndpointContextMusicConfig", JSONObject().put("pageType", pageType)
+                        ))
+                    }
+                }
+                put("navigationEndpoint", JSONObject().put("browseEndpoint", browse))
+            }
+        }
+
+    @Test fun youtubeAlbumTracksInheritHeaderAndReleaseArtistsWhenRowsOmitSingers() = runBlocking {
+        val albumRowWithoutArtist = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "abcdefghijk"))
+            .put("flexColumns", JSONArray()
+                .put(flexColumn(runText("Opening Track")))
+                .put(flexColumn(runText("12M plays")))))
+        val albumRowEmptySubtitle = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "bcdefghijkl"))
+            .put("flexColumns", JSONArray()
+                .put(flexColumn(runText("Second Track")))
+                .put(flexColumn())))
+        val header = JSONObject().put("musicResponsiveHeaderRenderer", JSONObject()
+            .put("title", label("Midnight Album"))
+            .put("subtitle", JSONObject().put("runs", JSONArray()
+                .put(runText("Album")).put(runText(" • ")).put(runText("2025"))))
+            .put("straplineTextOne", JSONObject().put("runs", JSONArray()
+                .put(runText("Arijit Singh", "UCarijit001", "MUSIC_PAGE_TYPE_ARTIST")))))
+        val albumResponse = JSONObject().put("contents", JSONObject().put("twoColumnBrowseResultsRenderer", JSONObject()
+            .put("tabs", JSONArray().put(JSONObject().put("tabRenderer", JSONObject().put("content",
+                JSONObject().put("sectionListRenderer", JSONObject().put("contents", JSONArray().put(header)))))))
+            .put("secondaryContents", JSONObject().put("sectionListRenderer", JSONObject().put("contents", JSONArray()
+                .put(JSONObject().put("musicShelfRenderer", JSONObject().put("contents", JSONArray()
+                    .put(albumRowWithoutArtist).put(albumRowEmptySubtitle)))))))))
+
+        val parsed = YouTubeExploreParser.page(albumResponse, "IN", "en", collectionOnly = true, isAlbumCollection = true)
+        assertEquals(2, parsed.tracks.size)
+        assertEquals("Arijit Singh", parsed.tracks[0].artist)
+        assertEquals(listOf("Arijit Singh"), parsed.tracks[0].primaryArtists)
+        assertEquals("Arijit Singh", parsed.tracks[1].artist)
+        assertEquals(listOf("Arijit Singh"), parsed.tracks[1].primaryArtists)
+
+        // Continuation pages have no header; repository falls back to selected.artists from the shelf card.
+        val continuationResponse = JSONObject().put("continuationContents", JSONObject()
+            .put("musicShelfContinuation", JSONObject().put("contents", JSONArray().put(albumRowEmptySubtitle)))).toString()
+        val repository = CatalogRepository(browseLoader = { _, _, _, _, _ -> continuationResponse })
+        val shelfCard = JSONObject()
+            .put("title", label("Midnight Album"))
+            .put("subtitle", JSONObject().put("runs", JSONArray()
+                .put(runText("Album")).put(runText(" • ")).put(runText("Shreya Ghoshal"))))
+            .put("navigationEndpoint", JSONObject().put("browseEndpoint", JSONObject()
+                .put("browseId", "MPREb_midnight")
+                .put("browseEndpointContextSupportedConfigs", JSONObject()
+                    .put("browseEndpointContextMusicConfig", JSONObject().put("pageType", "MUSIC_PAGE_TYPE_ALBUM")))))
+        val destination = YouTubeExploreParser.collection(shelfCard, "IN", "en") as CatalogDestination.Album
+        assertEquals(listOf("Shreya Ghoshal"), destination.album.artists.map { it.name })
+        val continued = repository.albumSongs(destination.album)
+        assertEquals("Shreya Ghoshal", continued.tracks.single().artist)
+    }
+
+    @Test fun youtubePlaylistRowsExtractUnlinkedSingersWithoutPromotingMetadataOrCurators() {
+        val unlinkedSingle = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "abcdefghijk"))
+            .put("flexColumns", JSONArray()
+                .put(flexColumn(runText("Track One")))
+                .put(flexColumn(runText("Song"), runText(" • "), runText("Diljit Dosanjh"), runText(" • "), runText("3:45")))))
+        val mixedCollaborators = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "bcdefghijkl"))
+            .put("flexColumns", JSONArray()
+                .put(flexColumn(runText("Track Two")))
+                .put(flexColumn(
+                    runText("Pritam", "UCpritam01", "MUSIC_PAGE_TYPE_ARTIST"),
+                    runText(", "),
+                    runText("Shilpa Rao"),
+                    runText(" • "),
+                    runText("Album Title", "MPREb_123", "MUSIC_PAGE_TYPE_ALBUM")
+                ))))
+        val playsOnlyRow = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "cdefghijklm"))
+            .put("flexColumns", JSONArray()
+                .put(flexColumn(runText("Track Three")))
+                .put(flexColumn(runText("25M plays")))))
+        val playlistHeader = JSONObject().put("musicResponsiveHeaderRenderer", JSONObject()
+            .put("title", label("Top Hits Playlist"))
+            .put("subtitle", JSONObject().put("runs", JSONArray().put(runText("Playlist")).put(runText(" • ")).put(runText("2026"))))
+            .put("straplineTextOne", JSONObject().put("runs", JSONArray().put(runText("Curator Channel", "UCcurator", "MUSIC_PAGE_TYPE_USER_CHANNEL")))))
+        val playlistResponse = JSONObject().put("contents", JSONObject().put("twoColumnBrowseResultsRenderer", JSONObject()
+            .put("tabs", JSONArray().put(JSONObject().put("tabRenderer", JSONObject().put("content",
+                JSONObject().put("sectionListRenderer", JSONObject().put("contents", JSONArray().put(playlistHeader)))))))
+            .put("secondaryContents", JSONObject().put("sectionListRenderer", JSONObject().put("contents", JSONArray()
+                .put(JSONObject().put("musicPlaylistShelfRenderer", JSONObject().put("contents", JSONArray()
+                    .put(unlinkedSingle).put(mixedCollaborators).put(playsOnlyRow)))))))))
+
+        val parsed = YouTubeExploreParser.page(playlistResponse, "IN", "en", collectionOnly = true, isAlbumCollection = false)
+        assertEquals(3, parsed.tracks.size)
+        assertEquals("Diljit Dosanjh", parsed.tracks[0].artist)
+        assertTrue(parsed.tracks[0].primaryArtists.isEmpty())
+        assertEquals("Pritam, Shilpa Rao", parsed.tracks[1].artist)
+        assertEquals(listOf("Pritam"), parsed.tracks[1].primaryArtists)
+        // A playlist track with only play count must NOT inherit the playlist curator or show "25M plays".
+        assertEquals("Unknown", parsed.tracks[2].artist)
+    }
 }

@@ -100,8 +100,8 @@ object YouTubeHomeParser {
 
             val subtitleObj = twoRow.optJSONObject("subtitle")
             val credits = extractCredits(subtitleObj)
-            val rawArtist = credits.joinToString(", ").ifBlank { text(subtitleObj) }
-                .takeWhile { it != '•' && it != '·' }.trim()
+            val rawArtist = YouTubeExploreParser.displayArtists(twoRow, credits).joinToString(", ")
+                .ifBlank { text(subtitleObj).takeWhile { it != '•' && it != '·' }.trim() }
                 .ifBlank { "YouTube Music" }
 
             val thumbUrl = YouTubeExploreParser.thumbnail(twoRow, squareOnly = true)

@@ -56,7 +56,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -491,5 +493,75 @@ class TrackMenuAndInfoUiTest {
             click(percentOffset(0.15f, 0.5f))
         }
         assertEquals("Nova", openedArtist?.name)
+    }
+
+    @Test
+    fun trackInfoMetadataPrefersSquareOriginalAudioCoverOverVideoThumbnailWithVideoFallback() {
+        val videoThumb = "https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg"
+        val rectShelfThumb = "https://lh3.googleusercontent.com/shelfvideo=w544-h306-l90-rj"
+        val squareAtvCover = "https://lh3.googleusercontent.com/officialaudio=w544-h544-l90-rj"
+        val squareSaavnCover = "https://c.saavncdn.com/123/Song-500x500.jpg"
+
+        assertTrue(TrackMetadataResolver.isVideoThumbnailUrl(videoThumb))
+        assertTrue(TrackMetadataResolver.isVideoThumbnailUrl(rectShelfThumb))
+        assertFalse(TrackMetadataResolver.isVideoThumbnailUrl(squareAtvCover))
+        assertTrue(TrackMetadataResolver.isLikelySquareAudioCoverUrl(squareAtvCover))
+        assertTrue(TrackMetadataResolver.isLikelySquareAudioCoverUrl(squareSaavnCover))
+        assertFalse(TrackMetadataResolver.isLikelySquareAudioCoverUrl(videoThumb))
+        assertFalse(TrackMetadataResolver.isLikelySquareAudioCoverUrl(rectShelfThumb))
+
+        // Cached square original audio cover replaces rectangular video cover immediately on initial load.
+        val shelfTrack = MusicTrack(
+            id = "yt_abcdefghijk",
+            title = "Shelf Song",
+            artist = "Arijit Singh",
+            album = "Midnight Release",
+            durationMs = 210_000,
+            coverUrl = rectShelfThumb,
+            audioUrl = ""
+        )
+        val initialWithSquare = TrackMetadataResolver.initial(
+            track = shelfTrack,
+            cachedSquareCover = squareAtvCover
+        )
+        assertEquals(squareAtvCover, initialWithSquare.coverUrl)
+        assertTrue(initialWithSquare.hasVerifiedSquareCover)
+        assertEquals(squareAtvCover, initialWithSquare.album?.image)
+
+        // When no square cover exists, video thumbnail remains as fallback.
+        val initialFallbackOnly = TrackMetadataResolver.initial(track = shelfTrack)
+        assertEquals(rectShelfThumb, initialFallbackOnly.coverUrl)
+        assertFalse(initialFallbackOnly.hasVerifiedSquareCover)
+
+        // Resolved square audio cover upgrades rectangular video thumbnail; another video URL never replaces a verified square cover.
+        val (upgraded, upgradedVerified) = TrackMetadataResolver.selectPreferredCover(
+            baseCover = videoThumb,
+            baseVerifiedSquare = false,
+            incomingCover = squareAtvCover,
+            incomingSquareAudio = true,
+            preferIncomingCover = true
+        )
+        assertEquals(squareAtvCover, upgraded)
+        assertTrue(upgradedVerified)
+
+        val (keptSquare, keptVerified) = TrackMetadataResolver.selectPreferredCover(
+            baseCover = squareAtvCover,
+            baseVerifiedSquare = true,
+            incomingCover = videoThumb,
+            incomingSquareAudio = false,
+            preferIncomingCover = true
+        )
+        assertEquals(squareAtvCover, keptSquare)
+        assertTrue(keptVerified)
+
+        val (keptFallback, fallbackVerified) = TrackMetadataResolver.selectPreferredCover(
+            baseCover = videoThumb,
+            baseVerifiedSquare = false,
+            incomingCover = null,
+            incomingSquareAudio = false,
+            preferIncomingCover = false
+        )
+        assertEquals(videoThumb, keptFallback)
+        assertFalse(fallbackVerified)
     }
 }

@@ -67,6 +67,9 @@ import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.bouncyOverscroll
 import com.example.ui.components.headerArtworkEdgeBlend
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.util.ImageConfig
+import com.example.ui.util.buildOptimizedImageRequest
+import com.example.ui.util.cachedPlayerCover
 import com.example.ui.util.rememberOptimizedImageRequest
 import kotlinx.coroutines.CancellationException
 
@@ -90,14 +93,22 @@ fun TrackInfoScreen(
     val colors = LocalAppColors.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    var metadata by remember(track.id, sourcePlaylistTitle) {
-        mutableStateOf(TrackMetadataResolver.initial(track, sourcePlaylistTitle))
+    val instantPlayerSquare = remember(track.id, track.coverUrl) {
+        cachedPlayerCover(track)?.url
+    }
+    var metadata by remember(track.id, sourcePlaylistTitle, instantPlayerSquare) {
+        mutableStateOf(TrackMetadataResolver.initial(track, sourcePlaylistTitle, instantPlayerSquare))
     }
 
     LaunchedEffect(track.id, sourcePlaylistTitle, resolveRemoteMetadata) {
         if (!resolveRemoteMetadata) return@LaunchedEffect
         try {
-            metadata = TrackMetadataResolver.resolve(context, track, sourcePlaylistTitle)
+            val resolved = TrackMetadataResolver.resolve(context, track, sourcePlaylistTitle)
+            metadata = if (!resolved.hasVerifiedSquareCover && !instantPlayerSquare.isNullOrBlank()) {
+                resolved.copy(coverUrl = instantPlayerSquare, hasVerifiedSquareCover = true)
+            } else {
+                resolved
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -151,10 +162,36 @@ fun TrackInfoScreen(
                             .fillMaxWidth()
                             .aspectRatio(1f)
                     }
+                    var squareCoverFailed by remember(track.id, metadata.coverUrl) { mutableStateOf(false) }
+                    val verifiedSquareUrl = metadata.coverUrl.takeIf {
+                        !squareCoverFailed &&
+                            it.isNotBlank() &&
+                            (metadata.hasVerifiedSquareCover || TrackMetadataResolver.isLikelySquareAudioCoverUrl(it))
+                    }
+                    val fallbackCoverUrl = track.coverUrl.ifBlank { metadata.coverUrl }
+                    val displayCoverUrl = verifiedSquareUrl ?: fallbackCoverUrl
+                    val artworkRequest = remember(context, track.id, displayCoverUrl, verifiedSquareUrl) {
+                        val base = buildOptimizedImageRequest(
+                            context = context,
+                            url = displayCoverUrl,
+                            targetSize = ImageConfig.PLAYER_SCREEN_SIZE,
+                            track = track,
+                            crossfadeEnabled = true,
+                            requireSquareSongArtwork = verifiedSquareUrl != null,
+                            allowVideoFallback = verifiedSquareUrl == null
+                        )
+                        if (verifiedSquareUrl != null && fallbackCoverUrl.isNotBlank() && fallbackCoverUrl != verifiedSquareUrl) {
+                            base.newBuilder()
+                                .listener(onError = { _, _ -> squareCoverFailed = true })
+                                .build()
+                        } else {
+                            base
+                        }
+                    }
                     AsyncImage(
-                        model = rememberOptimizedImageRequest(metadata.coverUrl, targetSize = 1200),
+                        model = artworkRequest,
                         contentDescription = metadata.title,
-                        contentScale = if (landscape) ContentScale.Crop else ContentScale.Fit,
+                        contentScale = if (landscape || verifiedSquareUrl != null) ContentScale.Crop else ContentScale.Fit,
                         modifier = artworkModifier
                             .testTag("track_info_artwork")
                             .headerArtworkEdgeBlend(
@@ -290,7 +327,10 @@ fun TrackInfoScreen(
                                 .border(1.dp, colors.cardBorder, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            val artUrl = album.image.ifBlank { metadata.coverUrl }
+                            val artUrl = album.image
+                                .takeUnless { TrackMetadataResolver.isVideoThumbnailUrl(it) }
+                                .orEmpty()
+                                .ifBlank { metadata.coverUrl }
                             if (artUrl.isNotBlank()) {
                                 AsyncImage(
                                     model = rememberOptimizedImageRequest(artUrl, targetSize = 512),

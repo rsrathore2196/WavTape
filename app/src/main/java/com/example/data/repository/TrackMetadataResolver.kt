@@ -8,8 +8,11 @@ import com.example.data.remote.OnlineMusicApiService
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.remote.YouTubeExploreParser
 import com.example.data.remote.YouTubeMusicApiService
+import com.example.data.remote.YouTubePlayerArtworkResolver
+import com.example.data.remote.cachedNativeSongCover
 import com.example.data.remote.catalogGet
 import com.example.data.remote.catalogRequest
+import com.example.data.remote.resolveYouTubePlayerCover
 import com.example.performance.AppDispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +46,8 @@ data class ResolvedTrackMetadata(
     val label: String? = null,
     val isrc: String? = null,
     val durationMs: Long = track.durationMs,
-    val isEnriched: Boolean = false
+    val isEnriched: Boolean = false,
+    val hasVerifiedSquareCover: Boolean = false
 ) {
     val primaryArtistName: String
         get() = artists.firstOrNull()?.name ?: track.artist
@@ -130,6 +134,36 @@ object TrackMetadataResolver {
             .distinctBy { CatalogNames.normalize(it) }
     }
 
+    private val googleWidthPattern = Regex("(?:=|-)w(\\d+)")
+    private val googleHeightPattern = Regex("(?:=|-)h(\\d+)")
+    private val googleSquareSizePattern = Regex("=s[1-9][0-9]*(?:-|$)")
+
+    internal fun isVideoThumbnailUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        val uri = try { java.net.URI(url) } catch (_: Exception) { return false }
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        if (host == "img.youtube.com" || host.endsWith(".ytimg.com")) return true
+        if (host.endsWith(".googleusercontent.com") || host.endsWith(".ggpht.com")) {
+            val w = googleWidthPattern.find(url)?.groupValues?.get(1)?.toIntOrNull()
+            val h = googleHeightPattern.find(url)?.groupValues?.get(1)?.toIntOrNull()
+            if (w != null && h != null && w > 0 && h > 0 && w != h) return true
+        }
+        return false
+    }
+
+    internal fun isLikelySquareAudioCoverUrl(url: String): Boolean {
+        if (url.isBlank() || isVideoThumbnailUrl(url)) return false
+        val uri = try { java.net.URI(url) } catch (_: Exception) { return false }
+        if (uri.scheme !in setOf("https", "http")) return false
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        if (host.endsWith(".googleusercontent.com") || host.endsWith(".ggpht.com")) {
+            val w = googleWidthPattern.find(url)?.groupValues?.get(1)?.toIntOrNull()
+            val h = googleHeightPattern.find(url)?.groupValues?.get(1)?.toIntOrNull()
+            return (w != null && w > 0 && w == h) || googleSquareSizePattern.containsMatchIn(url)
+        }
+        return host.endsWith(".saavncdn.com") || host.endsWith(".mzstatic.com")
+    }
+
     internal fun cached(trackId: String): ResolvedTrackMetadata? =
         synchronized(cache) { cache.get(trackId) }
 
@@ -138,13 +172,35 @@ object TrackMetadataResolver {
     }
 
     /** Immediate synchronous baseline from track fields with placeholders stripped. */
-    fun initial(track: MusicTrack, sourcePlaylistTitle: String? = null): ResolvedTrackMetadata {
+    fun initial(
+        track: MusicTrack,
+        sourcePlaylistTitle: String? = null,
+        cachedSquareCover: String? = null
+    ): ResolvedTrackMetadata {
+        val instantSquare = cachedSquareCover?.takeIf { it.isNotBlank() && !isVideoThumbnailUrl(it) }
+            ?: cachedNativeSongCover(track)?.takeIf { it.isNotBlank() && !isVideoThumbnailUrl(it) }
         val cachedEntry = cached(track.id)
         if (cachedEntry != null) {
             val safeAlbum = cachedEntry.album?.takeIf {
                 sanitizeAlbumName(it.title, sourcePlaylistTitle) != null
             }
-            return cachedEntry.copy(track = track, album = safeAlbum)
+            val upgradedCover = if (instantSquare != null && !cachedEntry.hasVerifiedSquareCover) {
+                instantSquare
+            } else {
+                cachedEntry.coverUrl
+            }
+            val upgradedVerified = cachedEntry.hasVerifiedSquareCover || instantSquare != null
+            val upgradedAlbum = safeAlbum?.let { album ->
+                if (upgradedCover.isNotBlank() && (album.image.isBlank() || isVideoThumbnailUrl(album.image))) {
+                    album.copy(image = upgradedCover)
+                } else album
+            }
+            return cachedEntry.copy(
+                track = track,
+                coverUrl = upgradedCover,
+                album = upgradedAlbum,
+                hasVerifiedSquareCover = upgradedVerified
+            )
         }
         val artistNames = when {
             track.singers.isNotBlank() -> splitNames(track.singers)
@@ -153,13 +209,14 @@ object TrackMetadataResolver {
         }.ifEmpty { splitNames(track.artist) }
             .distinctBy { CatalogNames.normalize(it) }
         val artists = artistNames.map { CatalogArtist(id = "", name = it) }
+        val initialCover = instantSquare ?: track.coverUrl
         val albumTitle = sanitizeAlbumName(track.album, sourcePlaylistTitle)
         val album = albumTitle?.let {
             CatalogAlbum(
                 id = "",
                 title = it,
                 artists = artists,
-                image = track.coverUrl,
+                image = initialCover,
                 year = sanitizeField(track.year).orEmpty()
             )
         }
@@ -173,7 +230,7 @@ object TrackMetadataResolver {
         return ResolvedTrackMetadata(
             track = track,
             title = track.cleanTitle.ifBlank { track.title },
-            coverUrl = track.coverUrl,
+            coverUrl = initialCover,
             artists = artists,
             album = album,
             composers = composers,
@@ -182,7 +239,8 @@ object TrackMetadataResolver {
             year = year,
             isrc = isrc,
             durationMs = track.durationMs,
-            isEnriched = false
+            isEnriched = false,
+            hasVerifiedSquareCover = instantSquare != null || (!YouTubePlayerArtworkResolver.needsSongCover(track) && isLikelySquareAudioCoverUrl(initialCover))
         )
     }
 
@@ -190,7 +248,8 @@ object TrackMetadataResolver {
     suspend fun resolve(
         context: Context,
         track: MusicTrack,
-        sourcePlaylistTitle: String? = null
+        sourcePlaylistTitle: String? = null,
+        resolveSquareCover: suspend (MusicTrack) -> String? = ::resolveYouTubePlayerCover
     ): ResolvedTrackMetadata = withContext(AppDispatchers.Io) {
         val cacheKey = track.id
         locks[(cacheKey.hashCode() and Int.MAX_VALUE) % locks.size].withLock {
@@ -201,36 +260,73 @@ object TrackMetadataResolver {
 
             var current = initial(track, sourcePlaylistTitle)
 
+            // 0. Always prefer the original square audio cover for YouTube tracks (including shelf videos).
+            if (YouTubePlayerArtworkResolver.needsSongCover(track) && !current.hasVerifiedSquareCover) {
+                val squareAudioCover = try {
+                    withTimeoutOrNull(5_000L) { resolveSquareCover(track) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }?.takeIf { it.isNotBlank() && !isVideoThumbnailUrl(it) }
+                if (squareAudioCover != null) {
+                    current = merge(
+                        current,
+                        PartialMetadata(coverUrl = squareAudioCover, isSquareAudioCover = true),
+                        preferIncomingAlbum = false,
+                        preferIncomingCover = true
+                    )
+                }
+            }
+
             // 1. Direct provider detail lookup
             if (track.id.startsWith("online_")) {
                 val songId = track.id.removePrefix("online_")
                 val jio = withTimeoutOrNull(6_000L) { fetchJioSaavnSongMetadata(songId, sourcePlaylistTitle) }
-                if (jio != null) current = merge(current, jio, preferIncomingAlbum = true)
+                if (jio != null) current = merge(current, jio, preferIncomingAlbum = true, preferIncomingCover = jio.isSquareAudioCover)
             } else if (track.id.startsWith("yt_")) {
                 val videoId = track.id.removePrefix("yt_")
                 val yt = withTimeoutOrNull(6_000L) { fetchYouTubeNextMetadata(videoId, track, sourcePlaylistTitle) }
-                if (yt != null) current = merge(current, yt, preferIncomingAlbum = true)
+                if (yt != null) {
+                    current = merge(
+                        current,
+                        yt,
+                        preferIncomingAlbum = true,
+                        preferIncomingCover = !current.hasVerifiedSquareCover && yt.isSquareAudioCover
+                    )
+                }
             }
 
-            // 2. If album ID, composer, language, or artist IDs are missing, verify a JioSaavn match
+            // 2. If album ID, composer, language, ISRC, or square cover are missing, verify a JioSaavn match
             val needsJioEnrichment = !track.id.startsWith("online_") &&
-                (current.composers.isEmpty() || current.album == null || current.language == null || current.isrc == null)
+                (current.composers.isEmpty() || current.album == null || current.language == null ||
+                    current.isrc == null || !current.hasVerifiedSquareCover)
             if (needsJioEnrichment) {
                 val jioMatch = withTimeoutOrNull(6_000L) {
                     findVerifiedJioSaavnMatch(track, current, sourcePlaylistTitle)
                 }
                 if (jioMatch != null) {
-                    current = merge(current, jioMatch, preferIncomingAlbum = current.album?.id.isNullOrBlank())
+                    current = merge(
+                        current,
+                        jioMatch,
+                        preferIncomingAlbum = current.album?.id.isNullOrBlank(),
+                        preferIncomingCover = !current.hasVerifiedSquareCover && jioMatch.isSquareAudioCover
+                    )
                 }
             }
 
-            // 3. If specific genre (or real album/year) is still missing, verify an iTunes match
-            if (current.genre == null || current.album == null || current.year == null) {
+            // 3. If specific genre, real album, year, or square cover is still missing, verify an iTunes match
+            if (current.genre == null || current.album == null || current.year == null || !current.hasVerifiedSquareCover) {
                 val itunes = withTimeoutOrNull(5_000L) {
                     findVerifiedItunesMetadata(track, current, sourcePlaylistTitle)
                 }
                 if (itunes != null) {
-                    current = merge(current, itunes, preferIncomingAlbum = current.album == null)
+                    current = merge(
+                        current,
+                        itunes,
+                        preferIncomingAlbum = current.album == null,
+                        preferIncomingCover = !current.hasVerifiedSquareCover && itunes.isSquareAudioCover
+                    )
                 }
             }
 
@@ -240,22 +336,61 @@ object TrackMetadataResolver {
         }
     }
 
+    internal fun selectPreferredCover(
+        baseCover: String,
+        baseVerifiedSquare: Boolean,
+        incomingCover: String?,
+        incomingSquareAudio: Boolean,
+        preferIncomingCover: Boolean
+    ): Pair<String, Boolean> {
+        val candidate = incomingCover?.trim().orEmpty()
+        if (candidate.isBlank()) return baseCover to baseVerifiedSquare
+        val candidateIsSquareAudio = incomingSquareAudio && !isVideoThumbnailUrl(candidate)
+        if (preferIncomingCover && candidateIsSquareAudio) {
+            return candidate to true
+        }
+        if (baseCover.isBlank()) {
+            return candidate to candidateIsSquareAudio
+        }
+        if (!baseVerifiedSquare && candidateIsSquareAudio && (isVideoThumbnailUrl(baseCover) || !isLikelySquareAudioCoverUrl(baseCover))) {
+            return candidate to true
+        }
+        return baseCover to baseVerifiedSquare
+    }
+
     private fun merge(
         base: ResolvedTrackMetadata,
         incoming: PartialMetadata,
-        preferIncomingAlbum: Boolean
+        preferIncomingAlbum: Boolean,
+        preferIncomingCover: Boolean = false
     ): ResolvedTrackMetadata {
         val mergedArtists = mergeArtists(base.artists, incoming.artists)
-        val album = when {
+        val (resolvedCover, verifiedSquare) = selectPreferredCover(
+            baseCover = base.coverUrl,
+            baseVerifiedSquare = base.hasVerifiedSquareCover,
+            incomingCover = incoming.coverUrl,
+            incomingSquareAudio = incoming.isSquareAudioCover,
+            preferIncomingCover = preferIncomingCover
+        )
+        val rawAlbum = when {
             incoming.album != null && (preferIncomingAlbum || base.album == null || (base.album.id.isBlank() && incoming.album.id.isNotBlank())) ->
                 incoming.album.copy(
-                    image = incoming.album.image.ifBlank { base.album?.image.orEmpty().ifBlank { base.coverUrl } },
+                    image = incoming.album.image.ifBlank { base.album?.image.orEmpty().ifBlank { resolvedCover } },
                     artists = incoming.album.artists.ifEmpty { mergedArtists }
                 )
             else -> base.album
         }
+        val album = rawAlbum?.let { currentAlbum ->
+            if (verifiedSquare && resolvedCover.isNotBlank() &&
+                (currentAlbum.image.isBlank() || isVideoThumbnailUrl(currentAlbum.image) || currentAlbum.image == base.track.coverUrl)) {
+                currentAlbum.copy(image = resolvedCover)
+            } else {
+                currentAlbum
+            }
+        }
         return base.copy(
-            coverUrl = base.coverUrl.ifBlank { incoming.coverUrl.orEmpty() },
+            coverUrl = resolvedCover,
+            hasVerifiedSquareCover = verifiedSquare,
             artists = mergedArtists,
             album = album,
             composers = incoming.composers.ifEmpty { base.composers },
@@ -294,6 +429,7 @@ object TrackMetadataResolver {
 
     private data class PartialMetadata(
         val coverUrl: String? = null,
+        val isSquareAudioCover: Boolean = false,
         val artists: List<CatalogArtist> = emptyList(),
         val album: CatalogAlbum? = null,
         val composers: List<String> = emptyList(),
@@ -406,6 +542,7 @@ object TrackMetadataResolver {
 
         return PartialMetadata(
             coverUrl = coverUrl,
+            isSquareAudioCover = !coverUrl.isNullOrBlank() && !isVideoThumbnailUrl(coverUrl),
             artists = performers,
             album = album,
             composers = composers,
@@ -493,9 +630,12 @@ object TrackMetadataResolver {
                     text.matches(Regex("(?:19|20)[0-9]{2}")) -> year = text
                 }
             }
-            val thumb = YouTubeExploreParser.thumbnail(panel, squareOnly = true)
-                .ifBlank { YouTubeExploreParser.thumbnail(panel) }
-                .ifBlank { track.coverUrl }
+            val counterpartSquare = YouTubePlayerArtworkResolver.counterpartCover(root, videoId, track)
+            val panelSquare = YouTubeExploreParser.thumbnail(panel, squareOnly = true)
+                .takeIf { it.isNotBlank() && !isVideoThumbnailUrl(it) }
+            val squareCover = counterpartSquare ?: panelSquare
+            val thumb = squareCover
+                ?: YouTubeExploreParser.thumbnail(panel).ifBlank { track.coverUrl }
             val album = albumName?.let {
                 CatalogAlbum(
                     id = albumId,
@@ -508,6 +648,7 @@ object TrackMetadataResolver {
             }
             PartialMetadata(
                 coverUrl = thumb.takeIf { it.isNotBlank() },
+                isSquareAudioCover = squareCover != null,
                 artists = artists.distinctBy { CatalogNames.normalize(it.name) },
                 album = album,
                 year = year
@@ -654,6 +795,7 @@ object TrackMetadataResolver {
             }
             PartialMetadata(
                 coverUrl = art,
+                isSquareAudioCover = !art.isNullOrBlank() && !isVideoThumbnailUrl(art),
                 album = album,
                 genre = genre,
                 year = year

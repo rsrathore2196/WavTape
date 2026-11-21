@@ -510,18 +510,19 @@ internal fun CollectionPlaybackButtons(tracks: List<MusicTrack>, onPlay: (MusicT
                     modifier = Modifier.size(24.dp))
             }
         }
+        val playButtonScale = 1.15f * 1.08f
         IconButton(onClick = {
             preparation?.cancel()
             tracks.firstOrNull()?.let { onPlay(it, tracks) }
-        }, enabled = tracks.isNotEmpty(), modifier = Modifier.size(CollectionActionSize * 1.15f).testTag("${tagPrefix}_play")) {
+        }, enabled = tracks.isNotEmpty(), modifier = Modifier.size(CollectionActionSize * playButtonScale).testTag("${tagPrefix}_play")) {
             val fill = if (tracks.isNotEmpty()) colors.accentBrush()
                 else Brush.linearGradient(listOf(colors.cardBackgroundElevated, colors.cardBackgroundElevated))
-            Box(Modifier.size(CollectionActionSurfaceSize * 1.15f).clip(CircleShape).background(fill)
+            Box(Modifier.size(CollectionActionSurfaceSize * playButtonScale).clip(CircleShape).background(fill)
                 .border(BorderStroke(1.dp, colors.primaryAccent.copy(alpha = .2f)), CircleShape),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.PlayArrow, "Play all",
                     tint = if (tracks.isNotEmpty()) colors.onAccentGradient else colors.textMuted,
-                    modifier = Modifier.size(30.dp))
+                    modifier = Modifier.size(30.dp * 1.08f))
             }
         }
         if (download != null) CollectionDownloadButton(download)

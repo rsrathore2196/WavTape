@@ -708,13 +708,15 @@ object YouTubeMusicApiService {
                 for (index in 0 until runs.length()) {
                     val run = runs.optJSONObject(index) ?: continue
                     val text = run.optString("text").trim()
-                    val endpoint = run.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+                    val nav = run.optJSONObject("navigationEndpoint")
+                    val endpoint = nav?.optJSONObject("browseEndpoint")
+                        ?: nav?.optJSONObject("innertubeCommand")?.optJSONObject("browseEndpoint")
                     val type = endpoint?.optJSONObject("browseEndpointContextSupportedConfigs")
                         ?.optJSONObject("browseEndpointContextMusicConfig")?.optString("pageType").orEmpty()
                     val browseId = endpoint?.optString("browseId").orEmpty()
                     when {
-                        type == "MUSIC_PAGE_TYPE_ARTIST" || browseId.startsWith("UC") -> artists.add(text)
-                        type == "MUSIC_PAGE_TYPE_ALBUM" || browseId.startsWith("MPRE") -> album = text
+                        text.isNotBlank() && (type == "MUSIC_PAGE_TYPE_ARTIST" || type == "MUSIC_PAGE_TYPE_USER_CHANNEL" || browseId.startsWith("UC")) -> artists.add(text)
+                        text.isNotBlank() && (type == "MUSIC_PAGE_TYPE_ALBUM" || browseId.startsWith("MPRE")) -> album = text
                         text.matches(Regex("[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?")) -> durationMs = parseDurationText(text)
                         text.matches(Regex("(?:19|20)[0-9]{2}")) -> releaseYear = text
                     }
@@ -727,7 +729,8 @@ object YouTubeMusicApiService {
                 if (text.matches(Regex("[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?"))) durationMs = parseDurationText(text)
             }
             val performingArtists = YouTubeExploreParser.performingArtists(r)
-            val artist = performingArtists.ifEmpty { artists.distinct() }.joinToString(", ").ifBlank { "Unknown" }
+            val linkedArtists = performingArtists.ifEmpty { artists.distinct() }
+            val artist = YouTubeExploreParser.displayArtists(r, linkedArtists).joinToString(", ").ifBlank { "Unknown" }
 
             // Video ID
             var videoId = r.optJSONObject("playlistItemData")?.optString("videoId", "") ?: ""

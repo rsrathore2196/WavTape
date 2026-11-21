@@ -211,7 +211,7 @@ class CollectionHeaderUiTest {
         assertTrue("Shuffle, play and download retain their requested order", shuffle.right < play.left && play.right < action.left)
         assertEquals(57.6f * density, action.width, 1f)
         assertEquals(action.width, shuffle.width, 1f)
-        assertEquals(66.24f * density, play.width, 1f)
+        assertEquals(66.24f * 1.08f * density, play.width, 1f)
         assertEquals(action.width, action.height, .5f)
         assertEquals(play.width, play.height, .5f)
         assertEquals(shuffle.width, shuffle.height, .5f)

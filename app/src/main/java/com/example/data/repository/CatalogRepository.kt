@@ -89,7 +89,7 @@ class CatalogRepository(context: Context? = null,
         val descriptor = JSONArray(listOf(kind, country, language, id, params.orEmpty(), continuation.orEmpty())).toString()
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(descriptor.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }
-        return "explore-catalog-v1:$digest"
+        return "explore-catalog-v2:$digest"
     }
     private suspend fun <T> cachedBrowse(key: String, ttl: Long, forceRefresh: Boolean,
         decode: (String) -> T, encode: (T) -> String, checkpoint: Boolean = false,
@@ -155,7 +155,8 @@ class CatalogRepository(context: Context? = null,
         return youtubeBrowse(category.browseId, category.params, countryCode, languageCode, null, false, forceRefresh)
     }
     private suspend fun youtubeBrowse(id: String, params: String?, countryCode: String, languageCode: String,
-        continuation: CatalogBrowseContinuation?, collectionOnly: Boolean, forceRefresh: Boolean = false): CatalogPage {
+        continuation: CatalogBrowseContinuation?, collectionOnly: Boolean, forceRefresh: Boolean = false,
+        isAlbumCollection: Boolean = false): CatalogPage {
         val (country, language) = locale(countryCode, languageCode)
         if (continuation != null && (continuation.browseId != id || continuation.params != params ||
                 continuation.countryCode != country || continuation.languageCode != language))
@@ -169,7 +170,7 @@ class CatalogRepository(context: Context? = null,
             }
             withContext(AppDispatchers.CpuBounded) {
                 val job = currentCoroutineContext()
-                YouTubeExploreParser.page(JSONObject(body), country, language, collectionOnly) { job.ensureActive() }
+                YouTubeExploreParser.page(JSONObject(body), country, language, collectionOnly, isAlbumCollection) { job.ensureActive() }
             }
         }
         val seen = continuation?.seenTokens.orEmpty() + listOfNotNull(continuation?.token)
@@ -575,11 +576,25 @@ class CatalogRepository(context: Context? = null,
     suspend fun albumSongs(selected: CatalogAlbum, continuation: CatalogBrowseContinuation? = null): CatalogPage = withContext(AppDispatchers.CpuBounded) {
         if (selected.provider == CatalogProvider.YOUTUBE_MUSIC) {
             val page = youtubeBrowse(selected.id, selected.browseParams, selected.countryCode,
-                selected.languageCode, continuation, collectionOnly = true)
-            // Album rows often omit thumbnails. Keep this exact release's catalog
-            // cover instead of the parser's low-resolution video fallback.
-            return@withContext if (selected.image.isBlank()) page else page.copy(tracks = page.tracks.map {
-                it.copy(coverUrl = selected.image)
+                selected.languageCode, continuation, collectionOnly = true, isAlbumCollection = true)
+            val fallbackArtists = selected.artists.filter { !YouTubeExploreParser.isUnknownArtist(it.name) }
+            val fallbackArtistText = fallbackArtists.joinToString(", ") { it.name }
+            val fallbackPrimary = fallbackArtists.filter { it.id.startsWith("UC") }.map { it.name }
+            // Album rows often omit thumbnails and album-level artist credits.
+            // Keep this exact release's catalog cover and inherit missing artists from the album.
+            return@withContext page.copy(tracks = page.tracks.map { track ->
+                val resolvedCover = if (selected.image.isBlank()) track.coverUrl else selected.image
+                if (fallbackArtistText.isNotBlank() && YouTubeExploreParser.isUnknownArtist(track.artist)) {
+                    track.copy(
+                        coverUrl = resolvedCover,
+                        artist = fallbackArtistText,
+                        primaryArtists = track.primaryArtists.ifEmpty { fallbackPrimary }
+                    )
+                } else if (resolvedCover != track.coverUrl) {
+                    track.copy(coverUrl = resolvedCover)
+                } else {
+                    track
+                }
             })
         }
         val root = try {
