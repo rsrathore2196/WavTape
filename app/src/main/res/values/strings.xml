@@ -1,5 +1,5 @@
-<resources>
-    <string name="app_name">WavTape</string>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name" translatable="false">WavTape</string>
     <string name="lyrics_offset">Lyrics Offset</string>
     <string name="lyrics_offset_desc">Adjust lyrics sync timing to match vocals</string>
     <string name="lyrics_offset_reset">Reset</string>
@@ -18,14 +18,16 @@
     <string name="home_good_evening">Good Evening</string>
     <string name="home_late_night">Late Night Sessions</string>
     <string name="home_listener">Listener</string>
-    <string name="home_greeting_format">%1$s, %2$s</string>
+    <!-- The greeting itself is translated. Locales can override the order or punctuation. -->
+    <string name="home_greeting_format" tools:ignore="MissingTranslation">%1$s, %2$s</string>
     <string name="recently_played">Recently Played</string>
     <string name="most_listened_artists">Most Listened Artists</string>
     <string name="music_for_you">Music for You</string>
     <string name="music_for_you_subtitle">Based on your music preferences</string>
     <string name="infinite_radio">Infinite Radio</string>
-    <string name="play_radio">Play radio</string>
-    <string name="view_artist">View artist</string>
+    <!-- These actions use the default strings wherever translations are unavailable. -->
+    <string name="play_radio" tools:ignore="MissingTranslation">Play radio</string>
+    <string name="view_artist" tools:ignore="MissingTranslation">View artist</string>
     <string name="radio_subtitle">A fresh random mix · Endless discoveries</string>
     <string name="now_playing">NOW PLAYING</string>
     <string name="unknown_artist">Unknown Artist</string>
@@ -38,9 +40,10 @@
     <string name="search_title">Search Online Music</string>
     <string name="search_subtitle">Stream millions of Ultra High Quality Tracks</string>
     <string name="search_placeholder">What do you want to play?</string>
-    <string name="voice_search">Voice search</string>
-    <string name="voice_search_prompt">Speak song, artist, or album</string>
-    <string name="voice_search_unavailable">Voice search is not available on this device</string>
+    <!-- Voice search uses the default prompts wherever translations are unavailable. -->
+    <string name="voice_search" tools:ignore="MissingTranslation">Voice search</string>
+    <string name="voice_search_prompt" tools:ignore="MissingTranslation">Speak song, artist, or album</string>
+    <string name="voice_search_unavailable" tools:ignore="MissingTranslation">Voice search is not available on this device</string>
     <string name="search_recent">Recent searches</string>
     <string name="clear_all">Clear all</string>
     <string name="search_explore">Explore Genres</string>

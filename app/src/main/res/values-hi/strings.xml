@@ -1,4 +1,7 @@
 <resources>
+    <string name="lyrics_offset">बोलों का समय</string>
+    <string name="lyrics_offset_desc">बोलों का समय गायकी से मिलाएँ</string>
+    <string name="lyrics_offset_reset">रीसेट करें</string>
     <string name="app_language">ऐप की भाषा</string>
     <string name="app_language_system">सिस्टम की भाषा</string>
     <string name="app_language_close">बंद करें</string>

@@ -21,6 +21,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -62,8 +63,12 @@ sealed class UpdateStatus {
 }
 
 object AppUpdateManager {
-    private const val LATEST = "https://api.github.com/repos/rsrathore2196/Xtreme-Player/releases/latest"
-    private const val ASSET_PATH = "/rsrathore2196/Xtreme-Player/releases/download/"
+    private const val LATEST = "https://api.github.com/repos/rsrathore2196/WavTape/releases/latest"
+    private val assetPaths = listOf(
+        "/rsrathore2196/WavTape/releases/download/",
+        "/rsrathore2196/Xtreme-Player/releases/download/"
+    )
+    private val abiInAssetName = Regex("(?<![a-z0-9])(arm64-v8a|armeabi-v7a|x86_64|x86)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private const val MAX_AGE = 24 * 60 * 60 * 1000L
     private const val MAX_REDIRECTS = 6
 
@@ -137,7 +142,7 @@ object AppUpdateManager {
             uri.host.equals("github.com", ignoreCase = true) &&
             uri.port == -1 &&
             uri.userInfo == null &&
-            uri.path.orEmpty().startsWith(ASSET_PATH) &&
+            assetPaths.any { uri.path.orEmpty().startsWith(it) } &&
             uri.query == null &&
             uri.fragment == null
     }
@@ -399,16 +404,14 @@ object AppUpdateManager {
                 a.optString("content_type").lowercase() in allowedTypes
         }
 
-        val knownAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-        val apk = apks.firstOrNull { it.optString("name").contains("universal", ignoreCase = true) }
-            ?: apks.singleOrNull()
+        val byAbi = apks.groupBy { abiInAssetName.find(it.optString("name"))?.value?.lowercase(Locale.ROOT) }
+        val generic = byAbi[null].orEmpty()
+        val apk = generic.firstOrNull { it.optString("name").contains("universal", ignoreCase = true) }
+            ?: generic.singleOrNull()?.takeIf { apks.size == 1 }
             ?: supportedAbis.firstNotNullOfOrNull { abi ->
-                apks.singleOrNull { it.optString("name").contains(abi, ignoreCase = true) }
+                byAbi[abi.lowercase(Locale.ROOT)]?.singleOrNull()
             }
-            ?: apks.filter { candidate ->
-                val lower = candidate.optString("name").lowercase()
-                !lower.contains("debug") && knownAbis.none { lower.contains(it) }
-            }.singleOrNull()
+            ?: generic.singleOrNull { !it.optString("name").contains("debug", ignoreCase = true) }
             ?: throw IOException("This release has no compatible APK asset.")
 
         val name = apk.getString("name")
@@ -554,22 +557,29 @@ object AppUpdateManager {
 
     fun cancelDownload(context: Context) {
         val app = context.applicationContext
-        val currentInfo = (session?.info)
-            ?: (_updateStatus.value as? UpdateStatus.Downloading)?.updateInfo
-        downloadJob?.cancel()
-        downloadJob = null
         scope.launch {
             operations.withLock {
-                clear(app)
-                _downloadProgress.value = 0
-                if (currentInfo != null) {
-                    _updateStatus.value = UpdateStatus.UpdateAvailable(currentInfo)
-                } else {
-                    _updateStatus.value = UpdateStatus.Idle
+                val pending = session?.takeUnless { it.ready } ?: return@withLock
+                try {
+                    clear(app)
+                    _downloadProgress.value = 0
+                    _updateStatus.value = UpdateStatus.UpdateAvailable(pending.info)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
+                    fail(app, e.message ?: "Could not cancel the update download.", retryInfo = pending.info)
                 }
             }
         }
     }
+
+    private suspend fun publishDownloadProgress(active: Session, status: UpdateStatus.Downloading) =
+        withContext(Dispatchers.Main.immediate) {
+            if (session?.name == active.name) {
+                _downloadProgress.value = status.progressPercent
+                _updateStatus.value = status
+            }
+        }
 
     private suspend fun runStreamingDownload(app: Context, activeSession: Session) {
         val info = activeSession.info
@@ -579,6 +589,7 @@ object AppUpdateManager {
                 check(dir.mkdirs() || dir.isDirectory) { "Update storage is unavailable." }
                 // Remove stale update APKs or partial downloads before starting.
                 dir.listFiles()?.forEach { existing ->
+                    currentCoroutineContext().ensureActive()
                     if (existing.name.startsWith("xtreme-update-")) {
                         runCatching { existing.delete() }
                     }
@@ -609,6 +620,7 @@ object AppUpdateManager {
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 val read = input.read(buffer)
+                                currentCoroutineContext().ensureActive()
                                 if (read < 0) break
                                 output.write(buffer, 0, read)
                                 downloaded += read
@@ -626,15 +638,14 @@ object AppUpdateManager {
                                 if (percent != lastPercent || now - lastReportTime >= 150L) {
                                     lastPercent = percent
                                     lastReportTime = now
-                                    _downloadProgress.value = percent
-                                    _updateStatus.value = UpdateStatus.Downloading(
+                                    publishDownloadProgress(activeSession, UpdateStatus.Downloading(
                                         progressPercent = percent,
                                         downloadId = activeSession.id,
                                         updateInfo = info,
                                         message = "Downloading update...",
                                         downloadedBytes = downloaded,
                                         totalBytes = if (expectedTotal > 0L) expectedTotal else downloaded
-                                    )
+                                    ))
                                 }
                             }
                             output.flush()
@@ -646,27 +657,27 @@ object AppUpdateManager {
                     }
                 }
 
+                currentCoroutineContext().ensureActive()
                 if (finalFile.exists()) finalFile.delete()
                 if (!tempFile.renameTo(finalFile)) {
                     tempFile.copyTo(finalFile, overwrite = true)
                     tempFile.delete()
                 }
 
-                _downloadProgress.value = 99
-                _updateStatus.value = UpdateStatus.Downloading(
+                publishDownloadProgress(activeSession, UpdateStatus.Downloading(
                     progressPercent = 99,
                     downloadId = activeSession.id,
                     updateInfo = info,
                     message = "Verifying APK integrity...",
                     downloadedBytes = finalFile.length(),
                     totalBytes = finalFile.length()
-                )
+                ))
 
                 ApkVerifier.verify(app, finalFile, info)
             }
 
             operations.withLock {
-                if (session?.id != activeSession.id) return@withLock
+                if (session?.name != activeSession.name) return@withLock
                 val completed = activeSession.copy(ready = true)
                 session = completed
                 persist(app, completed)
@@ -679,17 +690,19 @@ object AppUpdateManager {
         } catch (e: CancellationException) {
             withContext(Dispatchers.IO + NonCancellable) {
                 runCatching { partFile(app, activeSession).delete() }
+                runCatching { staged(app, activeSession).delete() }
             }
             throw e
         } catch (e: ObsoleteApk) {
             operations.withLock {
+                if (session?.name != activeSession.name) return@withLock
                 clear(app)
                 _downloadProgress.value = 0
                 _updateStatus.value = UpdateStatus.UpToDate(BuildConfig.VERSION_NAME)
             }
         } catch (e: Exception) {
             operations.withLock {
-                if (session?.id == activeSession.id) {
+                if (session?.name == activeSession.name) {
                     downloadJob = null
                     fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
                 }

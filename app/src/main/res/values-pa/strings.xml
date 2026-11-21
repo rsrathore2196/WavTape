@@ -1,4 +1,7 @@
 <resources>
+    <string name="lyrics_offset">ਗੀਤ ਦੇ ਬੋਲਾਂ ਦਾ ਸਮਾਂ</string>
+    <string name="lyrics_offset_desc">ਬੋਲਾਂ ਦਾ ਸਮਾਂ ਗਾਇਕੀ ਨਾਲ ਮਿਲਾਓ</string>
+    <string name="lyrics_offset_reset">ਮੁੜ ਸੈੱਟ ਕਰੋ</string>
     <string name="app_language">ਐਪ ਦੀ ਭਾਸ਼ਾ</string>
     <string name="app_language_system">ਸਿਸਟਮ ਦੀ ਭਾਸ਼ਾ</string>
     <string name="app_language_close">ਬੰਦ ਕਰੋ</string>

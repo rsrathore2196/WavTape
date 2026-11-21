@@ -21,14 +21,27 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.ClassName
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+
+/** Offscreen composition is outside these viewport assertions. Under Robolectric,
+ * the Android scheduler can repost prefetch frames indefinitely during Espresso idling. */
+@Implements(className = "androidx.compose.foundation.lazy.layout.AndroidPrefetchScheduler", isInAndroidSdk = false)
+class LyricsPreparationPrefetchShadow {
+    @Implementation
+    fun schedulePrefetch(@ClassName("androidx.compose.foundation.lazy.layout.PrefetchRequest") request: Any) = Unit
+}
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31, 34], application = Application::class, qualifiers = "w411dp-h891dp-port")
+@Config(sdk = [31, 34], application = Application::class, qualifiers = "w411dp-h891dp-port",
+    instrumentedPackages = ["androidx.compose.foundation.lazy.layout"], shadows = [LyricsPreparationPrefetchShadow::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class LyricsPreparationUiTest {
     @get:Rule val compose = createComposeRule()
+
     private class ObservedSyllables(private val start: Long) : AbstractList<LyricSyllable>() {
         val reads = AtomicInteger()
         val hashes = AtomicInteger()

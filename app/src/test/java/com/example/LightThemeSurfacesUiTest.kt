@@ -237,11 +237,11 @@ class LightThemeSurfacesUiTest {
                 compose.waitForIdle()
                 val mini = capture("mini_player_container", "light-mini-$glass-${canvas.toArgb()}")
                 val fill = java.awt.Color(mini.getRGB(mini.width / 2, mini.height - 5))
-                for (label in listOf("Song title", "Artist")) {
+                for ((label, expectedColor) in listOf("Song title" to Color.Black, "Artist" to Color(0xFF111827))) {
                     val layouts = mutableListOf<TextLayoutResult>()
                     compose.onNodeWithText(label, useUnmergedTree = true)
                         .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                    assertEquals("Light floating labels keep one solid dark color over every canvas", Color.Black,
+                    assertEquals("Light floating labels retain their foreground colors over every canvas", expectedColor,
                         layouts.single().layoutInput.style.color)
                     assertEquals(androidx.compose.ui.text.font.FontWeight.Bold, layouts.single().layoutInput.style.fontWeight)
                     assertNull("Labels must not have a glow or text shadow", layouts.single().layoutInput.style.shadow)

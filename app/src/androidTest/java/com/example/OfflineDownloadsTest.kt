@@ -63,6 +63,7 @@ class OfflineDownloadsTest {
         store.put(DownloadRecord(selected, DownloadStatus.COMPLETE, size, size, plan = plan))
         val local = checkNotNull(store.localTrack(selected))
         val ready = CompletableDeferred<Unit>()
+        val playbackScope = this
         var player: ExoPlayer? = null
         instrumentation.runOnMainSync {
             player = ExoPlayer.Builder(context).build().apply {
@@ -70,7 +71,7 @@ class OfflineDownloadsTest {
                     override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_READY) ready.complete(Unit) }
                     override fun onPlayerError(error: PlaybackException) { ready.completeExceptionally(error) }
                 })
-                setMediaSource(store.source(MediaItem.Builder().setMediaId(local.id).setUri(local.audioUrl).build()))
+                setMediaSource(store.source(MediaItem.Builder().setMediaId(local.id).setUri(local.audioUrl).build(), playbackScope))
                 prepare()
             }
         }

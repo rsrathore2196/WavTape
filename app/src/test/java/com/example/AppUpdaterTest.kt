@@ -20,10 +20,13 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
+import org.json.JSONObject
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -82,6 +85,34 @@ class AppUpdaterTest {
         val draft = """{"tag_name":"v3.0","draft":true,"prerelease":false,"assets":[]}"""
         assertTrue(AppUpdateManager.parseReleaseJson(sameVersion, "2.1") is UpdateStatus.UpToDate)
         assertTrue(AppUpdateManager.parseReleaseJson(draft, "2.1") is UpdateStatus.UpToDate)
+    }
+
+    @Test fun releaseAssetsFromRenamedRepositoryKeepLegacyCompatibility() {
+        val name = "WavTape.apk"
+        val url = "https://github.com/rsrathore2196/WavTape/releases/download/v2.2/$name"
+        val result = AppUpdateManager.parseReleaseJson(releaseWithAssets(name), currentVersion = "2.1")
+        assertEquals(url, (result as UpdateStatus.UpdateAvailable).updateInfo.apkDownloadUrl)
+        assertTrue(AppUpdateManager.validAsset(url.replace("/WavTape/", "/Xtreme-Player/")))
+        assertFalse(AppUpdateManager.validAsset(url.replace("/WavTape/", "/WavTape-other/")))
+        assertFalse(AppUpdateManager.validAsset(url.replace("/rsrathore2196/", "/other-owner/")))
+    }
+
+    @Test fun namedArchitecturesRequireExactDeviceSupportEvenForSingleAsset() {
+        assertThrows(IOException::class.java) {
+            AppUpdateManager.parseReleaseJson(releaseWithAssets("WavTape-x86_64.apk"),
+                currentVersion = "2.1", supportedAbis = arrayOf("x86"))
+        }
+        val result = AppUpdateManager.parseReleaseJson(
+            releaseWithAssets("WavTape-x86_64.apk", "WavTape-x86.apk"),
+            currentVersion = "2.1", supportedAbis = arrayOf("x86")) as UpdateStatus.UpdateAvailable
+        assertEquals("WavTape-x86.apk", result.updateInfo.apkFileName)
+    }
+
+    private fun releaseWithAssets(vararg names: String): String {
+        val assets = JSONArray()
+        names.forEach { name -> assets.put(JSONObject().put("name", name).put("size", 4096L)
+            .put("browser_download_url", "https://github.com/rsrathore2196/WavTape/releases/download/v2.2/$name")) }
+        return JSONObject().put("tag_name", "v2.2").put("assets", assets).toString()
     }
 
     @Test fun downloadRedirectValidationAllowsOnlyTrustedHttpsGithubHosts() {
@@ -154,7 +185,7 @@ class AppUpdaterTest {
         compose.onNodeWithText("Downloading Update").assertIsDisplayed()
         compose.onNodeWithText("45%").assertIsDisplayed()
         compose.onNodeWithText("9.0 MB / 20.0 MB").assertIsDisplayed()
-        compose.onNodeWithTag("cancel_update_download_button").assertIsDisplayed()
+        compose.onNodeWithTag("cancel_update_download_button").performScrollTo().assertIsDisplayed()
 
         // Transition to ReadyToInstall with verification message
         compose.runOnIdle {

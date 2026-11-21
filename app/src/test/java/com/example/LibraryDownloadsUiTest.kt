@@ -3,6 +3,12 @@ package com.example
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListPrefetchScope
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
+import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
@@ -38,7 +44,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
-@OptIn(ExperimentalRoborazziApi::class)
+@OptIn(ExperimentalRoborazziApi::class, ExperimentalFoundationApi::class)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w400dp-h1000dp-port")
@@ -54,6 +60,11 @@ class LibraryDownloadsUiTest {
     private val liked = MusicTrack("liked", "Favorite song", "Artist", "Album", 120_000,
         "https://example.test/first-song-album-art.jpg", "https://example.test/liked")
     private val playlists = listOf(PlaylistEntity(1, "Road trip"), PlaylistEntity(2, "Evening mix"))
+    private val noLibraryPrefetch = object : LazyListPrefetchStrategy {
+        override fun LazyListPrefetchScope.onScroll(delta: Float, layoutInfo: LazyListLayoutInfo) {}
+        override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {}
+        override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) {}
+    }
 
     @Before fun prepare() {
         WorkManagerTestInitHelper.initializeTestWorkManager(context,
@@ -86,6 +97,7 @@ class LibraryDownloadsUiTest {
                     LocalArtworkRequestsActive provides false) {
                     LibraryScreen(listOf(liked), playlists, onTrackClick = { track, queue -> play = track to queue },
                         onToggleFavorite = {},
+                        listState = rememberLazyListState(prefetchStrategy = noLibraryPrefetch),
                         onOpenPlaylist = { openedPlaylist = it }, onCreatePlaylistClick = onCreate, onImportPlaylistClick = onImport, downloadStore = store)
                 } }
             }

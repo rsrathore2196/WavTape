@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.ui.theme.LiquidGlass
@@ -211,6 +212,7 @@ fun UpdateNotificationBar(
                         .size(48.dp)
                         .clip(CircleShape)
                         .clickable { AppUpdateManager.dismissForSession() }
+                        .zIndex(1f)
                         .testTag("dismiss_update_bar_button"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -242,6 +244,7 @@ fun UpdateNotificationBar(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 24.dp, vertical = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
