@@ -14,6 +14,8 @@ import com.example.data.model.requiresSongArtwork
 import com.example.ui.components.awaitContentDraw
 import com.example.ui.viewmodel.HomeShelfPresentation
 import com.example.ui.viewmodel.ShelfLoadStatus
+import com.example.data.repository.ArtistPhotoRepository
+import com.example.data.repository.CatalogArtist
 import com.example.data.repository.CatalogDestination
 import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.util.landscapeContentBounds
@@ -41,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,11 +60,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.xtremeLiquidGlassBackground
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -93,7 +97,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,11 +111,9 @@ import com.example.ui.components.HomePullRefreshOverscrollLayout
 import com.example.ui.components.HomeAppHeader
 import com.example.ui.components.InfiniteRadioHeroCard
 import com.example.ui.theme.LocalAppColors
-import com.example.ui.util.ImageConfig
+import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.util.rememberOptimizedImageRequest
 import com.example.ui.viewmodel.MostListenedArtist
-import com.example.ui.viewmodel.ArtistRadioStation
-import com.example.ui.viewmodel.artistRadioStations
 import com.example.ui.viewmodel.HomeViewModel
 import com.example.ui.viewmodel.SectionState
 import com.example.ui.viewmodel.HomeFeedWindow
@@ -216,7 +217,7 @@ fun HomeScreen(
     listState: LazyListState = rememberLazyListState(),
     onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit = {},
     onOpenCatalog: (CatalogDestination) -> Unit = {},
-    onPlayArtistRadio: ((MusicTrack) -> Unit)? = null,
+    onPlayArtistRadio: ((MostListenedArtist) -> Unit)? = null,
     isStartingRadio: Boolean = false
 ) {
     val isRefreshing by homeViewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -280,7 +281,7 @@ fun HomeScreenContent(
     onOpenCatalog: (CatalogDestination) -> Unit = {},
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
-    onPlayArtistRadio: ((MusicTrack) -> Unit)? = null
+    onPlayArtistRadio: ((MostListenedArtist) -> Unit)? = null
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Only structural visibility is observed by the lazy-list owner. Section
@@ -311,13 +312,7 @@ fun HomeScreenContent(
 
     val nativeCards = homeViewModel?.serverCards?.collectAsStateWithLifecycle()?.value
         ?: remember(serverShelves) { serverShelves.map { HomeShelfPresentation("server_shelf_${it.id}", it, ShelfLoadStatus.SUCCESS) } }
-    val artistStations = if (onPlayArtistRadio == null) emptyList() else
-        homeViewModel?.artistRadio?.collectAsStateWithLifecycle()?.value
-            ?: remember(mostListenedArtists, pillsCardTracks, profileShelf, serverShelves) {
-                artistRadioStations(mostListenedArtists, pillsCardTracks,
-                    profileShelf?.tracks.orEmpty().asSequence() + serverShelves.asSequence().flatMap { it.tracks.asSequence() })
-            }
-    val artworkActive = com.example.ui.util.LocalArtworkRequestsActive.current
+    val artworkActive = LocalArtworkRequestsActive.current
     val heroPrefetchContext = androidx.compose.ui.platform.LocalContext.current
     val observedHeroSeed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
     val effectiveHeroSeed = currentTrack ?: observedHeroSeed
@@ -557,45 +552,28 @@ fun HomeScreenContent(
                             )
                         }
                         Spacer(Modifier.height(12.dp))
-                        LazyRow(
-                            state = artistListState,
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            items(visibleArtists, key = { it.name }, contentType = { "artist_card" }) { artist ->
-                                VisibleItemArtwork(artistListState, artist.name) {
-                                    Column(
-                                        Modifier.width(168.dp).clip(RoundedCornerShape(18.dp))
-                                            .background(cardBg)
-                                            .clickable {
-                                                onOpenArtist(com.example.data.repository.ArtistPhotoRepository.cachedArtist(artist.name))
-                                            }.padding(12.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        com.example.ui.components.ArtistPortrait(
-                                            artist = com.example.data.repository.ArtistPhotoRepository.cachedArtist(artist.name),
-                                            deferEnrichment = true,
-                                            enrichmentAllowed = enrichArtists,
-                                            targetSize = with(androidx.compose.ui.platform.LocalDensity.current) { 124.8.dp.roundToPx() },
-                                            modifier = Modifier.size(124.8.dp).clip(CircleShape)
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val cardWidth = (maxWidth - 56.dp).coerceIn(0.dp, 400.dp)
+                            LazyRow(
+                                modifier = Modifier.testTag("most_listened_artist_row"),
+                                state = artistListState,
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                items(visibleArtists, key = { it.name }, contentType = { "artist_card" }) { artist ->
+                                    VisibleItemArtwork(artistListState, artist.name) {
+                                        MostListenedArtistCard(
+                                            artist = artist,
+                                            portraitsReady = enrichArtists,
+                                            onPlayRadio = onPlayArtistRadio,
+                                            onOpenArtist = onOpenArtist,
+                                            modifier = Modifier.width(cardWidth)
                                         )
-                                        val effectsActive = com.example.ui.components.LocalVisualEffectsActive.current
-                                        val marqueeMode = if (effectsActive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
-                                            else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(localizedCatalogText(artist.name), color = textPrimaryColor, fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, animationMode = marqueeMode),
-                                            maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-            if (onPlayArtistRadio != null && artistStations.isNotEmpty()) {
-                artworkItem(state = listState, key = "artist_radio_shelf", contentType = "artist_shelf") {
-                    ArtistRadioShelf(artistStations, optionalShelvesVisible, onPlayArtistRadio, onOpenArtist)
                 }
             }
             for (card in cardsToShow) {
@@ -663,45 +641,83 @@ private fun rememberHomeRevealModifier(state: LazyListState, reveal: () -> Unit)
 }
 
 @Composable
-private fun ArtistRadioShelf(
-    stations: List<ArtistRadioStation>,
+private fun MostListenedArtistCard(
+    artist: MostListenedArtist,
     portraitsReady: Boolean,
-    onPlay: (MusicTrack) -> Unit,
-    onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit
+    onPlayRadio: ((MostListenedArtist) -> Unit)?,
+    onOpenArtist: (CatalogArtist) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalAppColors.current
-    val rowState = rememberLazyListState()
-    ObserveHomeScroll(rowState)
-    Column(Modifier.padding(top = 22.dp).testTag("artist_radio_shelf")) {
-        Text(stringResource(R.string.artist_radio), Modifier.padding(horizontal = 20.dp),
-            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-        Spacer(Modifier.height(12.dp))
-        LazyRow(state = rowState, contentPadding = PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(stations, key = { it.artist }, contentType = { "artist_radio_card" }) { station ->
-                VisibleItemArtwork(rowState, station.artist) {
-                    val artist = com.example.data.repository.ArtistPhotoRepository.cachedArtist(station.artist)
-                    val name = localizedCatalogText(station.artist)
-                    Column(Modifier.width(168.dp).clip(RoundedCornerShape(18.dp)).background(colors.cardBackground)
-                        .clickable { onOpenArtist(artist) }.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.size(124.8.dp)) {
-                            com.example.ui.components.ArtistPortrait(
-                                artist = artist, deferEnrichment = true, enrichmentAllowed = portraitsReady,
-                                targetSize = with(LocalDensity.current) { 124.8.dp.roundToPx() },
-                                modifier = Modifier.fillMaxSize().clip(CircleShape)
-                            )
-                            IconButton(onClick = { onPlay(station.seed) },
-                                modifier = Modifier.align(Alignment.BottomEnd).size(40.dp)
-                                    .clip(CircleShape).background(colors.primaryAccent)
-                                    .testTag("artist_radio_play_${station.artist}")) {
-                                Icon(Icons.Default.PlayArrow, stringResource(R.string.play_artist_radio, name),
-                                    tint = colors.onPrimaryAccent)
-                            }
+    val catalogArtist = remember(artist.name) { ArtistPhotoRepository.cachedArtist(artist.name) }
+    val portraitSize = 88.dp
+    val artworkSize = with(LocalDensity.current) { (portraitSize * 2).roundToPx() }
+    val viewArtist = stringResource(R.string.view_artist)
+    val openArtist = { onOpenArtist(ArtistPhotoRepository.cachedArtist(artist.name)) }
+    val effectsActive = com.example.ui.components.LocalVisualEffectsActive.current
+    val marqueeMode = if (effectsActive) androidx.compose.foundation.MarqueeAnimationMode.Immediately
+        else androidx.compose.foundation.MarqueeAnimationMode.WhileFocused
+
+    Box(modifier.clip(RoundedCornerShape(28.dp)).background(colors.cardBackground)
+        .clickable(onClickLabel = viewArtist, onClick = openArtist)
+        .testTag("most_listened_artist_card_${artist.name}")) {
+        if (LocalArtworkRequestsActive.current) {
+            val photo by remember(catalogArtist) { ArtistPhotoRepository.observePhoto(catalogArtist) }
+                .collectAsStateWithLifecycle(initialValue = ArtistPhotoRepository.initialPhoto(catalogArtist))
+            photo?.let { url ->
+                Box(Modifier.matchParentSize()) {
+                    AsyncImage(
+                        model = rememberOptimizedImageRequest(url, artworkSize, crossfadeEnabled = false,
+                            preferStableArtwork = true),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        alpha = if (colors.isDark) 0.28f else 0.18f,
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.68f)
+                    )
+                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.68f).background(Brush.verticalGradient(
+                        0f to Color.Transparent, 1f to colors.cardBackground
+                    )))
+                }
+            }
+        }
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                ArtistPortrait(artist = catalogArtist, deferEnrichment = true, enrichmentAllowed = portraitsReady,
+                    targetSize = artworkSize, modifier = Modifier.size(portraitSize).clip(CircleShape))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(localizedCatalogText(artist.name),
+                        modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, animationMode = marqueeMode),
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary, maxLines = 1, softWrap = false)
+                    artist.tracks.firstOrNull()?.let { track ->
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.textMuted,
+                                modifier = Modifier.size(16.dp))
+                            Text(localizedCatalogText(track.title), style = MaterialTheme.typography.bodyMedium,
+                                color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Text(name, Modifier.fillMaxWidth(), color = colors.textPrimary, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (onPlayRadio != null) {
+                    Surface(onClick = { onPlayRadio(artist) }, shape = CircleShape,
+                        color = colors.primaryAccent, contentColor = colors.onPrimaryAccent,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("artist_radio_play_${artist.name}")) {
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Text(stringResource(R.string.play_radio), style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+                Surface(onClick = openArtist, shape = CircleShape,
+                    color = colors.cardBackgroundElevated, contentColor = colors.textPrimary,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("view_artist_${artist.name}")) {
+                    Box(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        Text(viewArtist, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

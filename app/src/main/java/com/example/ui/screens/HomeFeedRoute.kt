@@ -14,6 +14,7 @@ import com.example.data.model.MusicTrack
 import com.example.data.repository.CatalogArtist
 import com.example.playback.PlayerUiState
 import com.example.ui.viewmodel.HomeViewModel
+import com.example.ui.viewmodel.MostListenedArtist
 import kotlinx.coroutines.awaitCancellation
 
 @Composable
@@ -39,7 +40,7 @@ internal fun HomeFeedRoute(
     onOpenSettings: () -> Unit,
     onPlayInfiniteRadio: (MusicTrack?) -> Unit,
     onAddToQueue: (MusicTrack) -> Unit,
-    onPlayArtistRadio: (MusicTrack) -> Unit,
+    onPlayArtistRadio: (MostListenedArtist) -> Unit,
     isStartingRadio: Boolean,
     onOpenCatalog: (com.example.data.repository.CatalogDestination) -> Unit = {},
     prepareCoreTabs: suspend () -> Unit = {}

@@ -88,10 +88,6 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
         playing ?: recent.firstOrNull() ?: server.firstNotNullOfOrNull { it.tracks.firstOrNull(::isNativeRadioSeed) }
             ?: profile?.tracks?.firstOrNull(::isNativeRadioSeed)
     }.stateIn(owner, SharingStarted.Eagerly, null)
-    internal val artistRadio = combine(_mostListenedArtists, recentlyPlayed, _serverShelves, _profileShelf) { artists, recent, server, profile ->
-        artistRadioStations(artists, recent, profile?.tracks.orEmpty().asSequence() + server.asSequence().flatMap { it.tracks.asSequence() })
-    }.distinctUntilChanged().flowOn(AppDispatchers.CpuBounded)
-        .stateIn(owner, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
     private val _refreshErrorMessage = MutableStateFlow<String?>(null)

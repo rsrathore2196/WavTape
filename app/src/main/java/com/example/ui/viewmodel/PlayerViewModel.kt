@@ -1033,9 +1033,9 @@ class PlayerViewModel(
         startHomeRadio(seedTrack ?: state.currentTrack ?: recentlyPlayed.value.firstOrNull())
     }
 
-    fun playArtistRadio(seedTrack: MusicTrack) = startHomeRadio(seedTrack)
+    fun playArtistRadio(artist: MostListenedArtist) = startHomeRadio(seedTrack = null, artist = artist)
 
-    private fun startHomeRadio(seedTrack: MusicTrack?) {
+    private fun startHomeRadio(seedTrack: MusicTrack?, artist: MostListenedArtist? = null) {
         activePlaybackLaunchJob?.cancel()
         val request = Any().also { homeRadioRequest = it }
         activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
@@ -1045,6 +1045,10 @@ class PlayerViewModel(
                 val requestKey = com.example.data.cache.HomeCacheIdentity.home(profile)
                 val region = com.example.data.cache.HomeCacheIdentity.region(profile)
                 val pivot = seedTrack ?: withContext(AppDispatchers.Io) {
+                    if (artist != null) return@withContext findArtistRadioSeed(artist) { name ->
+                        com.example.data.remote.YouTubeMusicApiService.searchSongsPage(name, useInnerTubeX = true,
+                            countryCode = region, transportTimeoutMs = 4_000L).tracks
+                    }
                     findColdRadioSeed(
                         cached = {
                             com.example.data.cache.HomeCardCache(application).readInitialServer(requestKey)

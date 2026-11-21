@@ -11,6 +11,7 @@ import com.example.ui.components.LocalDynamicGlassEnabled
 import com.example.ui.components.LocalVisualEffectsActive
 import com.example.ui.screens.HomeScreenContent
 import com.example.ui.util.LocalArtworkRequestsActive
+import com.example.ui.viewmodel.MostListenedArtist
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -25,22 +26,52 @@ import org.robolectric.annotation.GraphicsMode
 class HomeRadioUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun heroAndArtistRadioUseTheDisplayedNativeSeedWithoutListeningHistory() {
-        val song = MusicTrack("yt_abcdefghijk", "Song", "Artist One", "Album", 180_000, "", "")
+    private val song = MusicTrack("yt_abcdefghijk", "Song", "Artist One", "Album", 180_000, "", "")
+
+    @Test fun heroPlaysTheDisplayedNativeSeedWithoutListeningHistory() {
         var heroSelection: MusicTrack? = null
-        var artistSelection: MusicTrack? = null
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalDynamicGlassEnabled provides false,
                 LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false) {
                 HomeScreenContent(heroSeedTrack = song, onTrackClick = { _, _ -> }, onToggleFavorite = {},
                     serverShelves = listOf(ServerHomeShelf("native", "Quick picks", tracks = listOf(song))),
-                    onPlayInfiniteRadio = { heroSelection = it }, onPlayArtistRadio = { artistSelection = it })
+                    onPlayInfiniteRadio = { heroSelection = it }, onPlayArtistRadio = {})
             }
         } }
         compose.onNodeWithTag("hero_play_infinite_radio_button").assertIsEnabled().performClick()
         assertEquals(song, heroSelection)
-        compose.onNodeWithTag("home_screen").performScrollToNode(hasTestTag("artist_radio_shelf"))
+        compose.onNodeWithTag("home_screen").performScrollToKey("server_shelf_native")
+        compose.onNodeWithTag("most_listened_artist_row").assertDoesNotExist()
+        compose.onNodeWithTag("artist_radio_shelf").assertDoesNotExist()
+    }
+
+    @Test fun mostListenedArtistsScrollWithSeparateRadioAndArtistPageActions() {
+        val first = MostListenedArtist(song.artist, 8, listOf(song))
+        val second = MostListenedArtist("Artist Two", 2,
+            listOf(song.copy(id = "local_song", title = "Local song", artist = "Artist Two")))
+        var radioSelection: MostListenedArtist? = null
+        var openedArtist: String? = null
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalDynamicGlassEnabled provides false,
+                LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false) {
+                HomeScreenContent(mostListenedArtists = listOf(first, second),
+                    onTrackClick = { _, _ -> }, onToggleFavorite = {},
+                    onPlayArtistRadio = { radioSelection = it }, onOpenArtist = { openedArtist = it.name })
+            }
+        } }
+        compose.onNodeWithTag("home_screen").performScrollToKey("most_listened_artists")
+        compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
+        compose.onNodeWithTag("view_artist_Artist One").assertIsDisplayed().performClick()
+        assertEquals(first.name, openedArtist)
         compose.onNodeWithTag("artist_radio_play_Artist One").assertIsDisplayed().performClick()
-        assertEquals(song, artistSelection)
+        assertEquals(first, radioSelection)
+
+        compose.onNodeWithTag("most_listened_artist_row").performScrollToIndex(1)
+        compose.onNodeWithTag("artist_radio_play_Artist Two").assertIsDisplayed().performClick()
+        assertEquals(second, radioSelection)
+        compose.onNodeWithTag("view_artist_Artist Two").assertIsDisplayed().performClick()
+        assertEquals(second.name, openedArtist)
+        compose.onNodeWithText("Artist Spotlight", ignoreCase = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_radio_shelf").assertDoesNotExist()
     }
 }

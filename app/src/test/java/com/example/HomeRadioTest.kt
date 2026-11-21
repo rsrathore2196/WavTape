@@ -5,7 +5,7 @@ import com.example.data.model.MusicTrack
 import com.example.data.remote.YouTubeRadioRequest
 import com.example.data.remote.loadYouTubeRadioQueue
 import com.example.ui.viewmodel.MostListenedArtist
-import com.example.ui.viewmodel.artistRadioStations
+import com.example.ui.viewmodel.findArtistRadioSeed
 import com.example.ui.viewmodel.findColdRadioSeed
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -32,16 +32,21 @@ class HomeRadioTest {
         assertEquals(seed, findColdRadioSeed({ listOf(seed) }, { error("Home is already cached") }, { error("Unnecessary search") }))
     }
 
-    @Test fun artistStationsUseListeningSignalsOrNativeHomeTracksOnAnEmptyInstallation() {
+    @Test fun artistRadioUsesTheListenedRecordingForAnyCreditedSinger() = runBlocking {
         val collaboration = second.copy(primaryArtists = listOf(second.artist, "Guest Singer"))
-        val recommendations = sequenceOf(seed.copy(id = "yt_01234567890", artist = "Unknown"), collaboration, seed)
-        val cold = artistRadioStations(emptyList(), emptyList(), recommendations)
-        assertEquals(listOf(second.artist, "Guest Singer", seed.artist), cold.map { it.artist })
-        assertEquals(collaboration, cold.first().seed)
-        val returning = artistRadioStations(listOf(MostListenedArtist(seed.artist, 5, listOf(seed))),
-            listOf(seed), recommendations)
-        assertEquals(listOf(seed.artist, second.artist, "Guest Singer"), returning.map { it.artist })
-        assertEquals(seed, returning.first().seed)
+        val artist = MostListenedArtist("Guest Singer", 5, listOf(seed, collaboration))
+        assertEquals(collaboration, findArtistRadioSeed(artist) { error("The listened recording is sufficient") })
+    }
+
+    @Test fun artistRadioFindsAVerifiedSeedForLocalHistoryAndRejectsOtherArtists() = runBlocking {
+        val local = seed.copy(id = "local_seed", audioUrl = "file:///music/seed.flac")
+        val artist = MostListenedArtist(seed.artist, 5, listOf(local))
+        val sameTitle = second.copy(title = seed.title)
+        assertEquals(seed, findArtistRadioSeed(artist) { name ->
+            assertEquals(seed.artist, name)
+            listOf(sameTitle, seed)
+        })
+        assertNull(findArtistRadioSeed(artist) { listOf(sameTitle) })
     }
 
     @Test fun seedOnlyRadioFollowsTheAutomixAndKeepsOnlyPlayableNewTracksInOrder() = runBlocking {
