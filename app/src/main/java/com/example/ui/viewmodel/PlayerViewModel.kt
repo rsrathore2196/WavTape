@@ -1047,7 +1047,7 @@ class PlayerViewModel(
                 val pivot = seedTrack ?: withContext(AppDispatchers.Io) {
                     if (artist != null) return@withContext findArtistRadioSeed(artist) { name ->
                         com.example.data.remote.YouTubeMusicApiService.searchSongsPage(name, useInnerTubeX = true,
-                            countryCode = region, transportTimeoutMs = 4_000L).tracks
+                            countryCode = region, transportTimeoutMs = 4_000L)
                     }
                     findColdRadioSeed(
                         cached = {
@@ -1074,9 +1074,11 @@ class PlayerViewModel(
                 }
                 // The player already replenishes an active queue from native radio.
                 // First audio should never wait for that recommendation request.
-                playbackManager.setAutoplayEnabled(true)
-                playbackManager.playTrack(pivot, listOf(pivot), isExplicitPlaylist = false,
-                    isInfiniteRadio = true, preserveQueue = true)
+                if (artist == null) {
+                    playbackManager.setAutoplayEnabled(true)
+                    playbackManager.playTrack(pivot, listOf(pivot), isExplicitPlaylist = false,
+                        isInfiniteRadio = true, preserveQueue = true)
+                } else playbackManager.playArtistRadio(pivot, artist.name)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 playbackManager.reportPlaybackLookupFailure("Radio couldn't load. Please try again.")

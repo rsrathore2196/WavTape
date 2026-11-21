@@ -2,7 +2,8 @@ package com.example.ui.viewmodel
 
 import com.example.data.model.MusicTrack
 import com.example.data.remote.YouTubeAudioStreamService
-import com.example.recommendation.HomeRecommendationPolicy
+import com.example.data.remote.YouTubeMusicApiService
+import com.example.playback.ArtistRadio
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -25,15 +26,16 @@ internal suspend fun findColdRadioSeed(
 
 internal suspend fun findArtistRadioSeed(
     artist: MostListenedArtist,
-    search: suspend (String) -> List<MusicTrack>
+    search: suspend (String) -> YouTubeMusicApiService.SongSearchPage
 ): MusicTrack? {
-    val artistKey = HomeRecommendationPolicy.mainArtistKey(artist.name)
-    if (artistKey.isBlank()) return null
-    fun matches(track: MusicTrack): Boolean = isNativeRadioSeed(track) &&
-        HomeRecommendationPolicy.listeningArtists(track, track).any {
-            HomeRecommendationPolicy.mainArtistKey(it) == artistKey
-        }
+    val station = ArtistRadio(artist.name)
+    fun matches(track: MusicTrack): Boolean = isNativeRadioSeed(track) && station.includes(track)
 
     return artist.tracks.firstOrNull(::matches)
-        ?: withTimeoutOrNull(5_000L) { search(artist.name).firstOrNull(::matches) }
+        ?: withTimeoutOrNull(5_000L) {
+            val page = search(artist.name)
+            page.tracks.firstOrNull {
+                isNativeRadioSeed(it) && station.includes(it, page.artistCredits[it.id].orEmpty())
+            }
+        }
 }

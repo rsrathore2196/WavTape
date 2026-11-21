@@ -2,8 +2,12 @@ package com.example
 
 import android.app.Application
 import com.example.data.model.MusicTrack
+import com.example.data.remote.YouTubeMusicApiService.SongSearchPage
 import com.example.data.remote.YouTubeRadioRequest
 import com.example.data.remote.loadYouTubeRadioQueue
+import com.example.playback.ArtistRadio
+import com.example.playback.ArtistRadioCursor
+import com.example.playback.loadSongs
 import com.example.ui.viewmodel.MostListenedArtist
 import com.example.ui.viewmodel.findArtistRadioSeed
 import com.example.ui.viewmodel.findColdRadioSeed
@@ -44,9 +48,47 @@ class HomeRadioTest {
         val sameTitle = second.copy(title = seed.title)
         assertEquals(seed, findArtistRadioSeed(artist) { name ->
             assertEquals(seed.artist, name)
-            listOf(sameTitle, seed)
+            SongSearchPage(listOf(sameTitle, seed), null)
         })
-        assertNull(findArtistRadioSeed(artist) { listOf(sameTitle) })
+        assertNull(findArtistRadioSeed(artist) { SongSearchPage(listOf(sameTitle), null) })
+    }
+
+    @Test fun artistRefillsStayWithTheOriginalArtistAfterACollaboration() = runBlocking {
+        val station = ArtistRadio(seed.artist)
+        val collaboration = second.copy(primaryArtists = listOf(second.artist, seed.artist))
+        val otherSong = second.copy(id = "yt_01234567890", title = "Featuring ${seed.artist}")
+        val samePrefix = second.copy(id = "yt_11111111111", artist = "${seed.artist} Jr")
+        val nextSong = seed.copy(id = "yt_22222222222", title = "Another recording")
+        val finalSong = seed.copy(id = "yt_33333333333", title = "Later recording")
+        val visited = mutableListOf<String?>()
+        val search: suspend (String, String?) -> SongSearchPage = { name, token ->
+            assertEquals(seed.artist, name)
+            visited += token
+            if (token == null) {
+                SongSearchPage(listOf(seed, otherSong, collaboration, collaboration, nextSong), "page-2")
+            } else {
+                SongSearchPage(listOf(samePrefix, finalSong), null)
+            }
+        }
+        val first = station.loadSongs(ArtistRadioCursor(), setOf(seed.id), 1, search)
+        assertEquals(listOf(collaboration), first.tracks)
+        val refill = station.loadSongs(first.cursor, setOf(seed.id, collaboration.id), 4, search)
+        assertEquals(listOf(nextSong, finalSong), refill.tracks)
+        assertEquals(listOf(null, "page-2"), visited)
+        assertTrue(refill.cursor.exhausted)
+        assertTrue(station.loadSongs(refill.cursor, emptySet(), 4) { _, _ ->
+            error("An exhausted artist catalogue must not start a mix")
+        }.tracks.isEmpty())
+    }
+
+    @Test fun artistRadioRejectsAnApparentMatchContradictedByProviderCredits() = runBlocking {
+        val credits = mapOf(seed.id to listOf(second.artist))
+        val page = SongSearchPage(listOf(seed), null, credits)
+        val artist = MostListenedArtist(seed.artist, 1, emptyList())
+        assertNull(findArtistRadioSeed(artist) { page })
+        assertTrue(ArtistRadio(artist.name).loadSongs(ArtistRadioCursor(), emptySet(), 10) { _, _ ->
+            page
+        }.tracks.isEmpty())
     }
 
     @Test fun seedOnlyRadioFollowsTheAutomixAndKeepsOnlyPlayableNewTracksInOrder() = runBlocking {

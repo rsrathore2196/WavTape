@@ -281,6 +281,11 @@ class MusicRepository private constructor(
     }
 
     suspend fun syncOnlineCatalog(profile: UserProfile? = null): List<MusicTrack> = getInitialCatalog(profile)
+
+    internal suspend fun searchArtistRadioSongs(name: String, continuation: String?) =
+        com.example.data.remote.YouTubeMusicApiService.searchSongsPage(name, continuation, useInnerTubeX = true,
+            countryCode = homeProfile().countryCode, transportTimeoutMs = 4_000L)
+
     suspend fun getPunjabiHits(limit: Int = 15): List<MusicTrack> = getInitialCatalog().take(limit)
     suspend fun getEraHits(limit: Int = 15, @Suppress("UNUSED_PARAMETER") forceRefresh: Boolean = false,
         @Suppress("UNUSED_PARAMETER") deferRoomMergeUntilIdle: Boolean = false): List<MusicTrack> = getInitialCatalog().take(limit)

@@ -111,6 +111,7 @@ internal object PlaybackSessionStore {
                     put("isLossless", extras?.getBoolean("isLossless", false) ?: false)
                     put("recommendationOnly", extras?.getBoolean("recommendation_only", false) ?: false)
                     put("queueCollection", extras?.getBoolean("queue_collection", false) ?: false)
+                    extras?.getString(com.example.playback.ARTIST_RADIO_EXTRA)?.let { put("artistRadio", it) }
                 })
         }
         return queue.toString().toByteArray(Charsets.UTF_8).also {
@@ -198,6 +199,9 @@ internal object PlaybackSessionStore {
                                 putBoolean("isLossless", entry.optBoolean("isLossless"))
                                 putBoolean("recommendation_only", entry.optBoolean("recommendationOnly"))
                                 putBoolean("queue_collection", entry.optBoolean("queueCollection"))
+                                entry.optString("artistRadio").takeIf(String::isNotBlank)?.let {
+                                    putString(com.example.playback.ARTIST_RADIO_EXTRA, it)
+                                }
                                 entry.optJSONObject("enhancerOrigin")?.let { origin ->
                                     com.example.playback.SourceTransitionOrigin.keys.forEach { key -> when (val value = origin.opt(key)) {
                                         is Boolean -> putBoolean(key, value)

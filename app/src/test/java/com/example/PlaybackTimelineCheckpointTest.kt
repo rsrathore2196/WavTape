@@ -1,12 +1,14 @@
 package com.example
 
 import android.app.Application
+import android.os.Bundle
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
+import com.example.playback.ARTIST_RADIO_EXTRA
 import com.example.service.PlaybackSessionStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -16,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -106,5 +109,23 @@ class PlaybackTimelineCheckpointTest {
     @Test fun unsupportedOrDemoUrisAreStillRejected() = runBlocking {
         assertNull(PlaybackSessionStore.validatedTimelineItems(QueueTimeline(listOf(item("fake", "https://soundhelix.com/demo.mp3")))))
         assertNull(PlaybackSessionStore.validatedTimelineItems(QueueTimeline(listOf(item("bad", "unknown://song")))))
+    }
+
+    @Test fun artistRadioScopeSurvivesDiskRestoration() = runBlocking {
+        val original = item("artist-song")
+        val scoped = original.buildUpon().setMediaMetadata(original.mediaMetadata.buildUpon()
+            .setExtras(Bundle().apply { putString(ARTIST_RADIO_EXTRA, "Selected Artist") }).build()).build()
+        val regular = item("regular-song")
+        PlaybackSessionStore.checkpoint(context, QueueTimeline(listOf(scoped, regular)), 0, 130_000)
+        val saved = File(context.filesDir, "real_playback_session.json")
+        withTimeout(5_000L) {
+            while (runCatching { "\"artistRadio\":\"Selected Artist\"" !in saved.readText() }.getOrDefault(true)) delay(10)
+        }
+        // Clear the in-process snapshot so restore must decode the session file.
+        PlaybackSessionStore::class.java.getDeclaredField("latest").apply { isAccessible = true }
+            .set(PlaybackSessionStore, null)
+        val restored = requireNotNull(PlaybackSessionStore.restore(context))
+        assertEquals("Selected Artist", restored.items[0].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
+        assertNull(restored.items[1].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
     }
 }
