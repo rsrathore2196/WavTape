@@ -70,8 +70,12 @@ import com.example.ui.theme.accentBrush
 import com.example.ui.theme.liquidGlassButton
 import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.bouncyClickable
+import com.example.data.remote.YouTubeArtistChannelResolver
+import com.example.data.repository.CatalogArtistProfile
 import com.example.ui.viewmodel.CatalogDetailState
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Shared artist/album destination using the existing track rows, typography and theme. */
 @Composable
@@ -183,8 +187,11 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
             val artistTracks = remember(state.tracks, state.artistProfile) {
                 (state.tracks + state.artistProfile?.songs.orEmpty()).distinctBy { it.id }
             }
+            val actionScope = rememberCoroutineScope()
+            var resolvingYouTube by remember(resolvedArtist.id, resolvedArtist.name) { mutableStateOf(false) }
             ArtistPlaybackButtons(
                 artist = resolvedArtist,
+                resolvingYouTube = resolvingYouTube,
                 onShuffle = {
                     if (onPlayArtistRadio != null) {
                         onPlayArtistRadio(resolvedArtist, artistTracks, true)
@@ -203,8 +210,23 @@ fun CatalogDetailScreen(state: CatalogDetailState, player: PlayerUiState, onBack
                 onOpenYouTube = {
                     if (onOpenArtistYouTube != null) {
                         onOpenArtistYouTube(resolvedArtist)
-                    } else {
-                        openArtistOnYouTube(downloadContext, resolvedArtist)
+                    } else if (!resolvingYouTube) {
+                        val cached = YouTubeArtistChannelResolver.cachedUrl(resolvedArtist, state.artistProfile)
+                        if (cached != null) {
+                            openYouTubeUrl(downloadContext, cached)
+                        } else {
+                            resolvingYouTube = true
+                            actionScope.launch {
+                                try {
+                                    val url = withTimeoutOrNull(4_000L) {
+                                        YouTubeArtistChannelResolver.resolveArtistYouTubeUrl(resolvedArtist, state.artistProfile)
+                                    } ?: artistYouTubeUrl(resolvedArtist, state.artistProfile)
+                                    openYouTubeUrl(downloadContext, url)
+                                } finally {
+                                    resolvingYouTube = false
+                                }
+                            }
+                        }
                     }
                 }
             )
@@ -323,19 +345,11 @@ private fun ArtistProfileHeader(artist: CatalogArtist) {
     }
 }
 
-private val YOUTUBE_CHANNEL_ID = Regex("^UC[A-Za-z0-9_-]{10,}$")
+internal fun artistYouTubeUrl(artist: CatalogArtist, profile: CatalogArtistProfile? = null): String =
+    YouTubeArtistChannelResolver.fallbackYouTubeUrl(artist, profile)
 
-internal fun artistYouTubeUrl(artist: CatalogArtist): String {
-    val channelId = artist.id.trim()
-    return if (YOUTUBE_CHANNEL_ID.matches(channelId)) {
-        "https://www.youtube.com/channel/$channelId"
-    } else {
-        "https://www.youtube.com/results?search_query=${Uri.encode(artist.name.trim())}"
-    }
-}
-
-internal fun openArtistOnYouTube(context: Context, artist: CatalogArtist) {
-    val uri = Uri.parse(artistYouTubeUrl(artist))
+internal fun openYouTubeUrl(context: Context, url: String) {
+    val uri = Uri.parse(url)
     val youtubeIntent = Intent(Intent.ACTION_VIEW, uri)
         .setPackage("com.google.android.youtube")
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -352,10 +366,15 @@ internal fun openArtistOnYouTube(context: Context, artist: CatalogArtist) {
     }
 }
 
+internal fun openArtistOnYouTube(context: Context, artist: CatalogArtist, profile: CatalogArtistProfile? = null) {
+    openYouTubeUrl(context, artistYouTubeUrl(artist, profile))
+}
+
 /** Catalog-matched circular action cluster for Artist pages: Shuffle, Play Radio, and Open on YouTube. */
 @Composable
 private fun ArtistPlaybackButtons(
     artist: CatalogArtist,
+    resolvingYouTube: Boolean = false,
     onShuffle: () -> Unit,
     onPlayRadio: () -> Unit,
     onOpenYouTube: () -> Unit
@@ -420,7 +439,7 @@ private fun ArtistPlaybackButtons(
         }
         IconButton(
             onClick = onOpenYouTube,
-            enabled = canOpenYouTube,
+            enabled = canOpenYouTube && !resolvingYouTube,
             modifier = Modifier
                 .size(CollectionActionSize)
                 .testTag("artist_youtube")
@@ -431,12 +450,20 @@ private fun ArtistPlaybackButtons(
                     .liquidGlassButton(colors, shape = CircleShape, elevation = 3.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_youtube_logo),
-                    contentDescription = stringResource(R.string.artist_open_youtube),
-                    tint = if (canOpenYouTube) colors.primaryAccent else colors.textMuted,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (resolvingYouTube) {
+                    CircularProgressIndicator(
+                        color = colors.primaryAccent,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_youtube_logo),
+                        contentDescription = stringResource(R.string.artist_open_youtube),
+                        tint = if (canOpenYouTube) colors.primaryAccent else colors.textMuted,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }

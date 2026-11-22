@@ -443,10 +443,16 @@ internal object YouTubeExploreParser {
         val artist = selected.copy(name = name, image = image)
         val buttons = mutableListOf<JSONObject>().apply { addAll(listOfNotNull(artistHeader.optJSONObject("subscriptionButton2")?.optJSONObject("subscribeButtonRenderer"),
             artistHeader.optJSONObject("subscriptionButton")?.optJSONObject("subscribeButtonRenderer"))) }
+        val buttonViewModels = mutableListOf<JSONObject>().apply { addAll(listOfNotNull(
+            artistHeader.optJSONObject("subscriptionButton2")?.optJSONObject("subscribeButtonViewModel"),
+            artistHeader.optJSONObject("subscriptionButton")?.optJSONObject("subscribeButtonViewModel")
+        )) }
         walk(artistHeader.opt("buttons"), {}) { node ->
             node.optJSONObject("subscribeButtonRenderer")?.let(buttons::add)
+            node.optJSONObject("subscribeButtonViewModel")?.let(buttonViewModels::add)
             true
         }
+        val youtubeChannelId = extractSubscribeChannelId(buttons + buttonViewModels)
         val subscribers = buttons.firstNotNullOfOrNull { button ->
             listOf("longSubscriberCountText", "subscriberCountWithSubscribeText", "shortSubscriberCountText", "subscriberCountText")
                 .firstNotNullOfOrNull { field -> text(button.optJSONObject(field)).takeIf(String::isNotBlank) }
@@ -507,7 +513,33 @@ internal object YouTubeExploreParser {
                 }
             }.orEmpty()
         return CatalogArtistProfile(artist, description, subscribers, monthly,
-            songs.values.toList(), moreSongs, releases, related.values.filter { it.id != artist.id })
+            songs.values.toList(), moreSongs, releases, related.values.filter { it.id != artist.id },
+            youtubeChannelId = youtubeChannelId)
+    }
+
+    private fun extractSubscribeChannelId(nodes: List<JSONObject>): String {
+        for (button in nodes) {
+            val direct = string(button, "channelId")
+            if (YouTubeArtistChannelResolver.isValidChannelId(direct)) return direct
+            var nested = ""
+            walk(button, {}) { node ->
+                if (nested.isNotEmpty()) return@walk false
+                val endpoint = node.optJSONObject("subscribeEndpoint")
+                val ids = endpoint?.optJSONArray("channelIds")
+                if (ids != null) {
+                    for (i in 0 until ids.length()) {
+                        val candidate = ids.optString(i).trim()
+                        if (YouTubeArtistChannelResolver.isValidChannelId(candidate)) {
+                            nested = candidate
+                            return@walk false
+                        }
+                    }
+                }
+                true
+            }
+            if (nested.isNotEmpty()) return nested
+        }
+        return ""
     }
 
     fun artistMatches(root: JSONObject, name: String): List<CatalogArtist> {
@@ -558,6 +590,8 @@ internal object YouTubeExploreParser {
         .put("description", profile.description).put("subscribers", profile.subscriberCount)
         .put("listeners", profile.monthlyListeners).put("songs", JSONArray(RecommendationTrackCodec.encode(profile.songs)))
         .put("moreSongs", profile.moreSongsBrowseId)
+        .put("youtubeChannelId", profile.youtubeChannelId)
+        .put("youtubeChannelUrl", profile.youtubeChannelUrl)
         .put("releases", JSONArray(profile.releases.map { section -> JSONObject()
             .put("title", section.title).put("moreId", section.moreBrowseId).put("moreParams", section.moreParams)
             .put("page", JSONObject(encodePage(CatalogPage(albums = section.albums)))) }))
@@ -575,7 +609,9 @@ internal object YouTubeExploreParser {
                     nullable(it, "moreId"), nullable(it, "moreParams")) } },
             (0 until minOf(related?.length() ?: 0, 40)).mapNotNull { i -> related?.optJSONObject(i)?.let {
                 val id = string(it, "id"); val name = string(it, "name")
-                if (id.startsWith("UC") && name.isNotBlank()) CatalogArtist(id, name, image = string(it, "image")) else null } })
+                if (id.startsWith("UC") && name.isNotBlank()) CatalogArtist(id, name, image = string(it, "image")) else null } },
+            youtubeChannelId = string(row, "youtubeChannelId"),
+            youtubeChannelUrl = string(row, "youtubeChannelUrl"))
     }
 
     fun encodeCategories(categories: List<ExploreCategory>): String = JSONArray(categories.map { category -> JSONObject()

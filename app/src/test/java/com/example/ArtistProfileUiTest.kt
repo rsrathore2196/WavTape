@@ -123,7 +123,14 @@ class ArtistProfileUiTest {
             assertEquals(artist, youtubeOpened)
         }
         assertEquals(
-            "https://www.youtube.com/channel/UC1234567890abcdef",
+            "https://www.youtube.com/channel/UCrealOfficialChannel1",
+            com.example.ui.screens.artistYouTubeUrl(
+                artist,
+                profile.copy(youtubeChannelId = "UCrealOfficialChannel1")
+            )
+        )
+        assertEquals(
+            "https://www.youtube.com/results?search_query=Main%20Artist",
             com.example.ui.screens.artistYouTubeUrl(artist)
         )
         assertEquals(

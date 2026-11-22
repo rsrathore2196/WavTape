@@ -323,4 +323,35 @@ class AppUpdaterTest {
         assertFalse(AppUpdateManager.validAsset("https://github.com/rsrathore2196/WavTape/releases/download/../other/WavTape.apk"))
         assertFalse(AppUpdateManager.validAsset("https://github.com/rsrathore2196/WavTape/releases/download/v2.2/WavTape.apk?foo=bar"))
     }
+
+    @Test fun parseReleaseJsonHandlesNullGithubFieldsSafely() {
+        val json = """
+            {
+              "tag_name": "v2.2",
+              "name": null,
+              "body": null,
+              "draft": false,
+              "prerelease": false,
+              "published_at": null,
+              "html_url": null,
+              "assets": [
+                {
+                  "name": "app-release.apk",
+                  "browser_download_url": "https://github.com/rsrathore2196/WavTape/releases/download/v2.2/app-release.apk",
+                  "size": 52428800,
+                  "state": null,
+                  "content_type": null,
+                  "digest": null
+                }
+              ]
+            }
+        """.trimIndent()
+        val result = AppUpdateManager.parseReleaseJson(json, currentVersion = "2.1")
+        assertTrue("Expected UpdateAvailable, got $result", result is UpdateStatus.UpdateAvailable)
+        val info = (result as UpdateStatus.UpdateAvailable).updateInfo
+        assertEquals("2.2", info.versionName)
+        assertEquals("2.2", info.releaseTitle)
+        assertEquals("", info.releaseNotes)
+        assertNull(info.sha256)
+    }
 }

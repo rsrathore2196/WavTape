@@ -357,6 +357,26 @@ object YouTubeMusicApiService {
 
     suspend fun artistPhoto(name: String): String? = artistProfile(com.example.data.repository.CatalogArtist("", name))?.artist?.image
 
+    internal suspend fun postYouTubeWeb(endpoint: String, payload: JSONObject): String = withContext(AppDispatchers.Io) {
+        val body = JSONObject(payload.toString()).apply {
+            if (!has("context")) {
+                put("context", JSONObject().put("client", JSONObject()
+                    .put("clientName", "WEB")
+                    .put("clientVersion", "2.20250101.00.00")
+                    .put("hl", "en")
+                    .put("gl", "US")))
+            }
+        }
+        val request = Request.Builder()
+            .url("https://www.youtube.com/youtubei/v1/$endpoint")
+            .post(body.toString().toRequestBody(jsonMediaType))
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .addHeader("Origin", "https://www.youtube.com")
+            .addHeader("Referer", "https://www.youtube.com/")
+            .build()
+        httpClient.catalogRequest(request)
+    }
+
 
     /**
      * Searches YouTube Music using the official Innertube WEB_REMIX API.

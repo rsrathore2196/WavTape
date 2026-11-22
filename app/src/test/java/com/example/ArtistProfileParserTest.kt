@@ -115,4 +115,33 @@ class ArtistProfileParserTest {
         assertEquals(listOf("Main Artist", "Second Artist"), profile.songs.single().primaryArtists)
     }
 
+    @Test fun officialYouTubeChannelIdIsExtractedFromSubscribeButtonAndPersisted() {
+        val response = root()
+        val header = response.getJSONObject("header").getJSONObject("musicImmersiveHeaderRenderer")
+        header.getJSONObject("subscriptionButton2")
+            .getJSONObject("subscribeButtonRenderer")
+            .put("channelId", "UCqECaJ8Gagnn7YCbPEzWH6g")
+
+        val parsed = YouTubeExploreParser.artistProfile(response, CatalogArtist("UCPC0L1d253x-KuDuO055eYg", "Main Artist"))
+        assertEquals("UCPC0L1d253x-KuDuO055eYg", parsed.artist.id)
+        assertEquals("UCqECaJ8Gagnn7YCbPEzWH6g", parsed.youtubeChannelId)
+
+        val encoded = YouTubeExploreParser.encodeArtistProfile(
+            parsed.copy(youtubeChannelUrl = "https://www.youtube.com/channel/UCqECaJ8Gagnn7YCbPEzWH6g")
+        )
+        val decoded = YouTubeExploreParser.decodeArtistProfile(encoded, CatalogArtist("UCPC0L1d253x-KuDuO055eYg", "Main Artist"))
+        assertEquals("UCqECaJ8Gagnn7YCbPEzWH6g", decoded.youtubeChannelId)
+        assertEquals("https://www.youtube.com/channel/UCqECaJ8Gagnn7YCbPEzWH6g", decoded.youtubeChannelUrl)
+
+        // ViewModel fallback via subscribeEndpoint.channelIds
+        val vmResponse = root()
+        val vmHeader = vmResponse.getJSONObject("header").getJSONObject("musicImmersiveHeaderRenderer")
+        vmHeader.remove("subscriptionButton2")
+        vmHeader.put("subscriptionButton", JSONObject().put("subscribeButtonViewModel", JSONObject()
+            .put("subscribeButtonContent", JSONObject().put("onTapCommand", JSONObject()
+                .put("subscribeEndpoint", JSONObject().put("channelIds", JSONArray().put("UCZRdNleCgW--BGUJf5UMPOQ")))))))
+        val vmParsed = YouTubeExploreParser.artistProfile(vmResponse, CatalogArtist("UCtopicBrowseId123", "Main Artist"))
+        assertEquals("UCZRdNleCgW--BGUJf5UMPOQ", vmParsed.youtubeChannelId)
+    }
+
 }

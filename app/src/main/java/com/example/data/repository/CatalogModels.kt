@@ -12,7 +12,8 @@ data class ArtistReleaseSection(val title: String, val albums: List<CatalogAlbum
 data class CatalogArtistProfile(val artist: CatalogArtist, val description: String = "",
     val subscriberCount: String = "", val monthlyListeners: String = "", val songs: List<MusicTrack> = emptyList(),
     val moreSongsBrowseId: String? = null, val releases: List<ArtistReleaseSection> = emptyList(),
-    val relatedArtists: List<CatalogArtist> = emptyList())
+    val relatedArtists: List<CatalogArtist> = emptyList(),
+    val youtubeChannelId: String = "", val youtubeChannelUrl: String = "")
 enum class CatalogProvider { JIOSAAVN, YOUTUBE_MUSIC }
 enum class ExploreCategoryKind { MOOD, GENRE, OTHER }
 

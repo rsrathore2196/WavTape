@@ -141,6 +141,9 @@ object AppUpdateManager {
         val waitingPermission: Boolean = false
     )
 
+    private fun JSONObject.optCleanString(key: String): String =
+        if (isNull(key)) "" else optString(key, "").trim()
+
     private fun extractVersion(value: String): String? {
         val candidate = value.trim()
         if (candidate.isEmpty()) return null
@@ -359,6 +362,7 @@ object AppUpdateManager {
             Request.Builder()
                 .url(url)
                 .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("User-Agent", "WavTape-Android/${BuildConfig.VERSION_NAME}")
                 .build()
         ).execute().use { response ->
@@ -423,8 +427,8 @@ object AppUpdateManager {
         if (json.optBoolean("draft") || json.optBoolean("prerelease")) {
             return UpdateStatus.UpToDate(currentVersion)
         }
-        val version = extractVersion(json.optString("tag_name"))
-            ?: extractVersion(json.optString("name"))
+        val version = extractVersion(json.optCleanString("tag_name"))
+            ?: extractVersion(json.optCleanString("name"))
             ?: return UpdateStatus.UpToDate(currentVersion)
         if (!isNewerVersion(version, currentVersion)) {
             return UpdateStatus.UpToDate(currentVersion)
@@ -434,70 +438,75 @@ object AppUpdateManager {
         val assets = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
         val allowedTypes = setOf(
             "application/vnd.android.package-archive",
+            "application/x-android-package-archive",
             "application/octet-stream",
+            "binary/octet-stream",
             "application/zip",
             ""
         )
         val apks = assets.filter { a ->
-            val assetName = a.optString("name")
-            val downloadUrl = a.optString("browser_download_url")
-            val state = a.optString("state")
+            val assetName = a.optCleanString("name")
+            val downloadUrl = a.optCleanString("browser_download_url")
+            val state = a.optCleanString("state")
+            val mime = a.optCleanString("content_type").substringBefore(';').trim().lowercase(Locale.ROOT)
             assetName.endsWith(".apk", ignoreCase = true) &&
                 validAsset(downloadUrl) &&
                 Uri.parse(downloadUrl).lastPathSegment.orEmpty().endsWith(".apk", ignoreCase = true) &&
                 a.optLong("size") > 0L &&
                 (state.isEmpty() || state == "uploaded") &&
-                a.optString("content_type").lowercase() in allowedTypes
+                mime in allowedTypes
         }
 
-        val byAbi = apks.groupBy { abiInAssetName.find(it.optString("name"))?.value?.lowercase(Locale.ROOT) }
+        val byAbi = apks.groupBy { abiInAssetName.find(it.optCleanString("name"))?.value?.lowercase(Locale.ROOT) }
         val generic = byAbi[null].orEmpty()
-        val apk = generic.firstOrNull { it.optString("name").contains("universal", ignoreCase = true) }
+        val apk = generic.firstOrNull { it.optCleanString("name").contains("universal", ignoreCase = true) }
             ?: generic.singleOrNull()?.takeIf { apks.size == 1 }
             ?: supportedAbis.firstNotNullOfOrNull { abi ->
-                byAbi[abi.lowercase(Locale.ROOT)]?.singleOrNull()
+                val matches = byAbi[abi.lowercase(Locale.ROOT)].orEmpty()
+                matches.singleOrNull() ?: matches.singleOrNull { !it.optCleanString("name").contains("debug", ignoreCase = true) }
             }
-            ?: generic.singleOrNull { !it.optString("name").contains("debug", ignoreCase = true) }
+            ?: generic.singleOrNull { !it.optCleanString("name").contains("debug", ignoreCase = true) }
             ?: throw IOException("This release has no compatible APK asset.")
 
-        val name = apk.getString("name")
-        val digest = apk.optString("digest")
+        val name = apk.optCleanString("name")
+        val digest = apk.optCleanString("digest")
             .takeIf { it.startsWith("sha256:", ignoreCase = true) }
             ?.substringAfter(':')
-            ?.lowercase()
+            ?.lowercase(Locale.ROOT)
         if (digest != null) {
             require(digest.matches(Regex("[a-f0-9]{64}"))) { "The release SHA-256 is malformed." }
         }
 
         val sidecar = assets.firstOrNull {
-            it.optString("name").equals("$name.sha256", ignoreCase = true) ||
-                it.optString("name").equals("$name.sha256sum", ignoreCase = true)
+            it.optCleanString("name").equals("$name.sha256", ignoreCase = true) ||
+                it.optCleanString("name").equals("$name.sha256sum", ignoreCase = true)
         } ?: assets.firstOrNull {
-            it.optString("name").lowercase() in setOf("sha256sums", "sha256sums.txt", "checksums.txt")
+            it.optCleanString("name").lowercase(Locale.ROOT) in setOf("sha256sums", "sha256sums.txt", "checksums.txt")
         }
 
         val checksum = digest ?: sidecar?.let { asset ->
-            val url = asset.getString("browser_download_url")
+            val url = asset.optCleanString("browser_download_url")
             val content = fetchSidecar?.invoke(url) ?: return@let null
             val matches = content.lineSequence().mapNotNull { line ->
                 val trimmed = line.trim()
                 val m = Regex("^([a-fA-F0-9]{64})\\s+\\*?(.+?)\\s*$").matchEntire(trimmed)
                 val bsd = Regex("^SHA256 \\((.+)\\) = ([a-fA-F0-9]{64})$", RegexOption.IGNORE_CASE).matchEntire(trimmed)
                 when {
-                    m != null && m.groupValues[2].removePrefix("./") == name -> m.groupValues[1].lowercase()
-                    bsd != null && bsd.groupValues[1] == name -> bsd.groupValues[2].lowercase()
-                    asset.optString("name").startsWith("$name.", ignoreCase = true) &&
-                        trimmed.matches(Regex("[a-fA-F0-9]{64}")) -> trimmed.lowercase()
+                    m != null && m.groupValues[2].removePrefix("./") == name -> m.groupValues[1].lowercase(Locale.ROOT)
+                    bsd != null && bsd.groupValues[1] == name -> bsd.groupValues[2].lowercase(Locale.ROOT)
+                    asset.optCleanString("name").startsWith("$name.", ignoreCase = true) &&
+                        trimmed.matches(Regex("[a-fA-F0-9]{64}")) -> trimmed.lowercase(Locale.ROOT)
                     else -> null
                 }
             }.distinct().toList()
             matches.singleOrNull() ?: throw IOException("No unique SHA-256 for this APK in the published checksum file.")
         }
 
+        val releaseBody = json.optCleanString("body")
         val notesChecksum = if (checksum == null && apks.size == 1) {
             Regex("(?i)SHA[- ]?256\\s*[:=]\\s*`?([a-f0-9]{64})(?![a-f0-9])")
-                .findAll(json.optString("body"))
-                .map { it.groupValues[1].lowercase() }
+                .findAll(releaseBody)
+                .map { it.groupValues[1].lowercase(Locale.ROOT) }
                 .distinct()
                 .toList()
                 .singleOrNull()
@@ -506,13 +515,13 @@ object AppUpdateManager {
         return UpdateStatus.UpdateAvailable(
             UpdateInfo(
                 versionName = version,
-                releaseTitle = json.optString("name", version).ifBlank { version },
-                releaseNotes = json.optString("body"),
-                apkDownloadUrl = apk.getString("browser_download_url"),
+                releaseTitle = json.optCleanString("name").ifBlank { version },
+                releaseNotes = releaseBody,
+                apkDownloadUrl = apk.optCleanString("browser_download_url"),
                 apkFileName = name,
-                apkSizeBytes = apk.getLong("size"),
-                publishedAt = json.optString("published_at"),
-                htmlUrl = json.optString("html_url"),
+                apkSizeBytes = apk.optLong("size"),
+                publishedAt = json.optCleanString("published_at"),
+                htmlUrl = json.optCleanString("html_url"),
                 sha256 = checksum ?: notesChecksum
             )
         )
