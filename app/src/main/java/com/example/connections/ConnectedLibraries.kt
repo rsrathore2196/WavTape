@@ -217,10 +217,19 @@ internal class ConnectedLibraries(
         }
         throw IOException("Spotify connection needs attention. Reconnect and try again.")
     }
+    internal suspend fun spotifyLyricsSession(refreshExpired: Boolean): SpotifyConnection? {
+        connections.load()
+        val saved = connections.state.value.spotify ?: return null
+        // Automatic lyrics probes must not start a detached sign-in WebView.
+        return if (refreshExpired) spotifyTokens() else saved.takeIf { canReuseSpotifySession(it) }
+    }
+
+    private fun canReuseSpotifySession(saved: SpotifyConnection) = saved.bearer.isNotBlank() &&
+        saved.clientToken.isNotBlank() && saved.expiresAt > System.currentTimeMillis() + 60_000L
+
     private suspend fun spotifyTokens(rejectedBearer: String? = null): SpotifyConnection = tokenLock.withLock {
         val saved = connections.state.value.spotify ?: throw IOException("Connect Spotify first")
-        if ((rejectedBearer == null || saved.bearer != rejectedBearer) && saved.bearer.isNotBlank() && saved.clientToken.isNotBlank() &&
-            saved.expiresAt > System.currentTimeMillis() + 60_000L) return@withLock saved
+        if (saved.bearer != rejectedBearer && canReuseSpotifySession(saved)) return@withLock saved
         val refreshed = refreshSession(saved)
         if (refreshed.bearer.isBlank() || refreshed.clientToken.isBlank() || refreshed.expiresAt <= System.currentTimeMillis())
             throw IOException("Spotify session refresh did not finish. Please retry.")

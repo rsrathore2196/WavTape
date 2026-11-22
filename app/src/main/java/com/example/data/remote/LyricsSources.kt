@@ -3,6 +3,9 @@ package com.example.data.remote
 import android.text.Html
 import android.util.Base64
 import com.example.BuildConfig
+import com.example.XtremeMusicApp
+import com.example.connections.ConnectedLibraries
+import com.example.connections.SpotifyConnection
 import com.example.data.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
@@ -28,7 +31,13 @@ import kotlin.math.abs
 internal class LyricsSources(private val identity: SongIdentity,
     private val sourceOverrides: Map<String, suspend () -> TrackLyrics?>? = null,
     private val lookupBudgetMs: Long = 20_000L,
-    private val nowMs: () -> Long = android.os.SystemClock::elapsedRealtime
+    private val nowMs: () -> Long = android.os.SystemClock::elapsedRealtime,
+    private val directRequest: suspend (Request) -> String? = { request(it, directClient) },
+    private val spotifySession: suspend (Boolean) -> SpotifyConnection? = { refreshExpired ->
+        ConnectedLibraries(XtremeMusicApp.instance).spotifyLyricsSession(refreshExpired)
+    },
+    private val spotify: SpotifyLyricsSource = sharedSpotifySource,
+    private val musixmatchWeb: MusixmatchWebLyrics = sharedMusixmatchSource
 ) {
     private val title = LyricsProvider.sanitizeTitle(identity.title).first
     private val artist = identity.artist.orEmpty()
@@ -62,9 +71,8 @@ internal class LyricsSources(private val identity: SongIdentity,
         val pref5LyricsPlus = listOf(
             Source("LyricsPlus") { plus() }
         )
-        // PaxSenix Spotify: Authenticated Spotify search and lyrics
         val pref5bPaxSpotify = listOf(
-            Source("PaxSenix Spotify") { pax("spotify") }
+            Source("PaxSenix Spotify") { paxSpotify(refreshExpired = preferredProvider != "Auto") }
         )
         // PaxSenix Musixmatch: Authenticated Musixmatch lyrics
         val pref5cPaxMusixmatch = listOf(
@@ -197,6 +205,8 @@ internal class LyricsSources(private val identity: SongIdentity,
         header("Accept", "application/json, application/ttml+xml, text/plain, text/html")
         if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
     }.build()) } }
+    private suspend fun requestProvider(request: Request): String? =
+        slots.withPermit { withContext(Dispatchers.IO) { directRequest(request) } }
     private suspend fun shared(scope: CoroutineScope, address: String): String? {
         val existing = documents[address]
         if (existing != null) return existing.await()
@@ -271,6 +281,26 @@ internal class LyricsSources(private val identity: SongIdentity,
         val hit = array(search.optJSONArray("results")).firstOrNull { matches(it.optString("trackName"), it.optString("artistName"), it.optDouble("trackTimeMillis", 0.0) / 1000) } ?: return null
         return parse(get(url("https://lyrics.paxsenix.org/apple-music/lyrics", "id" to hit.optString("trackId"), "ttml" to true)), "PaxSenix")
     }
+    private suspend fun paxSpotify(refreshExpired: Boolean): TrackLyrics? {
+        val direct = safely {
+            withTimeoutOrNull(6_000L) {
+                val connection = try {
+                    withTimeoutOrNull(3_000L) { spotifySession(refreshExpired) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                spotify.lookup(identity, providerQuery(), connection, ::matches, ::requestProvider)
+                    ?.takeIf { LyricsDocuments.verified(identity, it) }
+            }
+        }
+        return direct ?: pax("spotify")
+    }
+
+    private fun providerQuery(): String =
+        "${com.example.data.repository.StreamResolver.extractCleanTitle(identity.title, artist)} $artist".trim()
+
     private suspend fun pax(source: String): TrackLyrics? {
         val key = BuildConfig.PAXSENIX_API_KEY.takeIf(String::isNotBlank) ?: return null
         val body = if (source == "spotify") {
@@ -292,6 +322,11 @@ internal class LyricsSources(private val identity: SongIdentity,
         array(row.optJSONArray("artists")).joinToString(", ") { it.optString("name") }
     }
     private suspend fun musixmatch(): TrackLyrics? {
+        safely {
+            withTimeoutOrNull(5_000L) {
+                musixmatchWeb.lookup(identity, providerQuery(), ::matches, ::requestProvider)
+            }
+        }?.let { return it }
         val key = BuildConfig.MUSIXMATCH_API_KEY
         if (key.isBlank()) return plus("musixmatch-word,musixmatch")
         suspend fun api(path: String, vararg args: Pair<String, Any?>): JSONObject? = get(url("https://api.musixmatch.com/ws/1.1/$path", *args, "apikey" to key))
@@ -385,10 +420,15 @@ internal class LyricsSources(private val identity: SongIdentity,
         }
     }
     companion object {
+        private val sharedSpotifySource = SpotifyLyricsSource()
+        private val sharedMusixmatchSource = MusixmatchWebLyrics()
         private val client = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS).callTimeout(6, TimeUnit.SECONDS).build()
-        private suspend fun request(request: Request): String? = suspendCancellableCoroutine { continuation ->
-            val call = client.newCall(request)
+        private val directClient by lazy {
+            client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+        }
+        private suspend fun request(request: Request, http: OkHttpClient = client): String? = suspendCancellableCoroutine { continuation ->
+            val call = http.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
