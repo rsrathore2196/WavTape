@@ -61,6 +61,7 @@ class MusicService : MediaLibraryService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var checkpointJob: Job? = null
     private var queueGeneration = 0L
+    private data class LibrarySelection(val item: MediaItem, val fromApp: Boolean)
     private var sabrRecoveryTrackId: String? = null
     private val sourceRecoveryGuard = PlaybackRecoveryGuard()
     private val outputRecoveryGuard = PlaybackRecoveryGuard()
@@ -1413,15 +1414,12 @@ class MusicService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                .add(SessionCommand(COMMAND_SET_EQUALIZER, Bundle.EMPTY))
-                .add(SessionCommand(COMMAND_SET_OUTPUT_DEVICE, Bundle.EMPTY))
-                .build()
-            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                .build()
+            val fromApp = controller.uid == applicationInfo.uid
+            val trusted = controller.isTrusted
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(sessionCommands)
-                .setAvailablePlayerCommands(playerCommands)
+                .setAvailableSessionCommands(librarySessionCommands(fromApp, trusted))
+                .setAvailablePlayerCommands(if (fromApp || trusted) MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+                    else externalPlaybackCommands)
                 .build()
         }
 
@@ -1689,6 +1687,9 @@ class MusicService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
+            if (controller.uid != applicationInfo.uid) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+            }
             if (customCommand.customAction == COMMAND_SET_EQUALIZER) {
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
@@ -1711,7 +1712,12 @@ class MusicService : MediaLibraryService() {
             // In-app selections already carry their resolved URI and exact metadata.
             // Install them immediately so prepare/play cannot race a deferred set
             // against playback resumption of the previous saved session.
-            if (controller.packageName == packageName && mediaItems.all {
+            val fromApp = controller.uid == applicationInfo.uid
+            val trustedController = controller.isTrusted
+            if (!fromApp && !trustedController) {
+                return Futures.immediateFailedFuture(SecurityException("Controller cannot replace the playback queue"))
+            }
+            if (fromApp && mediaItems.all {
                     !it.mediaId.startsWith("category_") && PlaybackSessionStore.isReal(it)
                 }) {
                 queueGeneration++
@@ -1720,32 +1726,33 @@ class MusicService : MediaLibraryService() {
             val searchGeneration = if (mediaItems.any { it.requestMetadata.searchQuery != null }) ++queueGeneration else null
             return future {
                 val prepared = withContext(AppDispatchers.CpuBounded) {
-                    val items = mutableListOf<MediaItem>()
+                    val items = mutableListOf<LibrarySelection>()
                     for (item in mediaItems) {
                         val query = item.requestMetadata.searchQuery
                         if (query != null) {
                             val selected = searchTracks(query.trim().take(512)).firstOrNull()
                                 ?: throw IllegalArgumentException("No matching recording was found for this search")
-                            items.add(selected.toMediaItem())
+                            items.add(LibrarySelection(selected.toMediaItem(), fromApp = true))
                         } else if (item.mediaId.startsWith("category_")) {
                             val tracks = getTracksForCategory(item.mediaId)
                             items.addAll(withContext(AppDispatchers.CpuBounded) {
-                                tracks.take(100).map { it.toMediaItem() }
+                                tracks.take(100).map { LibrarySelection(it.toMediaItem(), fromApp = true) }
                             })
-                        } else items.add(item)
+                        } else items.add(LibrarySelection(item, fromApp))
                     }
                     val expandingCategory = mediaItems.any { it.mediaId.startsWith("category_") }
                     coroutineScope {
                         val slots = kotlinx.coroutines.sync.Semaphore(3)
-                        items.map { item -> async(AppDispatchers.Io) {
+                        items.map { selection -> async(AppDispatchers.Io) {
                             slots.acquire()
                             try {
-                                if (PlaybackSessionStore.isReal(item) && controller.packageName == packageName) return@async item
+                                val item = selection.item
+                                if (fromApp && PlaybackSessionStore.isReal(item)) return@async item
                                 val known = app.database.musicDao().getTrackById(item.mediaId)?.toMusicTrack()
                                 if (known != null && realTrack(known)) {
                                     app.repository.resolvePlayableTrack(known.copy(recommendationOnly =
                                         item.mediaMetadata.extras?.getBoolean("recommendation_only", false) == true)).toMediaItem()
-                                } else if (PlaybackSessionStore.isReal(item)) item
+                                } else if (permitsControllerSource(item, selection.fromApp, trustedController)) item
                                 else throw IllegalArgumentException("No real track found for this media ID")
                             } catch (e: CancellationException) { throw e }
                             catch (e: Exception) { if (expandingCategory) null else throw e }
@@ -1780,5 +1787,29 @@ class MusicService : MediaLibraryService() {
         const val COMMAND_SET_EQUALIZER = "com.example.COMMAND_SET_EQUALIZER"
         const val COMMAND_SET_OUTPUT_DEVICE = "com.example.COMMAND_SET_OUTPUT_DEVICE"
         const val ROOT_MEDIA_ID = "xtreme_media_root"
+        private val externalStreamSchemes = setOf("http", "https", "xtreme-youtube")
+        private val libraryCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+        private val appLibraryCommands = libraryCommands.buildUpon()
+            .add(SessionCommand(COMMAND_SET_EQUALIZER, Bundle.EMPTY))
+            .add(SessionCommand(COMMAND_SET_OUTPUT_DEVICE, Bundle.EMPTY))
+            .build()
+        private val externalPlaybackCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+            .remove(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+            .remove(Player.COMMAND_SET_MEDIA_ITEM)
+            .build()
+
+        internal fun librarySessionCommands(fromApp: Boolean, trustedController: Boolean) = when {
+            fromApp -> appLibraryCommands
+            trustedController -> libraryCommands
+            else -> MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+        }
+
+        // Remote controllers browse our catalog. Only an app-owned item may
+        // reference storage, downloads, or an internal signed stream.
+        internal fun permitsControllerSource(item: MediaItem, fromApp: Boolean, trustedController: Boolean): Boolean {
+            val scheme = item.localConfiguration?.uri?.scheme
+            return (fromApp || trustedController && scheme in externalStreamSchemes) &&
+                PlaybackSessionStore.isReal(item)
+        }
     }
 }

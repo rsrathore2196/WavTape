@@ -54,8 +54,9 @@ internal object StreamedAudioPrefetch {
             MusicCache.rememberRepresentation(context, audio)
         }
         if (address.scheme !in setOf("http", "https")) return
-        val cache = MusicCache.getSimpleCache(context)
         val cacheKey = key ?: return // No verified recording/representation identity, no optional download.
+        val cache = MusicCache.getSimpleCache(context)
+        StreamedAudioRepresentations.persistBinding(cache, cacheKey)
         val length = total ?: androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(cacheKey))
             .takeIf { it > 0 }
         if (MusicCache.fullyCached(context, cacheKey, length)) return

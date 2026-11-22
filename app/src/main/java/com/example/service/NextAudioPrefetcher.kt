@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -73,17 +74,30 @@ internal class NextAudioPrefetcher(
             combine(network.sourcePolicy, network.connectionType, SmartCacheManager.stats,
                 MusicCache.prefetchEpoch) { _, _, _, _ -> Unit }.collect { update() }
         }
-        watchdog = scope.launch {
-            while (true) { update(); delay(1_000L) }
-        }
+        update()
     }
 
     private fun stopRequest() = work.cancel()
 
     private fun update() {
         if (closed) return
+        val playing = player.isPlaying
+        // Media3 announces seeks, pauses and queue changes itself. Periodic
+        // position/buffer checks are only needed while playback is advancing.
+        if (playing && watchdog == null) {
+            watchdog = scope.launch {
+                while (isActive) {
+                    delay(1_000L)
+                    update()
+                }
+            }
+        } else if (!playing) {
+            watchdog?.cancel()
+            watchdog = null
+        }
         val duration = player.duration
-        val remaining = duration.takeIf { it > 0L }?.minus(player.currentPosition)
+        val position = player.currentPosition
+        val remaining = duration.takeIf { it > 0L }?.minus(position)
         val nearEnd = remaining != null && remaining in 1L..IMMINENT_MS
         // Keep the existing Media3 period preloader for imminent gapless/crossfade
         // preparation. Long-range optional bytes use the single cancellable job below.
@@ -96,11 +110,11 @@ internal class NextAudioPrefetcher(
         val policy = network.sourcePolicy.value
         val connection = network.connectionType.value
         val nextIndex = player.nextMediaItemIndex
-        val eligible = initialized && player.isPlaying && player.playerError == null &&
+        val eligible = initialized && playing && player.playerError == null &&
             player.repeatMode != Player.REPEAT_MODE_ONE && nextIndex != C.INDEX_UNSET &&
             nextIndex != player.currentMediaItemIndex && !nearEnd && !player.isCurrentMediaItemLive &&
             !player.isCurrentMediaItemDynamic && duration > 0L &&
-            (player.bufferedPosition - player.currentPosition >= HEALTHY_BUFFER_MS || player.bufferedPosition >= duration) &&
+            player.bufferedPosition.let { it - position >= HEALTHY_BUFFER_MS || it >= duration } &&
             NextPrefetchPolicy.allowed(settings.autoPreCacheEnabled, settings.cacheOnWifiOnly, connection,
                 policy.ready && policy.online, policy.ceiling)
         if (!eligible) { stopRequest(); return }

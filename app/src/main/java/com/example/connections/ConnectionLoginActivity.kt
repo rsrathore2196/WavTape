@@ -167,7 +167,7 @@ private open class SpotifySessionClient(private val onSession: (SpotifyConnectio
     @Volatile private var clientToken = ""
     @Volatile private var firstPartyActive = false
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-        firstPartyActive = Uri.parse(url).let { it.scheme == "https" && it.host == "open.spotify.com" }
+        firstPartyActive = url?.let(Uri::parse)?.let { it.scheme == "https" && it.host == "open.spotify.com" } == true
     }
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url
@@ -189,7 +189,9 @@ private open class SpotifySessionClient(private val onSession: (SpotifyConnectio
             }.build()
             http.newCall(forwarded).execute().use { response ->
                 if (!response.isSuccessful) return@use null
-                val bytes = response.body?.bytes()?.takeIf { it.size <= 512 * 1024 } ?: return@use null
+                val source = response.body.source()
+                if (source.request(512 * 1024L + 1)) return@use null
+                val bytes = source.readByteArray()
                 val body = JSONObject(String(bytes, Charsets.UTF_8))
                 if (!body.optBoolean("isAnonymous", true) && body.optString("accessToken").isNotBlank()) {
                     bearer = body.getString("accessToken")

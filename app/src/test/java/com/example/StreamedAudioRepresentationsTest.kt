@@ -45,9 +45,10 @@ class StreamedAudioRepresentationsTest {
     @After fun cleanup() = runBlocking(Dispatchers.IO) { closeCache() }
 
     private fun save(selected: MusicTrack = track, bytes: Int = 128, contentLength: Long? = 128L): String {
-        StreamedAudioRepresentations.remember(context, selected, policy.copy(online = true))
+        StreamedAudioRepresentations.remember(selected, policy.copy(online = true))
         val key = StreamedAudioRepresentations.keyFor(Uri.parse(selected.audioUrl))!!
         val cache = MusicCache.getSimpleCache(context)
+        StreamedAudioRepresentations.persistBinding(cache, key)
         val hole = cache.startReadWrite(key, 0L, bytes.toLong())
         try {
             val file = cache.startFile(key, 0L, bytes.toLong())
@@ -57,6 +58,17 @@ class StreamedAudioRepresentationsTest {
                 ContentMetadataMutations().set("exo_len", contentLength))
         } finally { cache.releaseHoleSpan(hole) }
         return key
+    }
+
+    @Test fun resolvingARepresentationDoesNotOpenTheStreamedAudioCache() = runBlocking(Dispatchers.IO) {
+        StreamedAudioRepresentations.remember(track, policy.copy(online = true))
+        val key = StreamedAudioRepresentations.keyFor(Uri.parse(track.audioUrl))!!
+        assertNull(MusicCache.peekCacheUsage())
+
+        val cache = MusicCache.getSimpleCache(context)
+        assertNull(cache.getContentMetadata(key).get("xtreme_streamed_representation_v1", null as String?))
+        StreamedAudioRepresentations.persistBinding(cache, key)
+        assertNotNull(cache.getContentMetadata(key).get("xtreme_streamed_representation_v1", null as String?))
     }
 
     @Test fun completeRepresentationSurvivesRestartAndExpiredCredentialsWithoutPersistingTransport() = runBlocking(Dispatchers.IO) {
@@ -105,20 +117,36 @@ class StreamedAudioRepresentationsTest {
         assertFalse(StreamedAudioRepresentations.validateCached(context, Uri.parse(cached.audioUrl), policy))
     }
 
+    @Test fun aCachedDescriptorCannotOverrideChangedMedia3Metadata() = runBlocking(Dispatchers.IO) {
+        val key = save()
+        val source = StreamedAudioRepresentations.lookup(context, track, policy)!!
+        val uri = Uri.parse(source.audioUrl)
+        val cache = MusicCache.getSimpleCache(context)
+        val field = "xtreme_streamed_representation_v1"
+        val descriptor = cache.getContentMetadata(key).get(field, "")!!
+        assertTrue(StreamedAudioRepresentations.validateCached(context, uri, policy))
+        cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(field, "{}"))
+        assertNull(StreamedAudioRepresentations.lookup(context, track, policy))
+        assertFalse(StreamedAudioRepresentations.validateCached(context, uri, policy))
+        cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(field, descriptor))
+        assertTrue(StreamedAudioRepresentations.validateCached(context, uri, policy))
+    }
+
     @Test fun reusingTheSameTransportCannotRewriteDifferentRepresentationEvidence() = runBlocking(Dispatchers.IO) {
         val first = save()
         val cache = MusicCache.getSimpleCache(context)
         val before = cache.getContentMetadata(first).get("xtreme_streamed_representation_v1", "")
         val changed = track.copy(bitrateKbps = 320)
-        StreamedAudioRepresentations.remember(context, changed, policy.copy(online = true))
+        StreamedAudioRepresentations.remember(changed, policy.copy(online = true))
         val second = StreamedAudioRepresentations.keyFor(Uri.parse(changed.audioUrl))!!
+        StreamedAudioRepresentations.persistBinding(cache, second)
         assertNotEquals(first, second)
         assertEquals(before, cache.getContentMetadata(first).get("xtreme_streamed_representation_v1", ""))
         assertTrue(cache.isCached(first, 0L, 128L))
         assertFalse(cache.isCached(second, 0L, 128L))
         // The new incomplete quality cannot hide or overwrite the complete copy.
         assertEquals(160, StreamedAudioRepresentations.lookup(context, track, policy)!!.bitrateKbps)
-        StreamedAudioRepresentations.remember(context, changed, policy.copy(online = true))
+        StreamedAudioRepresentations.remember(changed, policy.copy(online = true))
         assertEquals(second, StreamedAudioRepresentations.keyFor(Uri.parse(changed.audioUrl)))
     }
 
@@ -132,7 +160,7 @@ class StreamedAudioRepresentationsTest {
         assertTrue(policy.acceptsStreamBitrate(336, Uri.parse(high.audioUrl)))
         assertFalse(policy.acceptsStreamBitrate(337, Uri.parse(high.audioUrl)))
         for (uri in listOf("file:///music/song.flac", "content://music/item/1", "https://aac.saavncdn.com/manifest.m3u8")) {
-            StreamedAudioRepresentations.remember(context, track.copy(audioUrl = uri), policy.copy(online = true))
+            StreamedAudioRepresentations.remember(track.copy(audioUrl = uri), policy.copy(online = true))
             assertNull(StreamedAudioRepresentations.keyFor(Uri.parse(uri)))
         }
     }

@@ -193,11 +193,13 @@ object MusicCache {
                 }
                 val selectedKey = spec.key ?: StreamedAudioRepresentations.keyFor(spec.uri) ?: safeTransportKey(spec.uri)
                 StreamedAudioPrefetch.preempt(selectedKey)
-                val source: DataSource = try { CacheDataSource.Factory().setCache(getSimpleCache(app))
-                    .setCacheKeyFactory { request -> request.key ?: StreamedAudioRepresentations.keyFor(request.uri)
-                        ?: safeTransportKey(request.uri) }
-                    .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online })
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
+                val source: DataSource = try {
+                    val cache = getSimpleCache(app)
+                    StreamedAudioRepresentations.persistBinding(cache, selectedKey)
+                    CacheDataSource.Factory().setCache(cache)
+                        .setCacheKeyFactory { selectedKey }
+                        .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online })
+                        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
                 } catch (failure: Exception) {
                     if (!online) throw IOException("Cached audio is unavailable offline", failure)
                     rangedUpstream.createDataSource()

@@ -57,13 +57,13 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
     val maximum: Boolean get() = ceiling == AudioQualityCeiling.MAX
     val preferOpus: Boolean get() = ceiling == AudioQualityCeiling.HIGH
     val allowsDolbyAtmos: Boolean get() = dolbyAtmos && DolbyAtmosSupport.qualityEligible(ceiling)
-    val configuredSources: List<PlaybackSource> get() = PlaybackSource.ordered(sources)
-    val playbackSources: List<PlaybackSource> get() {
+    val configuredSources: List<PlaybackSource> by lazy(LazyThreadSafetyMode.PUBLICATION) { PlaybackSource.ordered(sources) }
+    val playbackSources: List<PlaybackSource> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val enabled = configuredSources.filter { it.enabled && it.available(ceiling) &&
             (it.kind != PlaybackSourceKind.ADDON || it.baseUrl.isNotBlank()) }
         val builtInOrder = if (maximum) listOf(PlaybackSourceKind.INTERNET_ARCHIVE, PlaybackSourceKind.JIOSAAVN, PlaybackSourceKind.YOUTUBE)
             else listOf(PlaybackSourceKind.YOUTUBE, PlaybackSourceKind.JIOSAAVN)
-        return enabled.filter { it.kind == PlaybackSourceKind.ADDON } +
+        enabled.filter { it.kind == PlaybackSourceKind.ADDON } +
             builtInOrder.flatMap { kind -> enabled.filter { it.kind == kind } }
     }
     val resolutionSources: List<PlaybackSource> get() = resolutionSourcesFor(requestTrackId)
@@ -78,8 +78,10 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
     fun allows(kind: PlaybackSourceKind): Boolean = playbackSources.any { it.kind == kind }
     fun sourceId(kind: PlaybackSourceKind): String? = configuredSources.firstOrNull { it.kind == kind }?.id
     val allowsArchive: Boolean get() = maximum && online && allows(PlaybackSourceKind.INTERNET_ARCHIVE)
-    val key: String get() = "sources-v9:${ceiling.name}:$enhancer:$returnToYouTube:$online:$requestRevision:$requestTrackId:$ready:atmos=$allowsDolbyAtmos:" +
-        playbackSources.joinToString(",") { "${it.id}:${it.kind.name}:${it.baseUrl.hashCode()}" }
+    val key: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        "sources-v9:${ceiling.name}:$enhancer:$returnToYouTube:$online:$requestRevision:$requestTrackId:$ready:atmos=$allowsDolbyAtmos:" +
+            playbackSources.joinToString(",") { "${it.id}:${it.kind.name}:${it.baseUrl.hashCode()}" }
+    }
     fun onlyAtmosChanged(previousKey: String?): Boolean = previousKey != null && previousKey != key &&
         previousKey == copy(dolbyAtmos = !allowsDolbyAtmos).key
     /** Manual upgrades use the source list's upgrade order, not normal YouTube-first routing. */

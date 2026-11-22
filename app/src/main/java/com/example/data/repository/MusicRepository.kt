@@ -543,10 +543,10 @@ class MusicRepository private constructor(
                 val selected = track.copy(audioUrl = result.audioUrl, source = result.source, bitrateKbps = result.bitrateKbps,
                     qualityBadge = result.qualityBadge, isLossless = result.isLossless,
                     primaryArtists = track.primaryArtists.ifEmpty { result.primaryArtists })
-                context?.let { ctx ->
+                sourcePolicy?.let { policy ->
                     // Cache bookkeeping must never prevent a verified stream from playing.
                     try {
-                        com.example.service.StreamedAudioRepresentations.remember(ctx, selected, sourcePolicy)
+                        com.example.service.StreamedAudioRepresentations.remember(selected, policy)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {

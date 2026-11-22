@@ -2,6 +2,7 @@ package com.example.service
 
 import android.content.Context
 import android.net.Uri
+import android.util.LruCache
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
@@ -23,9 +24,12 @@ internal object StreamedAudioRepresentations {
     private const val META = "xtreme_streamed_representation_v1"
     private const val SCHEME = "xtreme-cached"
     private const val LIMIT = 256
-    private data class Binding(val key: String, val recording: String)
-    private val transports = object : LinkedHashMap<String, Binding>(LIMIT, .75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Binding>?) = size > LIMIT
+    private data class DecodedMetadata(val encoded: String, val descriptor: Descriptor?)
+    private val decodedMetadata = LruCache<String, DecodedMetadata>(LIMIT)
+    private val boundMetadata = LruCache<String, Descriptor>(LIMIT)
+    private val recordingHash = Regex("[a-f0-9]{64}")
+    private val transports = object : LinkedHashMap<String, Descriptor>(LIMIT, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Descriptor>?) = size > LIMIT
     }
     private val progressive = mapOf("m4a" to "audio/mp4", "mp4" to "audio/mp4", "aac" to "audio/aac",
         "mp3" to "audio/mpeg", "flac" to "audio/flac", "opus" to "audio/ogg",
@@ -48,14 +52,12 @@ internal object StreamedAudioRepresentations {
 
     fun keyFor(uri: Uri): String? = synchronized(transports) { transports[uri.toString()]?.key }
 
-    /** Called only after the normal resolver has verified recording/source/quality identity. IO only. */
-    fun remember(context: Context, track: MusicTrack, policy: PlaybackSourcePolicy? = null) {
+    /** Bind a verified representation in memory. The audio loader persists it when it opens the cache. */
+    fun remember(track: MusicTrack, policy: PlaybackSourcePolicy) {
         val uri = Uri.parse(track.audioUrl)
         if (uri.scheme == SCHEME || uri.scheme !in setOf("http", "https", "xtreme-youtube", "xtreme-sabr")) return
-        val active = policy ?: return
-        val providerId = SourceTransitionOrigin.sourceId(track.id, uri, active) ?: return
-        val provider = active.playbackSources.firstOrNull { it.id == providerId } ?: return
-        val cache = MusicCache.getSimpleCache(context)
+        val providerId = SourceTransitionOrigin.sourceId(track.id, uri, policy) ?: return
+        val provider = policy.playbackSources.firstOrNull { it.id == providerId } ?: return
         if (provider.kind == PlaybackSourceKind.YOUTUBE) {
             val video = YouTubeAudioStreamService.videoIdFromUri(uri)
                 ?: track.id.removePrefix("yt_").takeIf(YouTubeAudioStreamService::isVideoId) ?: return
@@ -69,7 +71,7 @@ internal object StreamedAudioRepresentations {
             val descriptor = Descriptor(resolved.cacheKey, recording(track), provider.id, provider.kind,
                 resolved.bitrateKbps, resolved.codec, if (resolved.codec == "Opus") "audio/webm" else "audio/mp4", false,
                 resolved.contentLength ?: 0L, track.id)
-            write(cache, descriptor)
+            boundMetadata.put(descriptor.key, descriptor)
             return
         }
         if (uri.scheme !in setOf("http", "https") || track.bitrateKbps <= 0) return
@@ -95,15 +97,22 @@ internal object StreamedAudioRepresentations {
         // gets a new partial representation; completed entries remain reusable by metadata.
         val expected = Descriptor("", identity, provider.id, provider.kind, track.bitrateKbps, codec, mime,
             track.isLossless, knownLength, track.id)
-        val bound = synchronized(transports) { transports[track.audioUrl]?.takeIf { it.recording == identity }?.key }
         // A provider may reuse the same address for a different quality/format.
         // Neither URI equality nor recording identity permits joining those bytes.
-        val existing = bound?.takeIf { read(cache, it)?.copy(key = "") == expected }
         val variant = digest("$normalized|${provider.kind}|${track.bitrateKbps}|$codec|$mime|${track.isLossless}|$knownLength|" +
-            if (knownLength > 0) "known" else existing ?: UUID.randomUUID().toString())
-        val key = existing ?: "stream:v1:${digest(provider.id).take(16)}:$identity:$variant"
-        write(cache, expected.copy(key = key))
-        synchronized(transports) { transports[track.audioUrl] = Binding(key, identity) }
+            if (knownLength > 0) "known" else UUID.randomUUID().toString())
+        val newKey = "stream:v1:${digest(provider.id).take(16)}:$identity:$variant"
+        synchronized(transports) {
+            val existing = transports[track.audioUrl]?.takeIf { it.copy(key = "") == expected }
+            val descriptor = existing ?: expected.copy(key = newKey)
+            boundMetadata.put(descriptor.key, descriptor)
+            transports[track.audioUrl] = descriptor
+        }
+    }
+
+    fun persistBinding(cache: Cache, key: String) {
+        val descriptor = boundMetadata.get(key) ?: return
+        write(cache, descriptor)
     }
 
     private fun write(cache: Cache, descriptor: Descriptor) {
@@ -112,16 +121,23 @@ internal object StreamedAudioRepresentations {
             cache.applyContentMetadataMutations(descriptor.key, ContentMetadataMutations().set(META, encoded))
     }
 
-    private fun read(cache: Cache, key: String): Descriptor? = runCatching {
-        val encoded = cache.getContentMetadata(key).get(META, "").orEmpty()
-        if (encoded.isBlank() || encoded.length > 2_048) return@runCatching null
-        val value = JSONObject(encoded)
-        val descriptor = Descriptor(key, value.getString("recording"), value.getString("provider"),
-            PlaybackSourceKind.valueOf(value.getString("kind")), value.getInt("bitrate"), value.getString("codec"),
-            value.getString("mime"), value.getBoolean("lossless"), value.optLong("length"), value.optString("track"))
-        descriptor.takeIf { it.recording.matches(Regex("[a-f0-9]{64}")) && it.bitrate in 1..100_000 &&
-            it.provider.isNotBlank() && it.mime in progressive.values }
-    }.getOrNull()
+    private fun read(cache: Cache, key: String): Descriptor? {
+        val encoded = runCatching { cache.getContentMetadata(key).get(META, "") }.getOrNull().orEmpty()
+        if (encoded.isBlank() || encoded.length > 2_048) return null
+        // Reuse only the parsed metadata. Media3's current index and file spans
+        // still decide whether the representation is eligible for playback.
+        decodedMetadata.get(key)?.takeIf { it.encoded == encoded }?.let { return it.descriptor }
+        val descriptor = runCatching {
+            val value = JSONObject(encoded)
+            Descriptor(key, value.getString("recording"), value.getString("provider"),
+                PlaybackSourceKind.valueOf(value.getString("kind")), value.getInt("bitrate"), value.getString("codec"),
+                value.getString("mime"), value.getBoolean("lossless"), value.optLong("length"), value.optString("track"))
+                .takeIf { recordingHash.matches(it.recording) && it.bitrate in 1..100_000 &&
+                    it.provider.isNotBlank() && it.mime in progressive.values }
+        }.getOrNull()
+        decodedMetadata.put(key, DecodedMetadata(encoded, descriptor))
+        return descriptor
+    }
 
     private fun complete(cache: Cache, descriptor: Descriptor): Boolean {
         val length = ContentMetadata.getContentLength(cache.getContentMetadata(descriptor.key))
@@ -151,19 +167,21 @@ internal object StreamedAudioRepresentations {
 
     fun lookup(context: Context, track: MusicTrack, policy: PlaybackSourcePolicy, preferredSourceId: String? = null,
         currentSourceOnly: Boolean = false): MusicTrack? {
-        if (Uri.parse(track.audioUrl).scheme in setOf("file", "content", "asset", "rawresource", "android.resource", "data", "xtreme-offline")) return null
+        val uri = Uri.parse(track.audioUrl)
+        val scheme = uri.scheme
+        if (scheme != null && (MusicCache.isLocal(uri) || scheme == "xtreme-offline")) return null
         val cache = MusicCache.getSimpleCache(context)
         val identity = recording(track)
         val sourceId = if (currentSourceOnly) {
-            if (Uri.parse(track.audioUrl).scheme == SCHEME) Uri.parse(track.audioUrl).getQueryParameter("provider")
-            else SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), policy)
+            if (uri.scheme == SCHEME) uri.getQueryParameter("provider")
+            else SourceTransitionOrigin.sourceId(track.id, uri, policy)
         } else preferredSourceId
         val order = policy.resolutionSourcesFor(track.id).filter { sourceId == null || it.id == sourceId }
-        val opusOnly = Uri.parse(track.audioUrl).getQueryParameter("codec") == "opus"
-        val candidates = cache.keys.mapNotNull { read(cache, it) }.filter {
+        val opusOnly = uri.getQueryParameter("codec") == "opus"
+        val candidates = cache.keys.asSequence().mapNotNull { read(cache, it) }.filter {
             it.recording == identity && (!opusOnly || it.codec == "Opus") &&
                 order.any { source -> source.id == it.provider } && permitsCached(policy, it.uri()) && complete(cache, it)
-        }
+        }.toList()
         val descriptor = order.firstNotNullOfOrNull { source -> candidates.filter { it.provider == source.id }.maxByOrNull { it.bitrate } }
             ?: legacyYouTube(context, track, policy, order.map { it.id }) ?: return null
         return track.copy(audioUrl = descriptor.uri().toString(), bitrateKbps = descriptor.bitrate, isLossless = descriptor.lossless,

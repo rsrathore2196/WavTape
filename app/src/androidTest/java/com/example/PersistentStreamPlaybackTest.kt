@@ -58,9 +58,10 @@ class PersistentStreamPlaybackTest {
             val policy = NetworkQualityMonitor.getInstance(context).sourcePolicySnapshot()
             val track = MusicTrack("online_cached_wav", "Cached recording", "Artist", "Album", 5000, "",
                 "https://aac.saavncdn.com/cached.wav?length=${payload.size}", bitrateKbps = 128, source = "JIOSAAVN")
-            StreamedAudioRepresentations.remember(context, track, policy)
+            StreamedAudioRepresentations.remember(track, policy)
             val key = StreamedAudioRepresentations.keyFor(Uri.parse(track.audioUrl))!!
             val cache = MusicCache.getSimpleCache(context)
+            StreamedAudioRepresentations.persistBinding(cache, key)
             val hole = cache.startReadWrite(key, 0, payload.size.toLong())
             try {
                 val file = cache.startFile(key, 0, payload.size.toLong())
