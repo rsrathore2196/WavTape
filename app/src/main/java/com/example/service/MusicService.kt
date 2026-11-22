@@ -26,6 +26,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -90,6 +91,7 @@ class MusicService : MediaLibraryService() {
     private var crossfade: com.example.playback.CrossfadeController? = null
     private var nextAudioPrefetcher: NextAudioPrefetcher? = null
     private val outputPrecision = java.util.concurrent.atomic.AtomicReference(com.example.playback.OutputPrecision.PCM_16)
+    private val bitPerfect = java.util.concurrent.atomic.AtomicBoolean(false)
     private var verifiedSignalUri: Uri? = null
     private var verifiedSignalId: String? = null
     private var verifiedSignalFormat: Format? = null
@@ -822,14 +824,18 @@ class MusicService : MediaLibraryService() {
         }
 
         // Memory-backed preferences are preloaded by the app; no disk access here.
-        outputPrecision.set(com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(this).outputPrecision)
+        val audioSettings = com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(this)
+        outputPrecision.set(audioSettings.outputPrecision)
+        bitPerfect.set(audioSettings.bitPerfect)
+        com.example.playback.AudioSignalPath.update { it.copy(bitPerfectRequested = audioSettings.bitPerfect) }
         // 3. Audio-only Renderers Factory: suppresses video codecs and uses software-prioritized selector
         fun audioRenderersFactory(reportSignalPath: Boolean) = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
                 com.example.playback.BitPerfectAudioSink(context, reportSignalPath = reportSignalPath,
-                    allowDirect = { reportSignalPath && crossfade?.enabled != true },
-                    outputPrecision = { outputPrecision.get() })
+                    allowDirect = { reportSignalPath && (bitPerfect.get() || crossfade?.enabled != true) },
+                    outputPrecision = { outputPrecision.get() },
+                    bitPerfectRequested = { reportSignalPath && bitPerfect.get() })
             override fun buildAudioRenderers(context: android.content.Context, extensionRendererMode: Int,
                 mediaCodecSelector: MediaCodecSelector, enableDecoderFallback: Boolean,
                 audioSink: androidx.media3.exoplayer.audio.AudioSink, eventHandler: android.os.Handler,
@@ -939,16 +945,30 @@ class MusicService : MediaLibraryService() {
                     }
             })
         serviceScope.launch {
+            var previousParameters: PlaybackParameters? = null
             com.example.data.local.OtherSettingsPreferences.observePlayerExperience(this@MusicService).collect {
-                spatialRequested = it.spatialAudio
-                val spatial = it.spatialAudio && !com.example.playback.DolbyAtmosSupport.isAtmosMime(player.audioFormat?.sampleMimeType)
-                if (outputPrecision.get() != it.outputPrecision ||
+                val modeChanged = bitPerfect.get() != it.bitPerfect
+                spatialRequested = it.spatialAudio && !it.bitPerfect
+                val spatial = spatialRequested && !com.example.playback.DolbyAtmosSupport.isAtmosMime(player.audioFormat?.sampleMimeType)
+                val skipSilence = it.skipSilence && !it.bitPerfect
+                if (modeChanged || outputPrecision.get() != it.outputPrecision ||
                     com.example.playback.PsychoacousticAudioProcessor.spatialEnabled != spatial ||
-                    player.skipSilenceEnabled != it.skipSilence) crossfade?.cancelTransition()
+                    player.skipSilenceEnabled != skipSilence) crossfade?.cancelTransition()
+                bitPerfect.set(it.bitPerfect)
                 outputPrecision.set(it.outputPrecision)
                 com.example.playback.PsychoacousticAudioProcessor.spatialEnabled = spatial
-                player.skipSilenceEnabled = it.skipSilence
-                crossfade?.setEnabled(it.crossfade)
+                player.skipSilenceEnabled = skipSilence
+                crossfade?.setEnabled(it.crossfade && !it.bitPerfect)
+                if (modeChanged) {
+                    com.example.playback.AudioSignalPath.update { state -> state.copy(bitPerfectRequested = it.bitPerfect) }
+                    if (it.bitPerfect) {
+                        previousParameters = player.playbackParameters
+                        player.playbackParameters = PlaybackParameters.DEFAULT
+                    } else {
+                        previousParameters?.let { saved -> player.playbackParameters = saved }
+                        previousParameters = null
+                    }
+                }
             }
         }
         val audioManager = getSystemService(android.media.AudioManager::class.java)

@@ -37,6 +37,26 @@ class OutputPrecisionUiTest {
     }
     @After fun reset() { AudioSignalPath.reset() }
 
+    @Test fun bitPerfectSwitchStartsOffAndPersistsWithoutOverwritingProcessingPreferences() {
+        OtherSettingsPreferences.setCrossfade(context, true)
+        OtherSettingsPreferences.setSpatialAudio(context, true)
+        OtherSettingsPreferences.setSkipSilence(context, true)
+        compose.setContent {
+            MyApplicationTheme(customThemeState = ThemePresets.StudioNight.toCustomThemeState()) {
+                MusicPlaybackPage(AudioEffectsState(), true, {}, {}, {}, {})
+            }
+        }
+        val switch = compose.onNodeWithTag("switch_bit_perfect")
+        switch.performScrollTo().assertIsOff().performClick()
+        compose.waitUntil(5_000L) { OtherSettingsPreferences.playerExperienceSettings(context).bitPerfect }
+        val selected = OtherSettingsPreferences.playerExperienceSettings(context)
+        Assert.assertTrue(selected.crossfade && selected.spatialAudio && selected.skipSilence)
+        compose.waitUntil(5_000L) { switch.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.ToggleableState] == androidx.compose.ui.state.ToggleableState.On }
+        switch.performClick()
+        compose.waitUntil(5_000L) { !OtherSettingsPreferences.playerExperienceSettings(context).bitPerfect }
+    }
+
     @Test fun settingsControlSelectsBothModesAndShowsActualOutputWithoutTheOldStaticRow() {
         AudioSignalPath.update { it.copy(outputDevice = "USB-C DAC", outputEncoding = C.ENCODING_PCM_16BIT, outputRateHz = 48000) }
         compose.setContent {

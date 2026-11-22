@@ -16,7 +16,7 @@ internal object BackupSettings {
         "xtreme_other_settings" to buildMap {
             listOf("proxy_enabled", "haptics_enabled", "dynamic_glass_enabled", "player_dynamic_album_glow",
                 "player_high_contrast_typography", "player_full_screen_album_art", "playback_crossfade_enabled",
-                "playback_spatial_audio", "playback_dolby_atmos", "playback_skip_silence", "keep_lyrics_screen_awake",
+                "playback_spatial_audio", "playback_dolby_atmos", "playback_skip_silence", "playback_bit_perfect", "keep_lyrics_screen_awake",
                 "streaming_addon_enabled").forEach { put(it, "boolean") }
             listOf("proxy_host", "proxy_type", "lyrics_provider", "lyrics_translation_language",
                 "playback_output_precision", "streaming_addon_url", "streaming_addon_name").forEach { put(it, "string") }

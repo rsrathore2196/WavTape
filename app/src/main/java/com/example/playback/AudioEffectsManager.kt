@@ -200,9 +200,12 @@ object AudioEffectsManager {
         synchronized(stateLock) {
             if (revision != request.revision) return false
             PsychoacousticAudioProcessor.settings.set(request.state)
-            AudioSignalPath.update { it.copy(clarityEnabled = request.state.crystalClarityEnabled,
-                eqActive = request.state.isEnabled && !it.directApproved,
-                dspActive = (request.state.isEnabled || it.spatialActive || it.skipSilenceActive) && !it.directApproved) }
+            AudioSignalPath.update {
+                val processing = !it.directApproved && !it.bitPerfectBypassActive
+                it.copy(clarityEnabled = request.state.crystalClarityEnabled && processing,
+                    eqActive = request.state.isEnabled && processing,
+                    dspActive = processing && (request.state.isEnabled || it.spatialActive || it.skipSilenceActive))
+            }
             return true
         }
     }

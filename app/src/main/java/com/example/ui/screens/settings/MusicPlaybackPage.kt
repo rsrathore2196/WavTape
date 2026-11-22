@@ -329,6 +329,15 @@ fun MusicPlaybackPage(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                PlaybackProcessingSettingRow(
+                    title = "Bit-Perfect Mode (Direct Passthrough)",
+                    description = "Bypass all DSP, EQ & audio processing for bit-exact reproduction",
+                    checked = playerExperience.bitPerfect,
+                    onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setBitPerfect(settingsContext, it) },
+                    tag = "switch_bit_perfect"
+                )
+                HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,

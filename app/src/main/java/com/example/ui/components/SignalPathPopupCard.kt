@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.C
 import com.example.playback.AudioEffectsManager
 import com.example.playback.AudioSignalPath
 import com.example.playback.SignalPathState
@@ -115,6 +116,17 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     val muted = colors.textSecondary
     val quality = state.quality
     val known = quality.verified
+    val bitExact = state.bitPerfect && state.directApproved && state.outputRouteVerified &&
+        !state.sourcePrecisionReduced && !state.dspActive && !state.appResampling && state.appVolume == 1f
+    val bitPerfectStatus = when {
+        !state.bitPerfectRequested && state.bitPerfectBypassActive -> "Off • restoring playback processing"
+        !state.bitPerfectRequested -> "Off"
+        !state.bitPerfectBypassActive -> "On • waiting for the audio path"
+        bitExact -> "On • verified USB passthrough"
+        !state.outputRouteVerified -> "On • DSP bypassed, output unverified"
+        state.directApproved -> "On • direct output, bit-exactness unverified"
+        else -> "On • DSP bypassed on shared output"
+    }
     val centers = remember { mutableStateMapOf<Int, Offset>() }
     val bodyCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     // Reading progress only in Canvas avoids re-composing or re-measuring the rows each frame.
@@ -211,13 +223,28 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                 "PCM Data Rate" to state.sourcePcmDataRateKbps?.let { "$it kbps" }.orEmpty().ifBlank { "—" },
                                 "Channels" to SignalPathState.channelLabel(state.sourceChannels.takeIf { known } ?: 0)))
                             stage(1, "DECODER", Icons.Rounded.Memory, listOf(
-                                "Decoder Name" to state.decoderName.ifBlank { "—" }, "Format" to encoding(state.decoderEncoding)))
+                                "Decoder Name" to state.decoderName.ifBlank { "—" },
+                                "Format" to encoding(state.decoderEncoding),
+                                "Sample Rate" to rate(state.inputRateHz),
+                                "Channels" to SignalPathState.channelLabel(state.decoderChannels)))
                             val ratesKnown = state.inputRateHz > 0 && state.outputRateHz > 0
                             val sameRate = ratesKnown && state.inputRateHz == state.outputRateHz && !state.appResampling
                             stage(2, "RESAMPLER", Icons.Rounded.Tune, listOf(
                                 "I/O Rate" to "${rate(state.inputRateHz)} → ${rate(state.outputRateHz)}",
-                                "Type" to when { !ratesKnown -> "—"; sameRate -> "None"; state.appResampling -> "Speed / pitch processing"; else -> "Sample rate conversion" },
-                                "Cutoff" to "—", "Quality" to when { !ratesKnown -> "—"; sameRate -> "Passthrough"; else -> "Processed" }))
+                                "Type" to when { !ratesKnown -> "—"; sameRate -> "None detected in app"; state.appResampling -> "Speed / pitch processing"; else -> "Sample rate conversion" },
+                                "Cutoff" to "—", "Quality" to when {
+                                    !ratesKnown -> "—"
+                                    sameRate && state.directApproved -> "Passthrough"
+                                    sameRate -> "Matched at AudioTrack"
+                                    else -> "Processed"
+                                },
+                                "PCM Conversion" to when {
+                                    state.decoderEncoding == C.ENCODING_INVALID || state.outputEncoding == C.ENCODING_INVALID -> "—"
+                                    state.decoderEncoding == state.outputEncoding -> "None"
+                                    bitExact && state.decoderEncoding == C.ENCODING_PCM_FLOAT &&
+                                        state.outputEncoding == C.ENCODING_PCM_24BIT -> "Exact 24-bit packing"
+                                    else -> "${encoding(state.decoderEncoding)} → ${encoding(state.outputEncoding)}"
+                                }))
                             val buffer = if (state.bufferSizeFrames > 0 && state.outputRateHz > 0)
                                 "${state.bufferSizeFrames * 1000L / state.outputRateHz} ms, ${state.bufferSizeFrames} frames" +
                                     if (state.bufferCapacityFrames > 0) " (capacity ${state.bufferCapacityFrames})" else "" else "—"
@@ -232,11 +259,12 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                     "Skip Silence".takeIf { state.skipSilenceActive }).joinToString(" + ").ifBlank { "Bypassed" },
                                 "Tempo" to String.format(Locale.ROOT, "%.2f× • pitch %.2f×", state.playbackSpeed, state.pitch),
                                 "Buffers" to buffer, "Output API" to "AudioTrack",
-                                "Bit-exact" to when { state.sourcePrecisionReduced -> "No — source precision reduced"; state.bitPerfect -> "Verified direct PCM • DSP bypassed"; state.appVolume != 1f -> "No — digital volume attenuation"; state.dspActive || state.appResampling -> "No — samples processed";
-                                    state.decoderEncoding == androidx.media3.common.C.ENCODING_INVALID || state.outputEncoding == androidx.media3.common.C.ENCODING_INVALID -> "Not yet verified";
+                                "Bit-exact" to when { state.sourcePrecisionReduced -> "No — source precision reduced"; bitExact -> "Verified direct PCM • DSP bypassed"; state.appVolume != 1f -> "No — digital volume attenuation"; state.dspActive || state.appResampling -> "No — samples processed";
+                                    state.decoderEncoding == C.ENCODING_INVALID || state.outputEncoding == C.ENCODING_INVALID -> "Not yet verified";
                                     state.decoderEncoding != state.outputEncoding -> "PCM format conversion • shared system path";
                                     else -> "App bypassed • system mixing not verified" }))
                             stage(4, "OUTPUT DEVICE", Icons.AutoMirrored.Rounded.VolumeUp, listOf(
+                                "Bit-Perfect Mode" to bitPerfectStatus,
                                 "Device Name" to state.outputDevice, "Route" to state.outputType,
                                 "Transport" to "AudioTrack • ${state.mode}",
                                 "Direct" to if (state.directApproved) "Active (verified direct route)" else "Not active (shared path)",

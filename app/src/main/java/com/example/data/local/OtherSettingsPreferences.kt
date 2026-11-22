@@ -65,7 +65,8 @@ data class PlayerExperienceSettings(
     val skipSilence: Boolean = false,
     val outputPrecision: OutputPrecision = OutputPrecision.PCM_16,
     val dolbyAtmos: Boolean = false,
-    val fullScreenAlbumArt: Boolean = true
+    val fullScreenAlbumArt: Boolean = true,
+    val bitPerfect: Boolean = false
 )
 
 object OtherSettingsPreferences {
@@ -148,6 +149,7 @@ object OtherSettingsPreferences {
     private const val KEY_DOLBY_ATMOS = "playback_dolby_atmos"
     private const val KEY_SKIP_SILENCE = "playback_skip_silence"
     private const val KEY_OUTPUT_PRECISION = "playback_output_precision"
+    private const val KEY_BIT_PERFECT = "playback_bit_perfect"
     private const val KEY_KEEP_LYRICS_AWAKE = "keep_lyrics_screen_awake"
     private const val KEY_ADDON_ENABLED = "streaming_addon_enabled"
     private const val KEY_ADDON_URL = "streaming_addon_url"
@@ -319,7 +321,8 @@ object OtherSettingsPreferences {
             skipSilence = prefs.getBoolean(KEY_SKIP_SILENCE, false),
             outputPrecision = OutputPrecision.fromStored(prefs.getString(KEY_OUTPUT_PRECISION, null)),
             dolbyAtmos = prefs.getBoolean(KEY_DOLBY_ATMOS, false),
-            fullScreenAlbumArt = prefs.getBoolean(KEY_FULL_SCREEN_ALBUM_ART, true)
+            fullScreenAlbumArt = prefs.getBoolean(KEY_FULL_SCREEN_ALBUM_ART, true),
+            bitPerfect = prefs.getBoolean(KEY_BIT_PERFECT, false)
         )
     }
 
@@ -332,6 +335,7 @@ object OtherSettingsPreferences {
             KEY_DOLBY_ATMOS,
             KEY_SKIP_SILENCE,
             KEY_OUTPUT_PRECISION,
+            KEY_BIT_PERFECT,
             KEY_FULL_SCREEN_ALBUM_ART
         )
         return callbackFlow {
@@ -383,6 +387,10 @@ object OtherSettingsPreferences {
 
     fun setOutputPrecision(context: Context, precision: OutputPrecision) {
         getPrefs(context).edit().putString(KEY_OUTPUT_PRECISION, precision.name).apply()
+    }
+
+    fun setBitPerfect(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BIT_PERFECT, enabled).apply()
     }
 
     fun performanceSettings(context: Context): PerformanceSettings {

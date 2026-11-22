@@ -97,7 +97,10 @@ data class SignalPathState(
     val decoderName: String = "", val decoderEncoding: Int = C.ENCODING_INVALID,
     val dspEncoding: Int = C.ENCODING_INVALID, val dspRateHz: Int = 0,
     val bufferSizeFrames: Int = 0, val bufferCapacityFrames: Int = 0,
-    val enhancerPolicyKey: String = ""
+    val enhancerPolicyKey: String = "",
+    val bitPerfectRequested: Boolean = false,
+    val bitPerfectBypassActive: Boolean = false,
+    val decoderChannels: Int = 0
 ) {
     val status: String get() = when { bitPerfect -> "Bit-Perfect"; dspActive -> "Enhanced"; else -> "High Quality" }
     val outputFormat: String get() {

@@ -6,6 +6,7 @@ import android.media.AudioTrack
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.test.core.app.ApplicationProvider
@@ -91,20 +92,32 @@ class OutputPrecisionPlaybackTest {
 
     private class Probe {
         var encoding = C.ENCODING_INVALID
+        var sampleRate = 0
         var pending = false
         var partial = false
         var failInitialization = false
         var releases = 0
         var volume = 1f
+        var skipSilence = false
+        var parameters = PlaybackParameters.DEFAULT
         var held: ByteBuffer? = null
         val data = mutableListOf<Byte>()
         val sink = Proxy.newProxyInstance(AudioSink::class.java.classLoader, arrayOf(AudioSink::class.java)) { _, method, args ->
             when (method.name) {
-                "configure" -> { encoding = (args!![0] as Format).pcmEncoding; null }
+                "configure" -> {
+                    val input = args!![0] as Format
+                    encoding = input.pcmEncoding
+                    sampleRate = input.sampleRate
+                    null
+                }
                 "hasPendingData" -> pending
                 "isEnded" -> !pending && held == null
                 "getCurrentPositionUs" -> 250_000L
                 "setVolume" -> { volume = args!![0] as Float; null }
+                "setSkipSilenceEnabled" -> { skipSilence = args!![0] as Boolean; null }
+                "getSkipSilenceEnabled" -> skipSilence
+                "setPlaybackParameters" -> { parameters = args!![0] as PlaybackParameters; null }
+                "getPlaybackParameters" -> parameters
                 "release" -> { releases++; null }
                 "handleBuffer" -> {
                     if (failInitialization) throw AudioSink.InitializationException(0, 48000, 12, 1024, formatForFailure(), false, null)
@@ -119,6 +132,97 @@ class OutputPrecisionPlaybackTest {
         } as AudioSink
         private fun formatForFailure() = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_RAW)
             .setPcmEncoding(encoding).setSampleRate(48000).setChannelCount(2).build()
+    }
+
+    @Test fun bitPerfectBypassesDspSilenceAndTempoWithoutDiscardingAcceptedPcmOrSavedSettings() {
+        var enabled = false
+        val first = Probe()
+        val replacements = mutableListOf<Probe>()
+        val effects = midBoost()
+        PsychoacousticAudioProcessor.settings.set(effects)
+        PsychoacousticAudioProcessor.spatialEnabled = true
+        val sink = BitPerfectAudioSink(app, first.sink, floatRouteSupported = { true }, bitPerfectRequested = { enabled }) {
+            _, _ -> Probe().also(replacements::add).sink
+        }
+        try {
+            sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
+            sink.play()
+            val original = shorts(700, -1500, 1700, -900)
+            first.partial = true
+            assertFalse(sink.handleBuffer(original, 0, 1))
+            enabled = true
+            assertTrue(sink.handleBuffer(original, 0, 1))
+            assertEquals(8, first.data.size)
+            assertTrue(replacements.isEmpty())
+
+            val raw = shorts(1024, -4096, 32767, -32768)
+            val unaltered = ByteArray(raw.remaining()).also { raw.duplicate().get(it) }
+            val speed = PlaybackParameters(1.25f, 0.9f)
+            sink.setSkipSilenceEnabled(true)
+            sink.setPlaybackParameters(speed)
+            first.pending = true
+            assertFalse(sink.handleBuffer(raw, 42, 1))
+            assertEquals(0, raw.position())
+            first.pending = false
+            assertTrue(sink.handleBuffer(raw, 42, 1))
+            val bypassed = replacements.single()
+            assertArrayEquals(unaltered, bypassed.data.toByteArray())
+            assertFalse(bypassed.skipSilence)
+            assertEquals(PlaybackParameters.DEFAULT, bypassed.parameters)
+            assertSame(effects, PsychoacousticAudioProcessor.settings.get())
+
+            enabled = false
+            assertTrue(sink.handleBuffer(shorts(1024, -4096, 32767, -32768), 84, 1))
+            val restored = replacements.last()
+            assertTrue(restored.skipSilence)
+            assertEquals(speed, restored.parameters)
+            assertFalse(unaltered.contentEquals(restored.data.toByteArray()))
+        } finally { sink.release() }
+    }
+
+    @Test fun bitPerfectSharedFallbackKeepsNativeRateAndUsesExactFloatFor24BitOnCapableRoutes() {
+        val probe = Probe()
+        PsychoacousticAudioProcessor.settings.set(midBoost())
+        val sink = BitPerfectAudioSink(app, probe.sink, floatRouteSupported = { true }, bitPerfectRequested = { true })
+        try {
+            sink.configure(format(C.ENCODING_PCM_24BIT).buildUpon().setSampleRate(96000).build(), 0, null)
+            val samples = ByteBuffer.allocateDirect(6).apply { put(byteArrayOf(1, 0, 0, -1, -1, 127)); flip() }
+            assertTrue(sink.handleBuffer(samples, 0, 1))
+            assertEquals(C.ENCODING_PCM_FLOAT, probe.encoding)
+            assertEquals(96_000, probe.sampleRate)
+            val pcm = ByteBuffer.wrap(probe.data.toByteArray()).order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(1f / 8388608f, pcm.float, 0f)
+            assertEquals(8388607f / 8388608f, pcm.float, 0f)
+        } finally { sink.release() }
+    }
+
+    @Test fun bitPerfectKeepsTheDirectRouteWithSavedDspAndSwitchesToSharedWhenMuted() {
+        val shared = Probe()
+        val sink = BitPerfectAudioSink(app, shared.sink, bitPerfectRequested = { true })
+        org.robolectric.util.ReflectionHelpers.setField(sink, "allowDirect", { true })
+        val nativeTrack = AudioTrack.Builder().setAudioFormat(android.media.AudioFormat.Builder().setSampleRate(48000)
+            .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_STEREO)
+            .setEncoding(C.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(4096).setTransferMode(AudioTrack.MODE_STREAM).build()
+        var released = false
+        try {
+            sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
+            val lease = BitPerfectAudioSink::class.java.declaredClasses.single { it.simpleName == "DirectLease" }
+                .declaredConstructors.single { it.parameterCount == 5 }.apply { isAccessible = true }
+                .newInstance(nativeTrack, 4096, C.ENCODING_PCM_16BIT, { released = true }, { true })
+            org.robolectric.util.ReflectionHelpers.setField(sink, "native", lease)
+            PsychoacousticAudioProcessor.settings.set(midBoost())
+            PsychoacousticAudioProcessor.spatialEnabled = true
+            assertTrue(sink.handleBuffer(shorts(1234, -1234), 0L, 1))
+            assertTrue(shared.data.isEmpty())
+            assertFalse(released)
+            sink.setVolume(0f)
+            if (sink.hasPendingData()) nativeTrack.write(ByteBuffer.allocateDirect(4), 4, AudioTrack.WRITE_NON_BLOCKING)
+            assertTrue(sink.handleBuffer(shorts(2500, -2500), 42L, 1))
+            assertTrue(released)
+            assertEquals(0f, shared.volume, 0f)
+            assertEquals(4, shared.data.size)
+        } finally { sink.release() }
     }
 
     @Test fun liveToggleDrainsPartialAudioAndKeepsSourceFramesAndVolume() {

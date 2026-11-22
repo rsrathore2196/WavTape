@@ -104,6 +104,32 @@ class SignalPathUiTest {
         compose.onNodeWithTag("pipeline_0_PCM Data Rate").assertTextEquals("PCM Data Rate: 4608 kbps")
     }
 
+    @Test fun pipelineSeparatesRequestedBypassSharedOutputAndVerifiedUsbPcm() {
+        AudioSignalPath.update { playing().copy(
+            quality = StreamQualityBadge("FLAC", 2831, 96000, 24, lossless = true, verified = true),
+            decoderName = "c2.android.flac.decoder", decoderEncoding = C.ENCODING_PCM_FLOAT, decoderChannels = 2,
+            inputRateHz = 96_000, outputRateHz = 96_000, outputEncoding = C.ENCODING_PCM_FLOAT,
+            outputChannels = 2, outputRouteVerified = true, bitPerfectRequested = true) }
+        showBadge()
+        compose.onNodeWithText("Hi-Res Lossless").performClick()
+        val mode = compose.onNodeWithTag("pipeline_4_Bit-Perfect Mode")
+        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • waiting for the audio path")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(bitPerfectBypassActive = true) } }
+        mode.assertTextEquals("Bit-Perfect Mode: On • DSP bypassed on shared output")
+        compose.onNodeWithTag("pipeline_2_Quality").performScrollTo().assertTextEquals("Quality: Matched at AudioTrack")
+        compose.onNodeWithTag("pipeline_1_Format").performScrollTo().assertTextEquals("Format: 32-bit float PCM")
+        compose.onNodeWithTag("pipeline_1_Sample Rate").performScrollTo().assertTextEquals("Sample Rate: 96.0 kHz")
+        compose.onNodeWithTag("pipeline_1_Channels").performScrollTo().assertTextEquals("Channels: Stereo")
+
+        compose.runOnIdle { AudioSignalPath.update { it.copy(outputType = "USB DAC", outputEncoding = C.ENCODING_PCM_24BIT,
+            mode = "Direct", directApproved = true, bitPerfect = true) } }
+        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • verified USB passthrough")
+        compose.onNodeWithTag("pipeline_4_AudioTrack").performScrollTo().assertTextEquals("AudioTrack: 24-bit PCM • 96.0 kHz • Stereo")
+        compose.onNodeWithTag("pipeline_2_PCM Conversion").performScrollTo().assertTextEquals("PCM Conversion: Exact 24-bit packing")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(bitPerfect = false, directApproved = false, outputRouteVerified = false) } }
+        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • DSP bypassed, output unverified")
+    }
+
     @Test fun oldTrackOrUnverifiedFallbackCannotProduceLosslessBadges() {
         AudioSignalPath.update { playing().copy(trackId = "previous", quality =
             StreamQualityBadge("FLAC", 1000, 96000, 24, lossless = true, verified = true)) }
