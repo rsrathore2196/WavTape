@@ -4,6 +4,8 @@ import android.app.Application
 import com.example.updater.UpdateCheckListeners
 import com.example.updater.UpdateStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -16,8 +18,8 @@ class UpdateCheckListenersTest {
         val listeners = UpdateCheckListeners()
         val automatic = mutableListOf<UpdateStatus>()
         val manual = mutableListOf<UpdateStatus>()
-        listeners.add(automatic::add)
-        listeners.add(manual::add)
+        listeners.add(listener = automatic::add)
+        listeners.add(isManual = true, listener = manual::add)
         val result = UpdateStatus.UpToDate("2.1")
         listeners.complete(result)
         assertEquals(listOf(result), automatic)
@@ -27,7 +29,7 @@ class UpdateCheckListenersTest {
     @Test fun aCallerJoiningDuringResultDeliveryIsNotLost() {
         val listeners = UpdateCheckListeners()
         val joined = mutableListOf<UpdateStatus>()
-        listeners.add { listeners.add(joined::add) }
+        listeners.add { listeners.add(listener = joined::add) }
         val result = UpdateStatus.Error("Offline")
         listeners.complete(result)
         assertEquals(listOf(result), joined)
@@ -37,13 +39,23 @@ class UpdateCheckListenersTest {
         val listeners = UpdateCheckListeners()
         val received = mutableListOf<UpdateStatus>()
         listeners.add { error("Screen callback failed") }
-        listeners.add(received::add)
+        listeners.add(listener = received::add)
         val result = UpdateStatus.UpToDate("2.1")
         listeners.complete(result)
         listeners.complete(UpdateStatus.Error("Unexpected second result"))
         assertEquals(listOf(result), received)
         val late = mutableListOf<UpdateStatus>()
-        listeners.add(late::add)
+        listeners.add(listener = late::add)
         assertEquals(listOf(result), late)
+    }
+
+    @Test fun coalescedFailureNoticesFollowTheManualCallerThatNeedsThem() {
+        val listeners = UpdateCheckListeners()
+        listeners.add(listener = null)
+        listeners.add(isManual = true) { }
+        assertFalse(listeners.needsManualErrorNotice())
+
+        listeners.add(isManual = true, listener = null)
+        assertTrue(listeners.needsManualErrorNotice())
     }
 }

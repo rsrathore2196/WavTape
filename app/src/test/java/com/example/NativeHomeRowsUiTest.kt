@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,22 +43,28 @@ class NativeHomeRowsUiTest {
     private val homeBackground = Color(0xFF324A58)
     private val tracks = (1..20).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
         originalProviderTitle = if (it == 1) fullTitle else "") }
+    private fun shelfContent(content: @Composable () -> Unit) {
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false),
+                    LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false,
+                    LocalArtworkRequestsActive provides false) {
+                    Box(Modifier.background(homeBackground)) { content() }
+                }
+            }
+        }
+    }
     private fun content(kind: NativeShelfKind, trending: Boolean = false, subtitle: String = "",
         shuffle: ((MusicTrack, List<MusicTrack>) -> Unit)? = null,
         click: (MusicTrack, List<MusicTrack>) -> Unit = { _, _ -> }) {
         val title = if (trending) "Trending" else "Native shelf"
-        compose.setContent { MaterialTheme {
-            CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false),
-                LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false) {
-                Box(Modifier.background(homeBackground)) {
-                    SectionCardLayout(SectionState(title = title, subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
-                        DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
-                        onTrackClick = click, onShuffleQuickPicks = shuffle ?: click, tracksPrepared = true,
-                        nativeKind = kind, resolveSongCovers = trending,
-                        shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
-                }
-            }
-        } }
+        shelfContent {
+            SectionCardLayout(SectionState(title = title, subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
+                DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
+                onTrackClick = click, onShuffleQuickPicks = shuffle ?: click, tracksPrepared = true,
+                nativeKind = kind, resolveSongCovers = trending,
+                shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
+        }
         compose.onNodeWithText(fullTitle).assertIsDisplayed()
         compose.onNodeWithText(tracks[1].title).assertIsDisplayed()
     }
@@ -105,6 +112,24 @@ class NativeHomeRowsUiTest {
             .assertWidthIsEqualTo(224.dp).assertHeightIsEqualTo(126.dp)
         compose.onNodeWithText(fullTitle).performClick()
         compose.runOnIdle { assertEquals(tracks, queue) }
+    }
+
+    @Test @Config(qualifiers = "en-rUS-w411dp-h891dp-port")
+    fun nativeVideoLabelsFollowTheAppLocaleWithoutChangingTheSelectedRecording() {
+        val video = tracks.first().copy(title = "दिल से", artist = "ਗੀਤ", originalProviderTitle = "दिल से (Slowed + Reverb)")
+        var selected: MusicTrack? = null
+        shelfContent {
+            SectionCardLayout(SectionState(title = "Music Videos", tracks = listOf(video), isLoaded = true), null,
+                DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
+                onTrackClick = { track, _ -> selected = track }, tracksPrepared = true,
+                nativeKind = NativeShelfKind.MUSIC_VIDEOS,
+                shelfItems = listOf(ServerHomeItem.Song(video, "MUSIC_VIDEO_TYPE_OMV")))
+        }
+        val title = "Dil Se (Slowed + Reverb)"
+        compose.onNodeWithText("Geet").assertIsDisplayed()
+        compose.onNodeWithContentDescription(title, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText(title).assertIsDisplayed().performClick()
+        compose.runOnIdle { assertSame(video, selected) }
     }
     @Test fun quickPicksEndsAfterThreePagesOfSixWithoutChangingThePlaybackQueue() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()

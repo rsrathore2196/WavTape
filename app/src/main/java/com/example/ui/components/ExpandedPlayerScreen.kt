@@ -459,10 +459,10 @@ fun ExpandedPlayerScreen(
 
     val integrationsFlow = remember(context) { com.example.data.local.OtherSettingsPreferences.observePlaybackIntegrations(context) }
     val integrations by integrationsFlow.collectAsStateWithLifecycle(
-        initialValue = com.example.data.local.OtherSettingsPreferences.playbackIntegrations(context))
+        initialValue = remember(context) { com.example.data.local.OtherSettingsPreferences.playbackIntegrations(context) })
     val playerExperienceFlow = remember(context) { com.example.data.local.OtherSettingsPreferences.observePlayerExperience(context) }
     val playerExperience by playerExperienceFlow.collectAsStateWithLifecycle(
-        initialValue = com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context)
+        initialValue = remember(context) { com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context) }
     )
     KeepLyricsScreenAwake(showLyrics && isScreenVisible, integrations.keepLyricsAwake)
     var maximizeLyrics by remember(track.id) { mutableStateOf(false) }
@@ -3205,8 +3205,8 @@ private fun PlayerTimelineSection(
     qualityFade: State<Float>? = null
 ) {
     val appColors = LocalAppColors.current
-    var isUserScrubbing by remember { mutableStateOf(false) }
-    var scrubPosition by remember { mutableFloatStateOf(0f) }
+    var isUserScrubbing by remember(trackId) { mutableStateOf(false) }
+    var scrubPosition by remember(trackId) { mutableFloatStateOf(0f) }
 
     // Dynamic real-time playback position state
     var livePosition by remember(trackId) { mutableLongStateOf(currentPositionProvider()) }
@@ -3265,14 +3265,20 @@ private fun PlayerTimelineSection(
         if (isEffectivelyDark) Color.White else Color.Black
     } else if (isEffectivelyDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.65f)
 
-    val seekStarted = remember { { isUserScrubbing = true } }
-    val seekProgress = remember { { fraction: Float -> scrubPosition = fraction } }
-    val seekFinished = remember(trackDuration, onSeekTo) {
+    val seekStarted = remember(trackId) { { isUserScrubbing = true } }
+    val seekProgress = remember(trackId) { { fraction: Float -> scrubPosition = fraction } }
+    val seekFinished = remember(trackId, trackDuration, onSeekTo) {
         { fraction: Float ->
             val seekPos = (fraction * trackDuration).toLong()
             livePosition = seekPos
             onSeekTo(seekPos)
             isUserScrubbing = false
+        }
+    }
+    val seekCancelled = remember(trackId) {
+        {
+            isUserScrubbing = false
+            livePosition = latestPositionProvider()
         }
     }
     val currentSeconds = currentPosition / 1000L
@@ -3286,6 +3292,8 @@ private fun PlayerTimelineSection(
             onSeekStarted = seekStarted,
             onSeekProgress = seekProgress,
             onSeekFinished = seekFinished,
+            gestureKey = trackId,
+            onSeekCancelled = seekCancelled,
             isDark = isEffectivelyDark,
             barColor = liveProgressColor,
             inactiveBarColor = inactiveProgressColor,

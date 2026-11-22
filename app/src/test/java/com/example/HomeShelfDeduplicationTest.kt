@@ -28,6 +28,14 @@ class HomeShelfDeduplicationTest {
         assertEquals((1..6).map { "yt_${NativeFeedFixtures.id(it)}" }, result.single().tracks.map { it.id })
         assertSame(result, appendServerShelves(result, listOf(page)))
     }
+    @Test fun mergingDuplicateShelvesRetainsTheFirstAvailableProviderDescription() {
+        val first = shelf("first", 1, 2, 3)
+        val duplicate = shelf("duplicate", 3, 2, 4).copy(subtitle = "Songs picked for your commute")
+        val result = appendServerShelves(listOf(first), listOf(duplicate))
+        assertEquals(duplicate.subtitle, result.single().subtitle)
+        assertEquals(first.id, result.single().id)
+        assertSame(result, appendServerShelves(result, listOf(duplicate.copy(subtitle = "Different description"))))
+    }
     @Test fun differentRecordingsRemainSeparateButContentCanOverrideChangedDestinations() {
         val first = shelf("one", 1, 2, 3, 4)
         assertEquals(2, appendServerShelves(listOf(first), listOf(shelf("two", 4, 5, 6, 7))).size)

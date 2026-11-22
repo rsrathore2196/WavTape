@@ -3,8 +3,11 @@ package com.example
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.example.data.model.MusicTrack
 import com.example.data.repository.*
@@ -321,7 +324,12 @@ class SearchGenreNavigationTest {
             override val activityResultRegistry: androidx.activity.result.ActivityResultRegistry = registry
         }
         content {
-            CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+            val locale = java.util.Locale.forLanguageTag("pt-BR")
+            val config = android.content.res.Configuration(LocalConfiguration.current).apply { setLocale(locale) }
+            CompositionLocalProvider(
+                androidx.activity.compose.LocalActivityResultRegistryOwner provides owner,
+                LocalConfiguration provides config
+            ) {
                 SearchScreen(
                     SearchUiState(query = ""),
                     onQueryChange = { searched = it },
@@ -340,6 +348,7 @@ class SearchGenreNavigationTest {
                 android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
                 launchedIntent?.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL)
             )
+            assertEquals("pt-BR", launchedIntent?.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE))
             assertEquals("Blinding Lights", searched)
             assertEquals("Blinding Lights", remembered)
         }
@@ -383,5 +392,30 @@ class SearchGenreNavigationTest {
             assertEquals("song", submitted)
             assertEquals("song", emitted.last())
         }
+    }
+
+    @Test fun explicitClearDoesNotAllowAnOlderQueryEchoToRestoreText() {
+        var state by mutableStateOf(SearchUiState())
+        val emitted = mutableListOf<String>()
+        content {
+            SearchScreen(state, onQueryChange = { emitted += it }, onSelectGenre = {},
+                onTrackClick = { _, _ -> }, onToggleFavorite = {})
+        }
+        val input = compose.onNodeWithTag("search_query_input")
+        input.performClick().performTextInput("m")
+        compose.runOnIdle { state = state.copy(query = "m") }
+        input.performTextInput("o")
+        input.assertTextContains("mo")
+        compose.onNodeWithContentDescription("Clear").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf("m", "mo", ""), emitted)
+            state = state.copy(query = "mo")
+        }
+        input.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        compose.onNodeWithText("Explore Genres").assertIsDisplayed()
+        compose.runOnIdle { state = state.copy(query = "") }
+        input.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        compose.runOnIdle { state = state.copy(query = "new selection") }
+        input.assertTextContains("new selection")
     }
 }

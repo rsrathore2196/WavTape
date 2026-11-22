@@ -244,7 +244,8 @@ class PlaybackManager(
     private var playResolutionJob: Job? = null
     private var activeSearchPlayJob: Job? = null
     private var lastPlayRequestTimeMs: Long = 0L
-    private var lastRequestedTrackId: String? = null
+    private var lastRequestedQueueIdentity: String? = null
+    private var lastRequestedCollection: List<MusicTrack>? = null
     private var selectionGeneration = 0L
     private var selectionStartupTrace = 0L
     /** Read only on the player/application looper, alongside selection commands. */
@@ -480,7 +481,7 @@ class PlaybackManager(
             val restart = pendingPolicyRestart ?: return
             playResolutionJob?.cancel()
             pendingSelectionId = null
-            lastPlayRequestTimeMs = 0L
+            lastRequestedQueueIdentity = null
             restart()
             return
         }
@@ -1778,15 +1779,21 @@ class PlaybackManager(
             scope.launch { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName, artistRadioShuffle) }
             return
         }
-        val now = System.currentTimeMillis()
+        val now = android.os.SystemClock.elapsedRealtime()
+        val sinceLastRequest = now - lastPlayRequestTimeMs
         val currentTrack = _uiState.value.currentTrack
-        val isSameTrack = currentTrack?.queueIdentity == track.queueIdentity
-        val debounceSelection = !isInfiniteRadio && artistRadio == null && artistRadioName == null
+        val requestedIdentity = track.queueIdentity
+        val isSameTrack = currentTrack?.queueIdentity == requestedIdentity
+        // A different occurrence or queue is a new selection even if it starts on the audible recording.
+        val debounceSelection = sinceLastRequest < 450L && lastRequestedQueueIdentity == requestedIdentity &&
+            !isInfiniteRadio && artistRadio == null && artistRadioName == null &&
+            isExplicitPlaylist == isCurrentSessionExplicitPlaylist &&
+            (!isExplicitPlaylist || queue == lastRequestedCollection)
 
         // 1. Double-tap on currently playing track:
         // If already playing smoothly, do nothing; if paused, resume playback.
         // If in loading state, reset loading state safely.
-        if (isSameTrack && debounceSelection && _uiState.value.errorMessage == null && now - lastPlayRequestTimeMs < 450L) {
+        if (isSameTrack && debounceSelection && _uiState.value.errorMessage == null) {
             val player = controller
             // UI selection can precede replacement of the controller's previous media item.
             if (pendingSelectionId == track.id || playResolutionJob?.isActive == true || activeSearchPlayJob?.isActive == true) return
@@ -1805,12 +1812,13 @@ class PlaybackManager(
         }
 
         // 2. Debounce rapid spam clicks on the same track if already loading or processing (<250ms)
-        if (lastRequestedTrackId == track.id && debounceSelection && _uiState.value.errorMessage == null && now - lastPlayRequestTimeMs < 250L) {
+        if (debounceSelection && _uiState.value.errorMessage == null && sinceLastRequest < 250L) {
             return
         }
 
         lastPlayRequestTimeMs = now
-        lastRequestedTrackId = track.id
+        lastRequestedQueueIdentity = requestedIdentity
+        lastRequestedCollection = queue.takeIf { isExplicitPlaylist }
         youtubeQualityJob?.cancel()
         recoveryJob?.cancel()
         recoveryGuard.select(track.id, newRequest = true)

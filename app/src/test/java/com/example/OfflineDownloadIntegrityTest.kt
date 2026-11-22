@@ -8,6 +8,10 @@ import androidx.media3.common.Timeline
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.WorkManager
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.example.data.model.MusicTrack
 import com.example.downloads.*
 import kotlinx.coroutines.Dispatchers
@@ -136,6 +140,26 @@ class OfflineDownloadIntegrityTest {
             scope.cancel()
             cold.releaseCache(track.id)
         }
+    }
+
+    @Test fun coldPlaybackLookupsDoNotReconcileUnrelatedPendingTransfers() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        val pending = track("unrelated-pending")
+        val saved = record("playable-with-pending")
+        span(saved.id)
+        store.releaseCache(saved.id)
+        store.put(DownloadRecord(pending, status = DownloadStatus.QUEUED))
+
+        val restored = OfflineDownloads(context)
+        val work = WorkManager.getInstance(context)
+        val name = OfflineDownloads.workName(pending.id)
+        assertTrue(restored.localTrack(saved)?.audioUrl?.startsWith(OfflineDownloads.SCHEME) == true)
+        assertEquals(listOf(saved.id), restored.localQueue(listOf(pending, saved)).map { it.id })
+        assertTrue("Playback should never schedule an unrelated transfer", work.getWorkInfosForUniqueWork(name).get().isEmpty())
+
+        restored.load()
+        assertFalse("The download manager must still recover the pending transfer", work.getWorkInfosForUniqueWork(name).get().isEmpty())
     }
 
     @Test fun aDeletedOfflineQueueEntryFailsThroughMedia3SourcePreparation() = runBlocking {

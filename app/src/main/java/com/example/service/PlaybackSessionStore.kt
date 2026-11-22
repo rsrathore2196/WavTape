@@ -85,7 +85,11 @@ internal object PlaybackSessionStore {
     private var queueBytes: ByteArray? = null
     /** Called by the single checkpoint writer on the shared CPU lane. */
     internal fun encodedQueue(items: List<MediaItem>): ByteArray {
-        if (encodedItems === items || encodedItems == items) queueBytes?.let { return it }
+        // MediaMetadata equality ignores the values of extras. The encoding
+        // carries those values, including the artist-radio scope and entry IDs.
+        val previous = encodedItems
+        if (previous === items || previous != null && previous.size == items.size &&
+            items.indices.all { previous[it] === items[it] }) queueBytes?.let { return it }
         val queue = JSONArray()
         items.forEach { item ->
             val meta = item.mediaMetadata

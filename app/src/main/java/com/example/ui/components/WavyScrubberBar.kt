@@ -91,6 +91,8 @@ private class WaveformDrawCache(private val colors: List<Color>) {
     }
 }
 
+private enum class ScrubberGesture { Press, Drag }
+
 /**
  * Dynamic Wavy Scrubber Bar with Real-time Audio Visualizer Motion:
  * - Active progress renders as an animated traveling sine wave during playback.
@@ -108,7 +110,9 @@ fun WavyScrubberBar(
     isDark: Boolean,
     modifier: Modifier = Modifier,
     barColor: Color? = null,
-    inactiveBarColor: Color? = null
+    inactiveBarColor: Color? = null,
+    gestureKey: Any? = null,
+    onSeekCancelled: () -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
     val glassEnabled = LocalDynamicGlassEnabled.current
@@ -117,9 +121,11 @@ fun WavyScrubberBar(
     val seekStarted by rememberUpdatedState(onSeekStarted)
     val seekProgress by rememberUpdatedState(onSeekProgress)
     val seekFinished by rememberUpdatedState(onSeekFinished)
+    val seekCancelled by rememberUpdatedState(onSeekCancelled)
 
-    var isDragging by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableFloatStateOf(progress) }
+    var gesture by remember(gestureKey) { mutableStateOf<ScrubberGesture?>(null) }
+    var dragFraction by remember(gestureKey) { mutableFloatStateOf(progress) }
+    val isDragging = gesture != null
 
     val currentFraction = if (isDragging) dragFraction else progress.coerceIn(0f, 1f)
 
@@ -173,10 +179,10 @@ fun WavyScrubberBar(
         modifier = modifier
             .fillMaxWidth()
             .height(36.dp)
-            .pointerInput(edgeInset) {
+            .pointerInput(edgeInset, gestureKey) {
                 detectTapGestures(
                     onPress = { offset ->
-                        isDragging = true
+                        gesture = ScrubberGesture.Press
                         seekStarted()
                         val fraction = scrubberFractionAt(offset.x, size.width.toFloat(), edgeInset)
                         dragFraction = fraction
@@ -184,17 +190,19 @@ fun WavyScrubberBar(
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
                         val released = tryAwaitRelease()
-                        if (released) {
-                            seekFinished(dragFraction)
+                        // Losing the press to the drag detector is a handoff.
+                        // Only cancel the seek if neither detector owns it.
+                        if (gesture == ScrubberGesture.Press) {
+                            gesture = null
+                            if (released) seekFinished(dragFraction) else seekCancelled()
                         }
-                        isDragging = false
                     }
                 )
             }
-            .pointerInput(edgeInset) {
+            .pointerInput(edgeInset, gestureKey) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        isDragging = true
+                        gesture = ScrubberGesture.Drag
                         seekStarted()
                         val fraction = scrubberFractionAt(offset.x, size.width.toFloat(), edgeInset)
                         dragFraction = fraction
@@ -202,11 +210,12 @@ fun WavyScrubberBar(
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
                     onDragEnd = {
+                        gesture = null
                         seekFinished(dragFraction)
-                        isDragging = false
                     },
                     onDragCancel = {
-                        isDragging = false
+                        gesture = null
+                        seekCancelled()
                     },
                     onDrag = { change, _ ->
                         change.consume()

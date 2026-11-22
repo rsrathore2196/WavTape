@@ -47,8 +47,9 @@ class OfflineDownloads internal constructor(
     private val index = index ?: AtomicDownloadIndex { File(this.context.noBackupFilesDir, "offline_audio/index.json") }
     private val lock = Mutex()
     private val commands = Mutex()
+    private val reconciliation = Mutex()
     private var loaded = false
-    private var queueReconciliationStarted = false
+    private var queueReconciled = false
     private val root get() = File(context.noBackupFilesDir, "offline_audio").apply { mkdirs() }
     private val _records = MutableStateFlow<Map<String, DownloadRecord>>(emptyMap())
     val records = _records.asStateFlow()
@@ -105,17 +106,22 @@ class OfflineDownloads internal constructor(
     }
 
     suspend fun load() = withContext(Dispatchers.IO) {
-        val first = lock.withLock {
-            loadLocked()
-            val needsReconciliation = !queueReconciliationStarted
-            queueReconciliationStarted = true
-            needsReconciliation
+        loadLedger()
+        reconciliation.withLock {
+            if (!queueReconciled) {
+                reconcileQueue()
+                ensureActive()
+                queueReconciled = true
+            }
         }
-        if (first) reconcileQueue()
     }
+
+    private suspend fun loadLedger() = lock.withLock { loadLocked() }
+
     private suspend fun reconcileQueue() {
         for (record in records.value.values) {
             if (record.status !in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)) continue
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val work = WorkManager.getInstance(context).getWorkInfosForUniqueWork(workName(record.track.id)).get().firstOrNull()
             when (work?.state) {
                 androidx.work.WorkInfo.State.CANCELLED -> update(record.track.id) { it.copy(status = DownloadStatus.PAUSED) }
@@ -314,7 +320,7 @@ class OfflineDownloads internal constructor(
         }.setUpstreamDataSourceFactory(upstream).apply { if (upstream == null) setCacheWriteDataSinkFactory(null) }
 
     suspend fun localTrack(track: MusicTrack): MusicTrack? = withContext(Dispatchers.IO) {
-        load()
+        loadLedger()
         val saved = records.value[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE && it.plan != null } ?: return@withContext null
         // Check the cache on disk as well as the ledger. Clearing app data/files must never leave phantom downloads.
         if (!retainCache(track.id, saved)) return@withContext null
@@ -345,8 +351,9 @@ class OfflineDownloads internal constructor(
         return true
     }
     internal suspend fun localQueue(tracks: List<MusicTrack>): List<MusicTrack> = withContext(Dispatchers.IO) {
-        load()
-        tracks.mapNotNull { track -> records.value[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE }
+        loadLedger()
+        val snapshot = records.value
+        tracks.mapNotNull { track -> snapshot[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE }
             ?.let { asOfflineTrack(track, it) } }
     }
     private fun asOfflineTrack(track: MusicTrack, saved: DownloadRecord): MusicTrack =
@@ -359,7 +366,7 @@ class OfflineDownloads internal constructor(
         PolicyResolvingMediaSource(item, ::savedSource, scope) {
             // Audio preparation only needs the ledger. Worker reconciliation
             // stays with the Downloads entry points that manage transfers.
-            lock.withLock { loadLocked() }
+            loadLedger()
             it
         }
 

@@ -464,19 +464,22 @@ fun SearchScreen(
         onQueryChange(text)
     }
     val setExplicitQuery: (String) -> Unit = { text ->
-        pendingLocalQueries.clear()
         queryFieldValue = TextFieldValue(text = text, selection = TextRange(text.length))
-        if (text != searchState.query) {
-            pendingLocalQueries.addLast(text)
+        // Earlier edits can still arrive from the derived ViewModel state.
+        // Keep their acknowledgements so they cannot replace this selection.
+        if (text != searchState.query || pendingLocalQueries.isNotEmpty()) {
+            dispatchTypedQuery(text)
+        } else {
+            onQueryChange(text)
         }
-        onQueryChange(text)
     }
 
-    val hasQuery = queryFieldValue.text.isNotBlank() || searchState.query.isNotBlank()
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val hasQuery = queryFieldValue.text.isNotBlank()
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isGenreActive = searchState.selectedExploreCategory != null || !searchState.selectedGenre.equals("All", ignoreCase = true)
     val exploreVisibilityChanged by rememberUpdatedState(onExploreVisibilityChanged)
-    val localeKey = LocalConfiguration.current.locales.toLanguageTags()
+    val localeKey = configuration.locales.toLanguageTags()
     LaunchedEffect(isScreenActive, hasQuery, isGenreActive, localeKey) {
         exploreVisibilityChanged(isScreenActive && !hasQuery && !isGenreActive)
     }
@@ -501,7 +504,7 @@ fun SearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var searchFocused by remember { mutableStateOf(false) }
-    val explorePills = remember(searchState.exploreCategories, searchState.exploreIndexReady) {
+    val exploreRows = remember(searchState.exploreCategories) {
         // A pending restore is not an offline result. Publishing legacy pills
         // here first would replace/reflow the whole list when its index arrives.
         val raw = if (searchState.exploreCategories.isNotEmpty()) searchState.exploreCategories.map { it.title to it }
@@ -513,7 +516,7 @@ fun SearchScreen(
                 cleanTitle to (cat?.copy(title = cleanTitle) ?: cat)
             }
         }
-        orderExplorePills(cleaned)
+        orderExplorePills(cleaned).chunked(2)
     }
     var wasScreenActive by remember { mutableStateOf(isScreenActive) }
     LaunchedEffect(isScreenActive) {
@@ -587,7 +590,8 @@ fun SearchScreen(
         keyboardController?.hide()
         focusManager.clearFocus()
         try {
-            voiceSearchLauncher.launch(buildVoiceSearchIntent(voicePrompt))
+            val locale = configuration.locales[0] ?: Locale.getDefault()
+            voiceSearchLauncher.launch(buildVoiceSearchIntent(voicePrompt, locale))
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(context, voiceUnavailableText, Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {
@@ -710,34 +714,38 @@ fun SearchScreen(
                             val searchButtonShape = CircleShape
                             val isSearchActive = hasQuery
 
-                            val searchButtonBrush = if (!appColors.dynamicGlassEnabled) {
-                                Brush.verticalGradient(listOf(appColors.cardBackground, appColors.cardBackground))
-                            } else if (isSearchActive) {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        appColors.primaryAccent.copy(alpha = 0.32f),
-                                        appColors.primaryAccent.copy(alpha = 0.18f)
-                                    )
-                                )
-                            } else {
-                                LiquidGlass.miniPlayerAndBottomBarBrush(appColors)
-                            }
-
-                            val searchButtonBorder = BorderStroke(
-                                1.2.dp,
+                            val searchButtonBrush = remember(appColors, isSearchActive) {
                                 if (!appColors.dynamicGlassEnabled) {
-                                    Brush.verticalGradient(listOf(appColors.cardBorder, appColors.cardBorder))
+                                    Brush.verticalGradient(listOf(appColors.cardBackground, appColors.cardBackground))
                                 } else if (isSearchActive) {
                                     Brush.verticalGradient(
                                         listOf(
-                                            Color.White.copy(alpha = 0.40f),
-                                            appColors.primaryAccent.copy(alpha = 0.45f)
+                                            appColors.primaryAccent.copy(alpha = 0.32f),
+                                            appColors.primaryAccent.copy(alpha = 0.18f)
                                         )
                                     )
                                 } else {
-                                    LiquidGlass.specularBorderBrush(appColors, highlightAlpha = if (appColors.isDark) 0.38f else 0.45f)
+                                    LiquidGlass.miniPlayerAndBottomBarBrush(appColors)
                                 }
-                            )
+                            }
+
+                            val searchButtonBorder = remember(appColors, isSearchActive) {
+                                BorderStroke(
+                                    1.2.dp,
+                                    if (!appColors.dynamicGlassEnabled) {
+                                        Brush.verticalGradient(listOf(appColors.cardBorder, appColors.cardBorder))
+                                    } else if (isSearchActive) {
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.40f),
+                                                appColors.primaryAccent.copy(alpha = 0.45f)
+                                            )
+                                        )
+                                    } else {
+                                        LiquidGlass.specularBorderBrush(appColors, highlightAlpha = if (appColors.isDark) 0.38f else 0.45f)
+                                    }
+                                )
+                            }
 
                             Box(
                                 modifier = Modifier
@@ -896,7 +904,7 @@ fun SearchScreen(
                 )
             }
 
-            if (explorePills.isEmpty() && !searchState.exploreIndexReady) {
+            if (exploreRows.isEmpty() && !searchState.exploreIndexReady) {
                 items(3, key = { "search_genres_loading_$it" }, contentType = { "genre_grid_row" }) { index ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 5.dp)
                         .testTag("search_genres_loading_$index"), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -909,7 +917,7 @@ fun SearchScreen(
             }
 
             items(
-                items = explorePills.chunked(2),
+                items = exploreRows,
                 key = { row -> "genre_grid_row_${row.first().second?.key ?: row.first().first}" },
                 contentType = { "genre_grid_row" }
             ) { rowItems ->
@@ -1679,10 +1687,10 @@ private fun <T> orderExplorePills(items: List<Pair<String, T>>): List<Pair<Strin
     return sortedTop + middleItems + sortedBottom
 }
 
-internal fun buildVoiceSearchIntent(prompt: String): Intent =
+internal fun buildVoiceSearchIntent(prompt: String, locale: Locale): Intent =
     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
     }

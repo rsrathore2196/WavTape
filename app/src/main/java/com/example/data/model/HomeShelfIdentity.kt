@@ -52,7 +52,8 @@ internal object HomeShelfIdentity {
         val entries = entries(first)
         val ids = entries.mapTo(hashSetOf(), ::item)
         val added = entries(next).filter { ids.add(item(it)) }
-        val merged = first.copy(tracks = first.tracks + added.filterIsInstance<ServerHomeItem.Song>().map { it.track },
+        val merged = first.copy(subtitle = first.subtitle.ifBlank { next.subtitle },
+            tracks = first.tracks + added.filterIsInstance<ServerHomeItem.Song>().map { it.track },
             items = if (first.items.isEmpty() && next.items.isEmpty()) emptyList() else entries + added,
             providerId = first.providerId.ifBlank { next.providerId },
             browseId = first.browseId.ifBlank { next.browseId },

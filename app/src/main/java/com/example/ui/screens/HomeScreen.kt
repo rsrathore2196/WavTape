@@ -321,8 +321,7 @@ fun HomeScreenContent(
         ?: remember(serverShelves) { serverShelves.map { HomeShelfPresentation("server_shelf_${it.id}", it, ShelfLoadStatus.SUCCESS) } }
     val artworkActive = LocalArtworkRequestsActive.current
     val heroPrefetchContext = androidx.compose.ui.platform.LocalContext.current
-    val observedHeroSeed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
-    val effectiveHeroSeed = currentTrack ?: observedHeroSeed
+    val effectiveHeroSeed = currentTrack ?: homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
     LaunchedEffect(effectiveHeroSeed?.id, effectiveHeroSeed?.coverUrl, artworkActive, landscape) {
         if (artworkActive && effectiveHeroSeed != null) {
             val heroSize = com.example.ui.util.defaultHeroArtworkSize(heroPrefetchContext, landscape)
@@ -426,18 +425,17 @@ fun HomeScreenContent(
             // Always visible even when user has no listening history.
             // =========================================================================
             artworkItem(state = listState, key = "hero_infinite_radio_card", contentType = "hero", defaultVisible = true) {
-                val seed = homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
                 if (landscape) {
                     val history = if (hasRecent) homeViewModel?.listeningHistoryCard?.collectAsStateWithLifecycle()?.value else null
                     LandscapeHomeOverview(
-                        seed = currentTrack ?: seed, currentPlayingId = currentPlayingId, isPlaying = isPlaying,
+                        seed = effectiveHeroSeed, currentPlayingId = currentPlayingId, isPlaying = isPlaying,
                         isLoading = isRadioLoading, isRadioSession = isRadioSession,
                         recentTracks = if (hasRecent) (history?.tracks ?: pillsCardTracks)
                             .take(6) else emptyList(),
                         onPlayRadio = { onPlayInfiniteRadio?.invoke(it) }, onTrackClick = onTrackClick)
                 } else {
                 InfiniteRadioHeroCard(
-                    seedTrack = currentTrack ?: seed,
+                    seedTrack = effectiveHeroSeed,
                     currentPlayingTrackId = currentPlayingId,
                     isPlaying = isPlaying,
                     isLoading = isRadioLoading,
@@ -592,14 +590,17 @@ fun HomeScreenContent(
                             val section = remember(card) { SectionState(title = shelf?.title.orEmpty(), subtitle = shelf?.subtitle.orEmpty(),
                                 tracks = shelf?.tracks.orEmpty(), isLoaded = card.status == ShelfLoadStatus.SUCCESS,
                                 isLoading = card.status == ShelfLoadStatus.LOADING) }
+                            val resolveSongCovers = remember(shelf) { shelf?.requiresSongArtwork() == true }
                             SectionCardLayout(state = section, tracksPrepared = true,
                                 currentPlayingId = currentPlayingId, cardBg = cardBg, cardBorderColor = cardBorderColor,
                                 textPrimaryColor = textPrimaryColor, textMutedColor = textMutedColor, onTrackClick = onTrackClick,
                                 onShuffleQuickPicks = onShuffleQuickPicks,
                                 shelfItems = shelf?.items.orEmpty(), onOpenCatalog = onOpenCatalog,
                                 nativeKind = remember(shelf) { shelf?.nativeKind() ?: NativeShelfKind.STANDARD },
-                                resolveSongCovers = shelf?.requiresSongArtwork() == true,
-                                artworkContext = remember(userProfile, shelf) { com.example.data.remote.songArtworkContext() })
+                                resolveSongCovers = resolveSongCovers,
+                                artworkContext = if (resolveSongCovers) remember(userProfile, shelf) {
+                                    com.example.data.remote.songArtworkContext()
+                                } else "")
                         }
                         ShelfLoadStatus.EMPTY, ShelfLoadStatus.ERROR -> Unit
                     }
@@ -1135,6 +1136,8 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
     val appColors = LocalAppColors.current
     val artworkWidth = if (landscapeCard) 224.dp else 163.2.dp
     val artworkHeight = if (landscapeCard) 126.dp else 163.2.dp
+    val displayTitle = localizedCatalogText(title)
+    val displayArtworkDescription = if (artworkDescription == title) displayTitle else localizedCatalogText(artworkDescription)
 
     Column(
         modifier = modifier
@@ -1157,7 +1160,7 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
         ) {
             AsyncImage(
                 model = artwork,
-                contentDescription = artworkDescription,
+                contentDescription = displayArtworkDescription,
                 contentScale = artworkContentScale,
                 modifier = Modifier.fillMaxSize()
             )
@@ -1177,13 +1180,13 @@ internal fun ShelfContentCard(title: String, subtitle: String, artwork: coil.req
                     )
                 }
             }
-            if (playTarget != null) CollectionTargetPlayButton(title, playTarget, Modifier.align(Alignment.BottomEnd))
+            if (playTarget != null) CollectionTargetPlayButton(displayTitle, playTarget, Modifier.align(Alignment.BottomEnd))
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = localizedCatalogText(title),
+            text = displayTitle,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = if (isPlaying) appColors.primaryAccent else textPrimaryColor,

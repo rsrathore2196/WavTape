@@ -124,13 +124,30 @@ object TrackMetadataResolver {
         return cleaned.takeIf { it.isNotBlank() }
     }
 
+    private val creditSeparators = Regex("\\s*(?:,|&|\\bfeat\\.?\\b|\\bft\\.?\\b|\\bfeaturing\\b|;|\\|)\\s*",
+        RegexOption.IGNORE_CASE)
+
     internal fun splitNames(raw: String?): List<String> {
         val cleaned = CatalogNames.clean(raw.orEmpty()).trim()
         if (cleaned.isBlank()) return emptyList()
-        return cleaned.split(Regex("\\s*(?:,|&|\\bfeat\\.?\\b|\\bft\\.?\\b|\\bfeaturing\\b|;|\\|)\\s*", RegexOption.IGNORE_CASE))
+        return cleaned.split(creditSeparators)
             .map { it.trim() }
             .filter { it.isNotBlank() && CatalogNames.normalize(it) !in placeholderArtists }
             .distinctBy { CatalogNames.normalize(it) }
+    }
+
+    private fun performers(track: MusicTrack): List<String> {
+        val primary = track.primaryArtists.map(CatalogNames::clean)
+            .filter { CatalogNames.normalize(it) !in placeholderArtists }
+        if (primary.isEmpty()) return splitNames(track.singers).ifEmpty { splitNames(track.artist) }
+        // The flat singer label can repeat a whole structured entity. Remove
+        // those repetitions before legacy splitting so band names stay intact.
+        val extras = primary.sortedByDescending(String::length).fold(CatalogNames.clean(track.singers)) { label, name ->
+            val wholeCredit = Regex("""(?:^|(?<=[,;|]))\s*${Regex.escape(name)}\s*(?=$|[,;|])""",
+                RegexOption.IGNORE_CASE)
+            wholeCredit.replace(label, "")
+        }
+        return (primary + splitNames(extras)).distinctBy(CatalogNames::normalize)
     }
 
     private val googleWidthPattern = Regex("(?:=|-)w(\\d+)")
@@ -201,13 +218,7 @@ object TrackMetadataResolver {
                 hasVerifiedSquareCover = upgradedVerified
             )
         }
-        val artistNames = when {
-            track.singers.isNotBlank() -> splitNames(track.singers)
-            track.primaryArtists.isNotEmpty() -> track.primaryArtists.flatMap(::splitNames)
-            else -> splitNames(track.artist)
-        }.ifEmpty { splitNames(track.artist) }
-            .distinctBy { CatalogNames.normalize(it) }
-        val artists = artistNames.map { CatalogArtist(id = "", name = it) }
+        val artists = performers(track).map { CatalogArtist(id = "", name = it) }
         val initialCover = instantSquare ?: track.coverUrl
         val albumTitle = sanitizeAlbumName(track.album, sourcePlaylistTitle)
         val album = albumTitle?.let {
@@ -629,10 +640,7 @@ object TrackMetadataResolver {
                     text.matches(Regex("(?:19|20)[0-9]{2}")) -> year = text
                 }
             }
-            val counterpartSquare = YouTubePlayerArtworkResolver.counterpartCover(root, videoId, track)
-            val panelSquare = YouTubeExploreParser.thumbnail(panel, squareOnly = true)
-                .takeIf { it.isNotBlank() && !isVideoThumbnailUrl(it) }
-            val squareCover = counterpartSquare ?: panelSquare
+            val squareCover = YouTubePlayerArtworkResolver.counterpartCover(root, videoId, track)
             val thumb = squareCover
                 ?: YouTubeExploreParser.thumbnail(panel).ifBlank { track.coverUrl }
             val album = albumName?.let {

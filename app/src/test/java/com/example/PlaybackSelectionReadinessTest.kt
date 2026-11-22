@@ -24,6 +24,50 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31, 34], application = Application::class)
 class PlaybackSelectionReadinessTest {
+    @Test fun aNewExplicitQueueIsNotDebouncedWhenItStartsOnTheSameRecording() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val manager = PlaybackManager(ApplicationProvider.getApplicationContext<Application>())
+        val selected = MusicTrack("first", "First", "Artist", "Album", 180_000, "", "https://audio.example/first.m4a")
+        val second = selected.copy(id = "second", title = "Second")
+        val third = selected.copy(id = "third", title = "Third")
+        try {
+            manager.playTrack(selected, listOf(selected, second, third))
+            val discovery = manager.currentSelectionRevision
+            assertTrue(discovery > 0)
+
+            val shuffled = listOf(selected, third, second)
+            manager.playTrack(selected, shuffled, isExplicitPlaylist = true)
+            val firstShuffle = manager.currentSelectionRevision
+            assertTrue("A shuffle starting with the current song must still select the shelf queue", firstShuffle > discovery)
+
+            manager.playTrack(selected, shuffled.toList(), isExplicitPlaylist = true)
+            assertEquals("An identical request should still be debounced", firstShuffle, manager.currentSelectionRevision)
+
+            manager.playTrack(selected, listOf(selected, second, third), isExplicitPlaylist = true)
+            assertTrue("A new shuffle order supersedes the first one", manager.currentSelectionRevision > firstShuffle)
+        } finally {
+            manager.release()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun distinctPlaylistOccurrencesOfTheSameRecordingRespondToRapidSelection() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val manager = PlaybackManager(ApplicationProvider.getApplicationContext<Application>())
+        val first = MusicTrack("same", "Same", "Artist", "Album", 180_000, "", "https://audio.example/same.m4a",
+            playlistEntryId = 1)
+        val second = first.copy(playlistEntryId = 2)
+        val entries = listOf(first, second)
+        try {
+            manager.playTrack(first, entries, isExplicitPlaylist = true)
+            manager.playTrack(second, entries, isExplicitPlaylist = true)
+            assertEquals(second, manager.uiState.value.currentTrack)
+        } finally {
+            manager.release()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun selectingATrackReleasesAControllerAlreadyWaitingForPassiveRestoration() = runTest {
         // Leave the disk-restore job queued, as it would be while background CPU
         // admission is parked for a gesture or foreground playback resolution.

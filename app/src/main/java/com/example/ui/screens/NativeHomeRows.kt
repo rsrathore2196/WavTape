@@ -34,6 +34,7 @@ import com.example.data.model.MusicTrack
 import com.example.data.model.ServerHomeItem
 import com.example.data.repository.CatalogNames
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.util.localizedCatalogText
 import com.example.ui.util.rememberOptimizedImageRequest
 
 /** Decode provider text without removing versions, credits or release qualifiers. */
@@ -83,7 +84,7 @@ internal fun NativeMusicVideoRow(items: List<ServerHomeItem.Song>, queue: List<M
         horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.testTag("native_music_video_row")) {
         items(items, key = { it.key }, contentType = { "native_music_video" }) { item ->
             val selected = item.track.id == playing
-            val title = homeTrackTitle(item.track)
+            val title = localizedCatalogText(homeTrackTitle(item.track))
             VisibleItemArtwork(state, item.key) {
                 Column(Modifier.width(224.dp).clickable { play(item.track, queue) }) {
                     Box(Modifier.size(224.dp, 126.dp).testTag("native_video_art_${item.track.id}").clip(RoundedCornerShape(14.dp)).background(background)
@@ -100,7 +101,8 @@ internal fun NativeMusicVideoRow(items: List<ServerHomeItem.Song>, queue: List<M
                     Text(title, color = if (selected) accent else foreground, fontSize = 13.sp,
                         fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(2.dp))
-                    Text(item.track.artist, color = muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(localizedCatalogText(item.track.artist), color = muted, fontSize = 11.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

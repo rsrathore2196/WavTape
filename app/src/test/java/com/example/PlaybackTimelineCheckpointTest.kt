@@ -13,6 +13,7 @@ import com.example.service.PlaybackSessionStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -127,5 +128,20 @@ class PlaybackTimelineCheckpointTest {
         val restored = requireNotNull(PlaybackSessionStore.restore(context))
         assertEquals("Selected Artist", restored.items[0].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
         assertNull(restored.items[1].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
+    }
+
+    @Test fun queueEncodingTracksArtistRadioChangesForTheSameMediaItem() {
+        val seed = item("same-seed")
+        val ordinary = seed.buildUpon().setMediaMetadata(seed.mediaMetadata.buildUpon()
+            .setExtras(Bundle()).build()).build()
+        val station = seed.buildUpon().setMediaMetadata(seed.mediaMetadata.buildUpon()
+            .setExtras(Bundle().apply { putString(ARTIST_RADIO_EXTRA, "Selected Artist") }).build()).build()
+        // The position writer must not equate the two queues just because Media3 does.
+        assertEquals(ordinary, station)
+        fun storedEntry(item: MediaItem) = JSONArray(PlaybackSessionStore.encodedQueue(listOf(item))
+            .toString(Charsets.UTF_8)).getJSONObject(0)
+        assertFalse(storedEntry(ordinary).has("artistRadio"))
+        assertEquals("Selected Artist", storedEntry(station).getString("artistRadio"))
+        assertFalse(storedEntry(ordinary).has("artistRadio"))
     }
 }

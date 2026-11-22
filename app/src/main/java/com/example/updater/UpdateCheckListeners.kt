@@ -5,14 +5,21 @@ internal class UpdateCheckListeners {
     private val lock = Any()
     private val pending = mutableListOf<(UpdateStatus) -> Unit>()
     private var result: UpdateStatus? = null
+    private var manualErrorNotice = false
 
-    fun add(listener: ((UpdateStatus) -> Unit)?) {
-        if (listener == null) return
+    fun add(isManual: Boolean = false, listener: ((UpdateStatus) -> Unit)?) {
         val completed = synchronized(lock) {
-            result.also { if (it == null) pending.add(listener) }
+            result.also {
+                if (it == null) {
+                    if (listener != null) pending.add(listener)
+                    else if (isManual) manualErrorNotice = true
+                }
+            }
         }
-        if (completed != null) deliver(listener, completed)
+        if (listener != null && completed != null) deliver(listener, completed)
     }
+
+    fun needsManualErrorNotice(): Boolean = synchronized(lock) { manualErrorNotice }
 
     fun complete(status: UpdateStatus) {
         val listeners = synchronized(lock) {

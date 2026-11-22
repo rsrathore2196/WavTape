@@ -4,6 +4,7 @@ import android.app.Application
 import com.example.data.model.MusicTrack
 import com.example.data.repository.CatalogArtist
 import com.example.data.repository.TrackMetadataResolver
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -28,5 +29,15 @@ class TrackMetadataRecordingTest {
     @Test fun guessesWithoutArtistOrDurationCannotSupplyMetadata() {
         val unknown = recording.copy(artist = "Unknown", durationMs = 0)
         assertNull(TrackMetadataResolver.metadataMatchScore(unknown, emptyList(), recording))
+    }
+
+    @Test fun initialCreditsPreserveWholeArtistEntitiesAndRetainOtherSingers() {
+        val track = recording.copy(primaryArtists = listOf("Earth, Wind & Fire"),
+            artist = "Earth, Wind & Fire, Guest Singer",
+            singers = "Earth, Wind & Fire, Guest Singer")
+        assertEquals(listOf("Earth, Wind & Fire", "Guest Singer"),
+            TrackMetadataResolver.initial(track).artists.map { it.name })
+        assertEquals(listOf("Earth, Wind & Fire"),
+            TrackMetadataResolver.initial(track.copy(singers = "")).artists.map { it.name })
     }
 }

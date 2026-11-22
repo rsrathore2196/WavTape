@@ -1,10 +1,12 @@
 package com.example
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.test.core.app.ApplicationProvider
 import com.example.ui.components.LocalDynamicGlassEnabled
 import com.example.ui.components.UpdateNotificationBar
 import com.example.ui.components.formatUpdateBytes
@@ -12,9 +14,13 @@ import com.example.ui.components.parseUpdateChangelog
 import com.example.ui.theme.DarkAppColors
 import com.example.ui.theme.LocalAppColors
 import com.example.updater.AppUpdateManager
+import com.example.updater.UpdateDownloadRequest
 import com.example.updater.UpdateInfo
 import com.example.updater.UpdateStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -22,6 +28,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONArray
 import org.json.JSONObject
+import org.xmlpull.v1.XmlPullParser
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -235,7 +242,7 @@ class AppUpdaterTest {
                         input = java.io.ByteArrayInputStream(payload.copyOf(1024)),
                         targetFile = target,
                         expectedSizeBytes = payload.size.toLong(),
-                        reportedTotalBytes = payload.size.toLong(),
+                        reportedTotalBytes = -1L,
                         onProgress = { _, _, _ -> }
                     )
                 }
@@ -253,9 +260,62 @@ class AppUpdaterTest {
                     )
                 }
             }
+            assertEquals(0L, target.length())
         } finally {
             target.delete()
         }
+    }
+
+    @Test fun cancellingAnUpdateCannotLeaveItsRetryOrLateRedirectInTheWrongState() {
+        val client = OkHttpClient()
+        val request = Request.Builder().url("https://github.com/rsrathore2196/WavTape/releases/download/v2.2/WavTape.apk").build()
+        val firstCall = client.newCall(request)
+        val first = UpdateDownloadRequest()
+        first.attach(firstCall)
+        first.cancel()
+        assertTrue(firstCall.isCanceled())
+
+        val retryCall = client.newCall(request)
+        val retry = UpdateDownloadRequest()
+        retry.attach(retryCall)
+        assertThrows(CancellationException::class.java) {
+            first.attach(client.newCall(request))
+        }
+        first.cancel()
+        assertFalse(retryCall.isCanceled())
+
+        retry.cancel()
+        assertTrue(retryCall.isCanceled())
+    }
+
+    @Test fun updaterFilesCannotConsumeCloudBackupQuotaOrRestoreAnOldInstallRequest() {
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        fun exclusions(resource: Int) = resources.getXml(resource).use { parser ->
+            buildSet {
+                val sections = mutableListOf<String>()
+                var event = parser.next()
+                while (event != XmlPullParser.END_DOCUMENT) {
+                    if (event == XmlPullParser.START_TAG) {
+                        if (parser.name == "exclude") {
+                            add(Triple(sections.last(), parser.getAttributeValue(null, "domain"),
+                                parser.getAttributeValue(null, "path")))
+                        }
+                        sections.add(parser.name)
+                    } else if (event == XmlPullParser.END_TAG) {
+                        sections.removeAt(sections.lastIndex)
+                    }
+                    event = parser.next()
+                }
+            }
+        }
+        fun assertExcluded(entries: Set<Triple<String, String, String>>, section: String) {
+            assertTrue(entries.contains(Triple(section, "file", "update_apks/")))
+            assertTrue(entries.contains(Triple(section, "sharedpref", "apk_update_session_v2.xml")))
+        }
+        assertExcluded(exclusions(R.xml.backup_rules), "full-backup-content")
+        val modern = exclusions(R.xml.data_extraction_rules)
+        assertExcluded(modern, "cloud-backup")
+        assertExcluded(modern, "device-transfer")
     }
 
     @Test fun validAssetRejectsPathTraversalAndAcceptsCaseInsensitiveRepoPath() {

@@ -64,6 +64,26 @@ sealed class UpdateStatus {
     ) : UpdateStatus()
 }
 
+/** The lifetime of a single transfer, including redirects. */
+internal class UpdateDownloadRequest {
+    private var call: Call? = null
+    private var cancelled = false
+
+    @Synchronized
+    fun attach(next: Call) {
+        if (cancelled) throw CancellationException("Update download cancelled.")
+        call = next
+    }
+
+    fun cancel() {
+        val activeCall = synchronized(this) {
+            cancelled = true
+            call.also { call = null }
+        }
+        activeCall?.cancel()
+    }
+}
+
 object AppUpdateManager {
     private const val LATEST = "https://api.github.com/repos/rsrathore2196/WavTape/releases/latest"
     private const val LEGACY_LATEST = "https://api.github.com/repos/rsrathore2196/Xtreme-Player/releases/latest"
@@ -105,7 +125,7 @@ object AppUpdateManager {
     private var initialized = false
     private var foreground = false
     private var downloadJob: Job? = null
-    @Volatile private var activeDownloadCall: Call? = null
+    private var downloadRequest: UpdateDownloadRequest? = null
     private var checking: Job? = null
     private var checkListeners = UpdateCheckListeners()
     @Volatile private var manualCheckRequested = false
@@ -241,8 +261,8 @@ object AppUpdateManager {
                 try {
                     restore(app)
                     if (session != null) {
-                        inspectReadySession(app)
-                        resumeInstall(app, fromResume = true)
+                        val verificationMessage = inspectReadySession(app)
+                        resumeInstall(app, fromResume = true, verificationMessage = verificationMessage)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -263,11 +283,11 @@ object AppUpdateManager {
                 manualCheckRequested = true
                 com.example.performance.BackgroundWorkCoordinator.admissionChanged()
             }
-            checkListeners.add(onResult)
+            checkListeners.add(isManual, onResult)
             return
         }
         manualCheckRequested = isManual
-        val listeners = UpdateCheckListeners().also { it.add(onResult); checkListeners = it }
+        val listeners = UpdateCheckListeners().also { it.add(isManual, onResult); checkListeners = it }
         val app = context.applicationContext
         checking = scope.launch {
             try {
@@ -326,7 +346,7 @@ object AppUpdateManager {
             } catch (e: Exception) {
                 val error = UpdateStatus.Error(
                     message = e.message ?: "Could not check for updates.",
-                    showNotice = manualCheckRequested && onResult == null
+                    showNotice = listeners.needsManualErrorNotice()
                 )
                 _updateStatus.value = error
                 listeners.complete(error)
@@ -364,7 +384,7 @@ object AppUpdateManager {
         }
 
     private fun fetchValidatedText(url: String, maxBytes: Long): String {
-        openValidatedDownloadResponse(url, trackActiveCall = false).use { response ->
+        openValidatedDownloadResponse(url).use { response ->
             val body = response.body ?: throw IOException("Empty release checksum file.")
             val buffer = okio.Buffer()
             var total = 0L
@@ -525,12 +545,12 @@ object AppUpdateManager {
                     }
                     val existing = session
                     if (existing != null && existing.ready && existing.info == updateInfo) {
-                        inspectReadySession(app)
+                        val verificationMessage = inspectReadySession(app)
                         if (session?.ready == true) {
                             session = session?.copy(installRequested = true)
                             persist(app, session)
                             _isDismissedForSession.value = false
-                            resumeInstall(app)
+                            resumeInstall(app, verificationMessage = verificationMessage)
                             return@withLock
                         }
                     } else if (existing != null) {
@@ -557,6 +577,15 @@ object AppUpdateManager {
                         installRequested = true,
                         waitingPermission = false
                     )
+                    // Stage and clean up under the operation lock before a worker
+                    // is launched. Only this session's files are touched afterward.
+                    withContext(Dispatchers.IO) {
+                        val dir = updatesDir(app)
+                        check(dir.mkdirs() || dir.isDirectory) { "Update storage is unavailable." }
+                        dir.listFiles()?.forEach { existing ->
+                            if (existing.name.startsWith("xtreme-update-")) runCatching { existing.delete() }
+                        }
+                    }
                     session = newSession
                     persist(app, newSession)
                     _downloadProgress.value = 0
@@ -569,8 +598,10 @@ object AppUpdateManager {
                         totalBytes = updateInfo.apkSizeBytes
                     )
 
+                    val request = UpdateDownloadRequest()
+                    downloadRequest = request
                     downloadJob = scope.launch {
-                        runStreamingDownload(app, newSession)
+                        runStreamingDownload(app, newSession, request)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -607,27 +638,17 @@ object AppUpdateManager {
             }
         }
 
-    private suspend fun runStreamingDownload(app: Context, activeSession: Session) {
+    private suspend fun runStreamingDownload(app: Context, activeSession: Session, request: UpdateDownloadRequest) {
         val info = activeSession.info
         try {
             val message = withContext(Dispatchers.IO) {
-                val dir = updatesDir(app)
-                check(dir.mkdirs() || dir.isDirectory) { "Update storage is unavailable." }
-                // Remove stale update APKs or partial downloads before starting.
-                dir.listFiles()?.forEach { existing ->
-                    currentCoroutineContext().ensureActive()
-                    if (existing.name.startsWith("xtreme-update-")) {
-                        runCatching { existing.delete() }
-                    }
-                }
-
                 val tempFile = partFile(app, activeSession)
                 val finalFile = staged(app, activeSession)
 
                 val currentJob = currentCoroutineContext()[Job]
                 openValidatedDownloadResponse(
                     initialUrl = info.apkDownloadUrl,
-                    trackActiveCall = true,
+                    downloadRequest = request,
                     ensureNotCancelled = { currentJob?.ensureActive() }
                 ).use { response ->
                     val body = response.body ?: throw IOException("Empty APK download response.")
@@ -687,10 +708,11 @@ object AppUpdateManager {
                 session = completed
                 persist(app, completed)
                 downloadJob = null
+                downloadRequest = null
                 _downloadProgress.value = 100
                 _isDismissedForSession.value = false
                 _updateStatus.value = UpdateStatus.ReadyToInstall(staged(app, completed), info, message)
-                resumeInstall(app)
+                resumeInstall(app, verificationMessage = message)
             }
         } catch (e: CancellationException) {
             withContext(Dispatchers.IO + NonCancellable) {
@@ -726,8 +748,6 @@ object AppUpdateManager {
                     fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
                 }
             }
-        } finally {
-            activeDownloadCall = null
         }
     }
 
@@ -750,12 +770,11 @@ object AppUpdateManager {
                     val read = stream.read(buffer)
                     currentCoroutineContext().ensureActive()
                     if (read < 0) break
-                    output.write(buffer, 0, read)
-                    downloaded += read
-
-                    if (expectedSizeBytes > 0L && downloaded > expectedSizeBytes) {
+                    if (expectedSizeBytes > 0L && read > expectedSizeBytes - downloaded) {
                         throw IOException("The APK download exceeded the expected release size.")
                     }
+                    output.write(buffer, 0, read)
+                    downloaded += read
 
                     val percent = if (reportedTotalBytes > 0L) {
                         ((downloaded.toDouble() / reportedTotalBytes) * 100.0).toInt().coerceIn(0, 99)
@@ -777,7 +796,8 @@ object AppUpdateManager {
             }
         }
 
-        require(downloaded > 0L && (reportedTotalBytes <= 0L || downloaded == reportedTotalBytes)) {
+        require(downloaded > 0L && (expectedSizeBytes <= 0L || downloaded == expectedSizeBytes) &&
+            (reportedTotalBytes <= 0L || downloaded == reportedTotalBytes)) {
             "The APK download was interrupted before completing."
         }
         return downloaded
@@ -785,7 +805,7 @@ object AppUpdateManager {
 
     private fun openValidatedDownloadResponse(
         initialUrl: String,
-        trackActiveCall: Boolean = true,
+        downloadRequest: UpdateDownloadRequest? = null,
         ensureNotCancelled: () -> Unit = {}
     ): Response {
         var currentUrl = initialUrl
@@ -801,18 +821,12 @@ object AppUpdateManager {
                     .header("Accept-Encoding", "identity")
                     .build()
             )
-            if (trackActiveCall) activeDownloadCall = call
-            val response = try {
-                call.execute()
-            } catch (e: IOException) {
-                if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
-                throw e
-            }
+            downloadRequest?.attach(call)
+            val response = call.execute()
 
             if (response.code in listOf(301, 302, 303, 307, 308)) {
                 val location = response.header("Location")
                 response.close()
-                if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
                 if (location.isNullOrBlank()) {
                     throw IOException("Update server returned an empty redirect.")
                 }
@@ -824,7 +838,6 @@ object AppUpdateManager {
                 if (!response.isSuccessful) {
                     val code = response.code
                     response.close()
-                    if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
                     throw IOException(
                         when (code) {
                             403, 429 -> "Download server rate limit reached. Please try again later."
@@ -839,44 +852,45 @@ object AppUpdateManager {
         throw IOException("Too many redirects while downloading update.")
     }
 
-    private suspend fun inspectReadySession(app: Context) {
-        val s = session ?: return
+    private suspend fun inspectReadySession(app: Context): String? {
+        val s = session ?: return null
         if (!s.ready) {
             if (downloadJob?.isActive != true) {
                 clear(app)
             }
-            return
+            return null
         }
         if (System.currentTimeMillis() - s.created > MAX_AGE) {
             clear(app)
             _updateStatus.value = UpdateStatus.Idle
-            return
+            return null
         }
         val file = staged(app, s)
-        if (!file.isFile) {
+        if (!withContext(Dispatchers.IO) { file.isFile }) {
             clear(app)
             _updateStatus.value = UpdateStatus.Idle
-            return
+            return null
         }
         if (_updateStatus.value !is UpdateStatus.ReadyToInstall) {
             try {
                 val message = withContext(Dispatchers.IO) { ApkVerifier.verify(app, file, s.info) }
                 _downloadProgress.value = 100
                 _updateStatus.value = UpdateStatus.ReadyToInstall(file, s.info, message)
+                return message
             } catch (_: ObsoleteApk) {
                 clear(app)
                 _downloadProgress.value = 0
                 _updateStatus.value = UpdateStatus.UpToDate(BuildConfig.VERSION_NAME)
             }
         }
+        return null
     }
 
     private suspend fun clear(app: Context) {
         val old = session
         session = null
-        val activeCall = activeDownloadCall
-        activeDownloadCall = null
-        activeCall?.cancel()
+        downloadRequest?.cancel()
+        downloadRequest = null
         val job = downloadJob
         downloadJob = null
         if (job != null && job != currentCoroutineContext()[Job]) {
@@ -936,13 +950,13 @@ object AppUpdateManager {
         }
     }
 
-    private suspend fun resumeInstall(app: Context, fromResume: Boolean = false) {
+    private suspend fun resumeInstall(app: Context, fromResume: Boolean = false, verificationMessage: String? = null) {
         var s = session ?: return
         if (!foreground || !s.ready || !s.installRequested) return
         if (s.waitingPermission && !fromResume) return
         val file = staged(app, s)
         val message = try {
-            withContext(Dispatchers.IO) { ApkVerifier.verify(app, file, s.info) }
+            verificationMessage ?: withContext(Dispatchers.IO) { ApkVerifier.verify(app, file, s.info) }
         } catch (_: ObsoleteApk) {
             clear(app)
             _downloadProgress.value = 0

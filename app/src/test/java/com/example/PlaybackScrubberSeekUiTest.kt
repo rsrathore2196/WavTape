@@ -92,4 +92,44 @@ class PlaybackScrubberSeekUiTest {
             assertEquals("second", moved.last())
         }
     }
+
+    @Test fun cancellingEitherAPressOrADragDiscardsThePreviewWithoutSeeking() {
+        var cancelled = 0
+        val seeks = mutableListOf<Float>()
+        compose.setContent { MaterialTheme {
+            WavyScrubberBar(0f, false, {}, {}, seeks::add, isDark = true,
+                modifier = Modifier.width(300.dp), onSeekCancelled = { cancelled++ })
+        } }
+        val scrubber = compose.onNodeWithTag("wavy_scrubber_bar")
+        scrubber.performTouchInput { down(center); cancel() }
+        compose.runOnIdle { assertEquals(1, cancelled) }
+        scrubber.performTouchInput {
+            down(center)
+            moveBy(Offset(50f, 0f))
+            cancel()
+        }
+        compose.runOnIdle {
+            assertEquals(2, cancelled)
+            assertTrue(seeks.isEmpty())
+        }
+    }
+
+    @Test fun releasingAnOldDragCannotSeekTheNextTrack() {
+        var track by mutableStateOf("first")
+        val seeks = mutableListOf<String>()
+        compose.setContent { MaterialTheme {
+            val currentTrack = track
+            WavyScrubberBar(0f, false, {}, {}, { seeks += currentTrack }, isDark = true,
+                modifier = Modifier.width(300.dp), gestureKey = currentTrack)
+        } }
+        val scrubber = compose.onNodeWithTag("wavy_scrubber_bar")
+        scrubber.performTouchInput { down(center); moveBy(Offset(50f, 0f)) }
+        compose.runOnIdle { track = "second" }
+        compose.waitForIdle()
+        scrubber.performTouchInput { up() }
+        compose.runOnIdle { assertTrue(seeks.isEmpty()) }
+
+        scrubber.performTouchInput { click(center) }
+        compose.runOnIdle { assertEquals(listOf("second"), seeks) }
+    }
 }

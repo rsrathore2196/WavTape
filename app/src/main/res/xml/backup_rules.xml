@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="account_connections_secure.xml" />
+    <exclude domain="sharedpref" path="apk_update_session_v2.xml" />
+    <exclude domain="file" path="update_apks/" />
     <exclude domain="root" path="app_webview/" />
 </full-backup-content>
