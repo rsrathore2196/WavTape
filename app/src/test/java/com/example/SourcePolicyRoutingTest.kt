@@ -6,6 +6,9 @@ import com.example.data.repository.StreamResolver
 import com.example.data.repository.TrackUnavailableException
 import com.example.playback.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -78,6 +81,52 @@ class SourcePolicyRoutingTest {
         resolveYouTube = { request, _, _, _ -> youtube?.copy(id = request.id) },
         supportsLossless = { true },
         verifyArchive = { verifiedArchive })
+
+    @Test fun bestQualityWaitsForThePreferredAddonWhileYoutubeResolvesIndependently() = runBlocking {
+        val base = "https://addons.example/start"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Library", baseUrl = base)
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(addon, PlaybackSource.youtube))
+        val youtubeReady = CompletableDeferred<Unit>()
+        val releaseAddon = CompletableDeferred<Unit>()
+        val address = "$base/verified.flac"
+        val resolver = StreamResolver(
+            resolveYouTube = { request, _, _, _ -> opus.copy(id = request.id).also { youtubeReady.complete(Unit) } },
+            resolveAddon = { source, requested, selection, _ ->
+                releaseAddon.await()
+                com.example.data.remote.StreamingAddons.parseStream(
+                    """{"url":"$address","codec":"flac","bitrate":900000}""", base, requested, requested, selection, source.id)
+            })
+        withTimeout(5_000L) {
+            val choice = async { resolver.resolve(song, policy.ceiling.audioQuality,
+                sourcePolicy = policy, bestQualityFirst = true) }
+            youtubeReady.await()
+            assertFalse(choice.isCompleted)
+            releaseAddon.complete(Unit)
+            assertEquals(address, choice.await().audioUrl)
+        }
+    }
+
+    @Test fun automaticFastStartUpgradeUsesEnabledSourceOrderAndRespectsTheConnectionCeiling() {
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.HIGH)
+        assertEquals(listOf(PlaybackSource.jio), policy.fastStartUpgradeSources(opus))
+        assertTrue(policy.copy(online = false).fastStartUpgradeSources(opus).isEmpty())
+        assertTrue(policy.copy(ceiling = AudioQualityCeiling.DATA_SAVER).fastStartUpgradeSources(opus).isEmpty())
+        assertTrue(policy.copy(returnToYouTube = true, requestTrackId = song.id).fastStartUpgradeSources(opus).isEmpty())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun bestQualityReleasesTheYoutubeFallbackWhenThePreferredAddonRunsOutOfTime() = runTest {
+        val base = "https://addons.example/slow"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Library", baseUrl = base)
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(addon, PlaybackSource.youtube))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val resolver = StreamResolver(ioDispatcher = dispatcher, cpuDispatcher = dispatcher,
+            resolveAddon = { _, _, _, _ -> awaitCancellation() },
+            resolveYouTube = { request, _, _, _ -> opus.copy(id = request.id) })
+        val resolved = resolver.resolve(song, policy.ceiling.audioQuality, sourcePolicy = policy, bestQualityFirst = true)
+        assertEquals(opus.audioUrl, resolved.audioUrl)
+        assertEquals(8_000L, currentTime)
+    }
 
     @Test fun cappedModesUseOnlyEligibleSourcesAndPreserveCatalogIdentityWithEnhancerOff() = runBlocking {
         for (ceiling in AudioQualityCeiling.entries.filter { it != AudioQualityCeiling.MAX }) {

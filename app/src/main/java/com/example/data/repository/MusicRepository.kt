@@ -63,6 +63,14 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import com.example.playback.PlaybackMode
+import com.example.playback.PlaybackSource
+import com.example.playback.PlaybackSourceKind
+import com.example.playback.PlaybackSourcePolicy
+import com.example.playback.PlaybackStart
+import com.example.playback.SourceTransitionOrigin
+import com.example.playback.fastStartUpgradeSources
+import com.example.playback.startupSourcesFor
 
 data class SearchResultCategory(
     val topResult: MusicTrack? = null,
@@ -472,6 +480,41 @@ class MusicRepository private constructor(
         favorites(result)
     }
 
+    /** Startup policy is separate from retries, downloads and explicit source changes. */
+    internal suspend fun resolvePlaybackStart(track: MusicTrack, preferredSourceId: String? = null,
+        jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null): PlaybackStart =
+        withContext(AppDispatchers.Io) {
+            val mode = context?.let(com.example.data.local.AudioQualityPreferences::playbackMode) ?: PlaybackMode.BEST_QUALITY
+            val online = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it).snapshot() }
+                ?.connectionType != com.example.playback.NetworkConnectionType.OFFLINE
+            if (mode == PlaybackMode.FAST_START && online && preferredSourceId == null) {
+                try {
+                    val initial = resolvePlayableTrack(track, preferredSourceId = PlaybackSource.youtube.id, retainLosslessLookup = false)
+                    return@withContext PlaybackStart(initial, mode)
+                } catch (_: TrackUnavailableException) {
+                    // Failure of a single provider does not make the recording unavailable.
+                }
+            }
+            val resolved = resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
+                onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true)
+            PlaybackStart(resolved, mode)
+        }
+
+    internal suspend fun resolveFastStartUpgrade(track: MusicTrack, policy: PlaybackSourcePolicy): MusicTrack? =
+        kotlinx.coroutines.withTimeoutOrNull(35_000L) {
+            policy.fastStartUpgradeSources(track).firstNotNullOfOrNull { source ->
+                val candidate = if (source.kind == PlaybackSourceKind.INTERNET_ARCHIVE) {
+                    findLosslessUpgrade(track, automatic = true)?.copy(id = track.id)
+                } else try {
+                    resolvePlayableTrack(track, preferredSourceId = source.id, retainLosslessLookup = false)
+                } catch (_: TrackUnavailableException) { null }
+                candidate?.takeIf {
+                    policy.acceptsRemoteTrack(it) && SourceTransitionOrigin.sourceId(
+                        it.id, android.net.Uri.parse(it.audioUrl), policy) == source.id
+                }
+            }
+        }
+
     /** Apply the active quality tier consistently to every playback entry point. */
     suspend fun resolvePlayableTrack(
         track: MusicTrack,
@@ -484,7 +527,8 @@ class MusicRepository private constructor(
         onAddonLookupFinished: (suspend (Long) -> Unit)? = null,
         preferredSourceId: String? = null,
         manualUpgrade: Boolean = false,
-        retainLosslessLookup: Boolean = true
+        retainLosslessLookup: Boolean = true,
+        bestQualityFirst: Boolean = false
     ): MusicTrack = withContext(AppDispatchers.Io) {
         if (android.net.Uri.parse(track.audioUrl).scheme == com.example.downloads.OfflineDownloads.SCHEME) return@withContext track
         context?.let { ctx ->
@@ -501,11 +545,13 @@ class MusicRepository private constructor(
             context?.let { com.example.data.local.OtherSettingsPreferences.loadPlaybackSources(it) }
             val monitor = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it) }
             val sourcePolicy = monitor?.sourcePolicySnapshot()
+            var cachedFallback: MusicTrack? = null
             if (!forceRefresh && !manualUpgrade && failedUrl == null && rejectedUrls.isEmpty() && sourcePolicy != null) {
                 context?.let { ctx ->
                     try {
                         com.example.service.StreamedAudioRepresentations.lookup(ctx, track, sourcePolicy,
-                            preferredSourceId = preferredSourceId, currentSourceOnly = currentSourceOnly)
+                            preferredSourceId = preferredSourceId, currentSourceOnly = currentSourceOnly,
+                            bestQualityFirst = bestQualityFirst)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -515,21 +561,25 @@ class MusicRepository private constructor(
                         null
                     }
                 }?.let { cached ->
-                    if (monitor.sourcePolicySnapshot().key == sourcePolicy.key) return@withContext cached
+                    if (monitor.sourcePolicySnapshot().key != sourcePolicy.key) return@repeat
+                    val first = sourcePolicy.startupSourcesFor(track.id).firstOrNull()?.id
+                    if (!bestQualityFirst || !sourcePolicy.online || preferredSourceId != null ||
+                        android.net.Uri.parse(cached.audioUrl).getQueryParameter("provider") == first) return@withContext cached
+                    cachedFallback = cached
                 }
             }
             val losslessVersion = sourcePolicy?.takeIf { it.allowsArchive }?.let { streamResolver.losslessDiscoveryVersion(track.id) }
             val quality = sourcePolicy?.ceiling?.audioQuality ?: AudioQuality.ULTRA_HD_320
             try {
                 val identity = withContext(AppDispatchers.CpuBounded) { RecordingIdentity.key(track) }
-                val requestKey = "playback-source:${track.id}:$identity:${sourcePolicy?.key}:$forceRefresh:$currentSourceOnly:$preferYouTube:$preferredSourceId:$manualUpgrade:$retainLosslessLookup:$losslessVersion:${failedUrl.orEmpty()}:${rejectedUrls.sorted().joinToString()}"
+                val requestKey = "playback-source:${track.id}:$identity:${sourcePolicy?.key}:$forceRefresh:$currentSourceOnly:$preferYouTube:$preferredSourceId:$manualUpgrade:$retainLosslessLookup:$bestQualityFirst:$losslessVersion:${cachedFallback?.audioUrl}:${failedUrl.orEmpty()}:${rejectedUrls.sorted().joinToString()}"
                 val result = com.example.recommendation.DiscoveryRequestCoordinator.shared(requestKey, essential = true, network = false) {
                     com.example.recommendation.DiscoveryRequestCoordinator.playback {
                         streamResolver.resolve(track, quality, forceRefresh, failedUrl, preferYouTube = preferYouTube, jioDeadlineMs = jioDeadlineMs,
                             currentSourceOnly = currentSourceOnly, rejectedUrls = rejectedUrls,
                             maxBitrateBps = sourcePolicy?.ceiling?.maxBitrateBps ?: Int.MAX_VALUE, sourcePolicy = sourcePolicy,
                             preferredSourceId = preferredSourceId, manualUpgrade = manualUpgrade, retainLosslessLookup = retainLosslessLookup,
-                            losslessVersion = losslessVersion)
+                            losslessVersion = losslessVersion, bestQualityFirst = bestQualityFirst, cachedFallback = cachedFallback)
                     }.let(::listOf)
                 }.firstOrNull() ?: throw TrackUnavailableException(track.title)
                 currentCoroutineContext().ensureActive()
@@ -560,7 +610,8 @@ class MusicRepository private constructor(
                 throw cancelled
             } catch (e: TrackUnavailableException) {
                 if (sourcePolicy != null && monitor?.sourcePolicySnapshot()?.key != sourcePolicy.key) return@repeat
-                if (track.recommendationOnly && !currentSourceOnly && !e.temporary) recommendations.markUnavailable(track)
+                cachedFallback?.let { return@withContext it }
+                if (track.recommendationOnly && !currentSourceOnly && preferredSourceId == null && !e.temporary) recommendations.markUnavailable(track)
                 throw e
             }
         }

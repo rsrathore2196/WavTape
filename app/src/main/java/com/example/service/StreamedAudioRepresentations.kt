@@ -13,6 +13,7 @@ import com.example.data.repository.RecordingIdentity
 import com.example.playback.PlaybackSourceKind
 import com.example.playback.PlaybackSourcePolicy
 import com.example.playback.SourceTransitionOrigin
+import com.example.playback.startupSourcesFor
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.Locale
@@ -166,7 +167,7 @@ internal object StreamedAudioRepresentations {
     }
 
     fun lookup(context: Context, track: MusicTrack, policy: PlaybackSourcePolicy, preferredSourceId: String? = null,
-        currentSourceOnly: Boolean = false): MusicTrack? {
+        currentSourceOnly: Boolean = false, bestQualityFirst: Boolean = false): MusicTrack? {
         val uri = Uri.parse(track.audioUrl)
         val scheme = uri.scheme
         if (scheme != null && (MusicCache.isLocal(uri) || scheme == "xtreme-offline")) return null
@@ -176,7 +177,8 @@ internal object StreamedAudioRepresentations {
             if (uri.scheme == SCHEME) uri.getQueryParameter("provider")
             else SourceTransitionOrigin.sourceId(track.id, uri, policy)
         } else preferredSourceId
-        val order = policy.resolutionSourcesFor(track.id).filter { sourceId == null || it.id == sourceId }
+        val order = (if (bestQualityFirst) policy.startupSourcesFor(track.id) else policy.resolutionSourcesFor(track.id))
+            .filter { sourceId == null || it.id == sourceId }
         val opusOnly = uri.getQueryParameter("codec") == "opus"
         val candidates = cache.keys.asSequence().mapNotNull { read(cache, it) }.filter {
             it.recording == identity && (!opusOnly || it.codec == "Opus") &&

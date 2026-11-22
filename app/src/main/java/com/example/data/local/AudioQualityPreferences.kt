@@ -5,10 +5,12 @@ import android.content.SharedPreferences
 import com.example.playback.AudioQuality
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.NetworkAudioPreferences
+import com.example.playback.PlaybackMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
@@ -19,9 +21,27 @@ object AudioQualityPreferences {
     private const val KEY_METERED_WIFI = "treat_metered_wifi_as_cellular"
     private const val KEY_AUDIO_ENHANCER = "prefer_youtube_opus"
     private const val KEY_RETURN_TO_YOUTUBE = "enhancer_return_to_youtube"
+    private const val KEY_PLAYBACK_MODE = "playback_mode"
     private fun getPrefs(context: Context): SharedPreferences {
         return ReactiveSettingsRepository.preferences(context, PREFS_NAME)
     }
+
+    fun playbackMode(context: Context): PlaybackMode =
+        PlaybackMode.fromPreference(getPrefs(context).getString(KEY_PLAYBACK_MODE, null))
+
+    fun setPlaybackMode(context: Context, mode: PlaybackMode) {
+        getPrefs(context).edit().putString(KEY_PLAYBACK_MODE, mode.name).apply()
+    }
+
+    fun observePlaybackMode(context: Context) = callbackFlow {
+        val prefs = getPrefs(context.applicationContext)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == KEY_PLAYBACK_MODE) trySend(Unit)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(Unit)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.conflate().map { playbackMode(context.applicationContext) }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     /** The active network profile is the only quality preference; old saved IDs cannot cap it. */
     fun getSelectedQuality(context: Context): AudioQuality {

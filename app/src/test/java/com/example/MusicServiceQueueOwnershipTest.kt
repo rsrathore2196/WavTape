@@ -60,11 +60,13 @@ class MusicServiceQueueOwnershipTest {
     private val requests = AtomicInteger()
     private val sources = mutableListOf<Pair<MediaSource, MediaSource.MediaSourceCaller>>()
     private var standardAvailable = true
+    private var youtubeAvailable = false
     private var standardGate: CompletableDeferred<Unit>? = null
     private var archiveDelayMs: Long? = null
 
     @Before fun setup() = runBlocking {
         StreamResolver.clearVerifiedLosslessCache()
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.BEST_QUALITY)
         PlaybackSourcesPreferences.save(app, PlaybackSource.builtIns)
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
         val connectivity = app.getSystemService(ConnectivityManager::class.java)
@@ -96,7 +98,10 @@ class MusicServiceQueueOwnershipTest {
         resolver = StreamResolver(lookupScope = lookupScope, supportsLossless = { true },
             searchStandard = { _, _ -> standardGate?.await(); if (standardAvailable) listOf(selected) else emptyList() },
             fetchById = { _, _ -> standardGate?.await(); selected.takeIf { standardAvailable } },
-            searchYouTube = { emptyList() }, resolveYouTube = { _, _, _, _ -> null },
+            searchYouTube = { if (youtubeAvailable) listOf(selected.copy(id = "yt_abcdefghijk", audioUrl = "")) else emptyList() },
+            resolveYouTube = { request, _, _, _ -> if (youtubeAvailable) request.copy(
+                audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=320000",
+                bitrateKbps = 128, qualityBadge = "Opus • 128 kbps") else null },
             archiveAllowed = { monitor.sourcePolicySnapshot().key == it.key },
             findLossless = { _, _, allowed ->
                 assertNotEquals("Archive work must stay off Main", Looper.getMainLooper(), Looper.myLooper())
@@ -147,7 +152,9 @@ class MusicServiceQueueOwnershipTest {
         assertEquals("USABC2400001", item.mediaMetadata.extras!!.getString("isrc"))
     }
 
-    @Test fun releasingAnActuallyPreparedQueueSourceCannotLeaveSpeculativeArchiveWorkRunning() = runBlocking {
+    @Test fun fastStartQueuesYouTubeWithoutWaitingForAnyPreferredProvider() = runBlocking {
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        youtubeAvailable = true
         val policy = monitor.sourcePolicySnapshot()
         var timeline: Timeline? = null
         val transport = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(app)
@@ -156,13 +163,19 @@ class MusicServiceQueueOwnershipTest {
             resolve = ::resolveQueued)
         val caller = MediaSource.MediaSourceCaller { _, value -> timeline = value }
         source.prepareSource(caller, null); sources.add(source to caller)
-        until { source.maybeThrowSourceInfoRefreshError(); entered.isCompleted }
-        until { timeline != null }
+        until { source.maybeThrowSourceInfoRefreshError(); timeline != null }
         assertEquals(selected.id, source.mediaItem.mediaId)
         assertEquals(policy.key, source.mediaItem.mediaMetadata.extras!!.getString("source_policy_key"))
+        assertEquals(PlaybackMode.FAST_START, source.mediaItem.playbackMode)
+        assertEquals("xtreme-youtube", source.mediaItem.localConfiguration?.uri?.scheme)
+        assertEquals(0, requests.get())
         source.releaseSource(caller); sources.clear()
-        withTimeout(2_000) { cancelled.await() }
         assertFalse(resolver.hasPendingLosslessDiscovery(selected.id, policy.key))
+        released.complete(Unit)
+        val upgraded = repository.resolveFastStartUpgrade(
+            selected.copy(audioUrl = source.mediaItem.localConfiguration!!.uri.toString()), policy)
+        assertEquals(archive.audioUrl, upgraded?.audioUrl)
+        assertEquals(selected.id, upgraded?.id)
         assertEquals(1, requests.get())
     }
 
@@ -170,13 +183,19 @@ class MusicServiceQueueOwnershipTest {
         val audible = async(Dispatchers.IO) { repository.resolvePlayableTrack(selected) }
         withTimeout(3_000) { entered.await() }
         val queued = async(Dispatchers.IO) { resolveQueued(selected.toMediaItem()) }
-        val prepared = withTimeout(4_000) { queued.await() }
-        assertEquals(selected.id, prepared.mediaId)
-        assertEquals(selected.audioUrl, prepared.localConfiguration!!.uri.toString())
-        assertEquals("The service's speculative reader must join the existing Archive flight", 1, requests.get())
-        assertFalse(cancelled.isCompleted)
+        val flights = ReflectionHelpers.getField<MutableMap<*, *>>(resolver, "archiveFlights")
+        until { synchronized(flights) { flights.values.any { flight ->
+            ReflectionHelpers.getField<Set<*>>(flight, "readers").isNotEmpty()
+        } } }
+        assertFalse(queued.isCompleted)
         assertEquals(selected.audioUrl, audible.await().audioUrl)
         released.complete(Unit)
+        val prepared = withTimeout(4_000) { queued.await() }
+        assertEquals(selected.id, prepared.mediaId)
+        assertEquals(archive.audioUrl, prepared.localConfiguration!!.uri.toString())
+        assertEquals(PlaybackMode.BEST_QUALITY, prepared.playbackMode)
+        assertEquals("The service's speculative reader must join the existing Archive flight", 1, requests.get())
+        assertFalse(cancelled.isCompleted)
         until { StreamResolver.getCachedLosslessMatch(selected) != null }
         assertEquals(archive.audioUrl, StreamResolver.getCachedLosslessMatch(selected)!!.audioUrl)
         assertEquals(1, requests.get())

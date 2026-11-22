@@ -7,6 +7,12 @@ import com.example.playback.PlaybackRecoveryGuard
 import com.example.playback.keepResolvedSource
 import com.example.playback.PlaybackDiagnostics
 import com.example.playback.PlaybackDiagnostics.StartupStage
+import com.example.playback.PlaybackMode
+import com.example.playback.FastStartUpgrade
+import com.example.playback.canSwitchStartupStream
+import com.example.playback.fastStartUpgradeSources
+import com.example.playback.playbackMode
+import com.example.playback.putPlaybackMode
 
 import com.example.performance.AppDispatchers
 
@@ -69,6 +75,7 @@ class MusicService : MediaLibraryService() {
     private var sourceRecoveryJob: Job? = null
     private var losslessDiscoveryJob: Job? = null
     private var losslessDiscoveryKey: String? = null
+    private val fastStartUpgrade = FastStartUpgrade(serviceScope)
     private var archiveSelectionVersion: Long? = null
     private var jioFallback: JioSaavnPlaybackFallback? = null
     private val networkQuality by lazy { com.example.playback.NetworkQualityMonitor.getInstance(this) }
@@ -174,16 +181,15 @@ class MusicService : MediaLibraryService() {
             val origin = com.example.playback.SourceTransitionOrigin.read(item, selected)
             val returnToYouTube = policy.shouldReturnToYouTube(selected, origin?.sourceId)
             val restoring = !policy.enhancer && (origin != null || returnToYouTube)
-            val resolved = app.repository.resolvePlayableTrack(if (restoring && !returnToYouTube) origin!!.track else selected,
-                preferredSourceId = if (returnToYouTube) policy.sourceId(com.example.playback.PlaybackSourceKind.YOUTUBE) else origin?.sourceId.takeIf { restoring },
-                // A lazy source can be read ahead, removed or released before it
-                // becomes audible. Active playback owns its guarded Archive upgrade.
-                retainLosslessLookup = false)
+            val start = app.repository.resolvePlaybackStart(if (restoring && !returnToYouTube) origin!!.track else selected,
+                preferredSourceId = if (returnToYouTube) policy.sourceId(com.example.playback.PlaybackSourceKind.YOUTUBE) else origin?.sourceId.takeIf { restoring })
+            val resolved = start.track
             currentCoroutineContext().ensureActive()
             if (policy.key != networkQuality.sourcePolicySnapshot().key) return@repeat
             val address = Uri.parse(YouTubeAudioStreamService.playbackUri(resolved.id, resolved.audioUrl))
             val extras = Bundle(previous ?: Bundle()).apply {
                 ACTUAL_AUDIO_KEYS.forEach(::remove)
+                putPlaybackMode(start.mode)
                 com.example.playback.SourceTransitionOrigin.write(this, origin.takeIf { policy.enhancer })
                 val host = address.host.orEmpty()
                 putLong("jio_start_deadline", if (host == "saavncdn.com" || host.endsWith(".saavncdn.com"))
@@ -418,15 +424,32 @@ class MusicService : MediaLibraryService() {
         val player = exoPlayer ?: return
         val item = player.currentMediaItem ?: return
         val uri = item.localConfiguration?.uri ?: return
-        if (SabrSessionRegistry.controllerHandlesRecovery?.invoke() == true || !player.isPlaying || !policy.allowsArchive ||
-            policy.returnsToYouTube(item.mediaId) || sourceRecoveryJob?.isActive == true ||
-            item.mediaMetadata.extras?.getBoolean("isLossless") == true || uri.scheme in setOf("file", "content", "xtreme-offline")) return
+        if (SabrSessionRegistry.controllerHandlesRecovery?.invoke() == true || !player.isPlaying ||
+            sourceRecoveryJob?.isActive == true || uri.scheme in setOf("file", "content", "xtreme-offline")) return
         val key = "${item.mediaId}:$uri:${policy.key}"
-        if (losslessDiscoveryKey == key && losslessDiscoveryJob?.isActive == true) return
+        val track = currentPolicyTrack(player, item)
+        val revision = policyRevision
+        when (item.playbackMode) {
+            PlaybackMode.FAST_START -> {
+                if (policy.fastStartUpgradeSources(track).isEmpty()) return
+                fastStartUpgrade.request(key, stillPlaying = {
+                    revision == policyRevision && player.canSwitchStartupStream() &&
+                        networkQuality.sourcePolicy.value.key == policy.key && sourceRecoveryJob?.isActive != true &&
+                        player.currentMediaItem?.mediaId == item.mediaId && player.currentMediaItem?.localConfiguration?.uri == uri &&
+                        SabrSessionRegistry.controllerHandlesRecovery?.invoke() != true
+                }, resolve = { app.repository.resolveFastStartUpgrade(track, policy) }) { candidate ->
+                    reconcileHeadlessPolicy(policy, preparedSource = candidate, automatic = true)
+                }
+                return
+            }
+            PlaybackMode.BEST_QUALITY -> return
+            null -> Unit
+        }
+        if (!policy.allowsArchive || policy.returnsToYouTube(item.mediaId) ||
+            item.mediaMetadata.extras?.getBoolean("isLossless") == true ||
+            losslessDiscoveryKey == key && losslessDiscoveryJob?.isActive == true) return
         losslessDiscoveryKey = key
         losslessDiscoveryJob?.cancel()
-        val revision = policyRevision
-        val track = currentPolicyTrack(player, item)
         losslessDiscoveryJob = serviceScope.launch {
             try {
                 val candidate = com.example.performance.BackgroundWorkCoordinator.localDataPreparation {
@@ -467,6 +490,7 @@ class MusicService : MediaLibraryService() {
         losslessDiscoveryJob = null
         losslessDiscoveryKey = null
         if (SabrSessionRegistry.controllerHandlesRecovery?.invoke() == true) {
+            fastStartUpgrade.cancel()
             sourceRecoveryJob?.cancel()
             headlessPolicyOwner = null
             ++policyRevision
@@ -477,6 +501,7 @@ class MusicService : MediaLibraryService() {
         val uri = item.localConfiguration?.uri ?: return
         val owner = "${item.mediaId}:$uri:${policy.key}:$failedUrl"
         if (preparedSource == null && headlessPolicyOwner == owner) return
+        fastStartUpgrade.cancel()
         sourceRecoveryJob?.cancel()
         val revision = ++policyRevision
         headlessTransition = null
@@ -573,7 +598,9 @@ class MusicService : MediaLibraryService() {
                     .setMimeType(com.example.data.remote.StreamingAddons.mime(resolved.audioUrl))
                     .setRequestMetadata(item.requestMetadata.buildUpon().setMediaUri(Uri.parse(resolved.audioUrl)).build())
                     .setMediaMetadata(metadata.buildUpon().setExtras(replacementExtras).build()).build()
-                if (resolved.isLossless) {
+                val cached = replacement.localConfiguration?.uri?.scheme == MusicCache.OFFLINE_SCHEME
+                val fastSwitch = automatic && item.playbackMode == PlaybackMode.FAST_START
+                if (!cached && (resolved.isLossless || fastSwitch)) {
                     val sameCode = withContext(AppDispatchers.CpuBounded) {
                         com.example.data.repository.RecordingIdentity.isrc(track.isrc)?.let {
                             it == com.example.data.repository.RecordingIdentity.isrc(resolved.isrc)
@@ -582,20 +609,22 @@ class MusicService : MediaLibraryService() {
                     val adaptive = com.example.playback.LosslessStreamPrebuffer.isAdaptiveSource(replacement)
                     val prepared = if (!adaptive) com.example.playback.LosslessStreamPrebuffer.prepare(this@MusicService, replacement,
                         track.durationMs, currentPosition = { player.currentPosition }, stillCurrent = { owns() },
-                        durationToleranceMs = if (sameCode) 8_000L else 5_000L, allowUnknownDuration = sameCode, automatic = automatic) else null
+                        durationToleranceMs = if (sameCode) 8_000L else 5_000L, allowUnknownDuration = sameCode,
+                        automatic = automatic, requireLossless = resolved.isLossless) else null
                     val ready = if (adaptive) com.example.playback.LosslessStreamPrebuffer.prepareAdaptiveSource(
                         this@MusicService, replacement, track.durationMs, stillCurrent = { owns() },
                         durationToleranceMs = if (sameCode) 8_000L else 5_000L, automatic = automatic,
-                        currentPosition = { player.currentPosition }) else prepared?.covers(player.currentPosition) == true
+                        currentPosition = { player.currentPosition }, requireLossless = resolved.isLossless)
+                        else prepared?.covers(player.currentPosition) == true
                     if (!owns()) return@launch
                     if (!ready) {
                         com.example.playback.LosslessDiagnostics.prebufferRejected(track.id, prepared != null)
-                        app.repository.rejectLosslessUpgrade(track, resolved.audioUrl)
+                        if (resolved.isLossless) app.repository.rejectLosslessUpgrade(track, resolved.audioUrl)
                         return@launch
                     }
-                } else if (!com.example.playback.LosslessStreamPrebuffer.warmSource(this@MusicService, replacement))
+                } else if (!cached && !com.example.playback.LosslessStreamPrebuffer.warmSource(this@MusicService, replacement))
                     throw java.io.IOException("Source preparation failed")
-                if (!owns()) return@launch
+                if (!owns() || fastSwitch && !player.canSwitchStartupStream()) return@launch
                 val index = player.currentMediaItemIndex
                 val position = player.currentPosition.coerceAtLeast(0L)
                 val resume = player.playWhenReady
@@ -1094,6 +1123,7 @@ class MusicService : MediaLibraryService() {
                     outputRecoveryGuard.select(mediaItem?.mediaId, newRequest = true)
                     headlessPolicyOwner = null; headlessTransition = null
                     losslessDiscoveryJob?.cancel(); losslessDiscoveryJob = null; losslessDiscoveryKey = null
+                    fastStartUpgrade.cancel(reset = true)
                     sourceRecoveryJob?.cancel(); sourceRecoveryJob = null
                 }
                 currentOccurrenceKey = occurrence
@@ -1750,8 +1780,8 @@ class MusicService : MediaLibraryService() {
                                 if (fromApp && PlaybackSessionStore.isReal(item)) return@async item
                                 val known = app.database.musicDao().getTrackById(item.mediaId)?.toMusicTrack()
                                 if (known != null && realTrack(known)) {
-                                    app.repository.resolvePlayableTrack(known.copy(recommendationOnly =
-                                        item.mediaMetadata.extras?.getBoolean("recommendation_only", false) == true)).toMediaItem()
+                                    resolveQueuedSource(known.copy(recommendationOnly =
+                                        item.mediaMetadata.extras?.getBoolean("recommendation_only", false) == true).toMediaItem())
                                 } else if (permitsControllerSource(item, selection.fromApp, trustedController)) item
                                 else throw IllegalArgumentException("No real track found for this media ID")
                             } catch (e: CancellationException) { throw e }

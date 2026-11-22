@@ -100,6 +100,7 @@ class StreamingAddonIntegrationTest {
     private val requests = CopyOnWriteArrayList<String>()
     private var stream: () -> String = { "" }
     private var manifest = """{"id":"personal","name":"My Music","resources":["search","stream"]}"""
+    private var manifestStatus = 200
     private val song = MusicTrack("online_song", "Song", "Artist", "Album", 180_000, "cover", "https://aac.saavncdn.com/song_320.mp4")
     private val maximum get() = PlaybackSourcePolicy(AudioQualityCeiling.MAX,
         sources = OtherSettingsPreferences.playbackIntegrations(context).sourceList(AudioQualityCeiling.MAX))
@@ -125,7 +126,8 @@ class StreamingAddonIntegrationTest {
                     else -> "{}"
                 }.toByteArray()
                 exchange.responseHeaders.add("Content-Type", "application/json")
-                exchange.sendResponseHeaders(200, response.size.toLong())
+                exchange.sendResponseHeaders(if (exchange.requestURI.path.endsWith("manifest.json")) manifestStatus else 200,
+                    response.size.toLong())
                 exchange.responseBody.use { it.write(response) }; exchange.close()
             }
             start()
@@ -209,6 +211,16 @@ class StreamingAddonIntegrationTest {
         assertEquals(1, requests.count { it.endsWith("manifest.json") })
         assertNotNull(StreamingAddons.resolve(context, song, maximum))
         assertEquals(3, requests.size)
+    }
+
+    @Test fun playbackDoesNotRetryAnUnavailableManifestBetweenSearchAndStream() = runBlocking {
+        enable()
+        manifestStatus = 503
+        val resolved = StreamingAddons.resolve(context, song, maximum)
+        assertEquals("$base/song.flac", resolved?.audioUrl)
+        assertEquals(1, requests.count { it.endsWith("/manifest.json") })
+        assertEquals(1, requests.count { it.contains("/search?") })
+        assertEquals(1, requests.count { it.contains("/stream/right?") })
     }
 
     @Test fun customSearchResultKeepsItsProviderAndResolvesItsOwnIdWithoutAnotherSearch() = runBlocking {

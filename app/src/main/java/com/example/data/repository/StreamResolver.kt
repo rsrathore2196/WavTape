@@ -14,6 +14,8 @@ import com.example.playback.PlaybackSourceKind
 import com.example.playback.PlaybackSourcePolicy
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.PlaybackDiagnostics
+import com.example.playback.SourceTransitionOrigin
+import com.example.playback.startupSourcesFor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
@@ -86,7 +88,8 @@ internal class StreamResolver(
     private data class CachedStream(val track: MusicTrack, val expiresAt: Long)
     private data class StreamKey(val id: String, val quality: AudioQuality, val recommendation: Boolean, val cap: Int,
         val recording: String, val policy: String?, val selectedArchiveUrl: String? = null,
-        val preferredSource: String? = null, val currentOnly: Boolean = false, val manualUpgrade: Boolean = false)
+        val preferredSource: String? = null, val currentOnly: Boolean = false, val manualUpgrade: Boolean = false,
+        val bestQualityFirst: Boolean = false)
     private val archiveAttempts = LinkedHashMap<String, Long>()
     // Catalog identities outlive signed URLs. Playback re-extracts the transport
     // for these exact, previously verified cross-provider matches.
@@ -260,12 +263,16 @@ internal class StreamResolver(
         currentSourceOnly: Boolean = false, rejectedUrls: Set<String> = emptySet(),
         sourcePolicy: com.example.playback.PlaybackSourcePolicy? = null,
         preferredSourceId: String? = null, manualUpgrade: Boolean = false,
-        retainLosslessLookup: Boolean = true, losslessVersion: Long? = null
+        retainLosslessLookup: Boolean = true, losslessVersion: Long? = null, bestQualityFirst: Boolean = false,
+        cachedFallback: MusicTrack? = null
     ): MusicTrack = withContext(ioDispatcher) {
         // Older saved tracks may have a shortened display title alongside the full provider title.
         val track = if (track.title == track.fullTitle) track else track.copy(title = track.fullTitle)
         val ceilingBps = minOf(maxBitrateBps, if (quality == AudioQuality.HI_RES_LOSSLESS) Int.MAX_VALUE else quality.kbps * 1000)
         val policy = sourcePolicy ?: PlaybackSourcePolicy(AudioQualityCeiling.entries.lastOrNull { it.maxBitrateBps <= ceilingBps } ?: AudioQualityCeiling.DATA_SAVER)
+        val cachedFallbackSource = cachedFallback?.let {
+            SourceTransitionOrigin.sourceId(track.id, Uri.parse(it.audioUrl), policy)
+        }
         val archiveGeneration = if (policy.allowsArchive) losslessVersion ?: losslessDiscoveryVersion(track.id) else null
         fun archiveCurrent() = policy.allowsArchive && archiveAllowed(policy) &&
             archiveGeneration?.let { isLosslessDiscoveryCurrent(track.id, it) } == true
@@ -284,7 +291,7 @@ internal class StreamResolver(
         // Cross-provider playback retains its catalog ID. Revalidate a known
         // Archive file before reusing that identity's cached lossy fallback.
         val key = StreamKey(track.id, quality, track.recommendationOnly, ceilingBps, recordingKey, policy.key,
-            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade)
+            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade, bestQualityFirst)
         fun capped(candidate: MusicTrack): MusicTrack {
             val host = uriHost(candidate.audioUrl).orEmpty()
             if (candidate.source.startsWith("Streaming Addon:")) return candidate
@@ -342,7 +349,8 @@ internal class StreamResolver(
         }
         if (!manualUpgrade) {
             val target = if (currentSourceOnly) com.example.playback.SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), policy)
-                else preferredSourceId ?: policy.resolutionSourcesFor(track.id).firstOrNull()?.id
+                else preferredSourceId ?: (if (bestQualityFirst) policy.startupSourcesFor(track.id) else policy.resolutionSourcesFor(track.id))
+                    .firstOrNull()?.id
             cachedFor(target)?.let { return@withContext withStream(track, it) }
         }
         val rejected = failedUrl ?: track.audioUrl.takeIf { forceRefresh }
@@ -484,6 +492,7 @@ internal class StreamResolver(
             // can finish the same bounded lookup while the existing stream plays.
             val lookupBudget = when {
                 manualUpgrade -> MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS
+                bestQualityFirst -> BEST_QUALITY_SOURCE_WAIT_MS
                 retainLosslessLookup -> LOSSLESS_LOOKUP_TIMEOUT_MS
                 // An unretained queue reader must stay attached while it is
                 // the only usable provider. The deferred race still cancels it
@@ -563,7 +572,7 @@ internal class StreamResolver(
                 val providers = if (preferredSourceId != null) policy.playbackSources.filter { it.id == preferredSourceId }
                     else if (manualUpgrade && currentProvider != null)
                         policy.upgradeSources.takeWhile { it.id != currentProvider }
-                    else policy.resolutionSourcesFor(track.id).let { ordered ->
+                    else (if (bestQualityFirst) policy.startupSourcesFor(track.id) else policy.resolutionSourcesFor(track.id)).let { ordered ->
                         if (selectedArchive) ordered.filter { it.kind == PlaybackSourceKind.INTERNET_ARCHIVE } +
                             ordered.filterNot { it.kind == PlaybackSourceKind.INTERNET_ARCHIVE } else ordered
                     }
@@ -573,7 +582,7 @@ internal class StreamResolver(
                     val started = android.os.SystemClock.elapsedRealtime()
                     val state = failure()
                     val answer = try {
-                        cachedFor(provider.id) ?: when (provider.kind) {
+                        cachedFallback?.takeIf { cachedFallbackSource == provider.id } ?: cachedFor(provider.id) ?: when (provider.kind) {
                             PlaybackSourceKind.YOUTUBE -> {
                                 val videoId = selectedVideoId(track)
                                 if (videoId != null) {
@@ -590,7 +599,7 @@ internal class StreamResolver(
                                 }
                                 direct?.takeIf { it.audioUrl == archiveUrl && usable(it) && supportsLossless(it) }
                             } else archive()
-                            PlaybackSourceKind.ADDON -> attempt(16_000L) {
+                            PlaybackSourceKind.ADDON -> attempt(if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS) {
                                 resolveAddon(provider, track, policy, rejectedUrls + listOfNotNull(failedUrl))
                             }
                         }
@@ -619,9 +628,9 @@ internal class StreamResolver(
                     // Only Archive has an existing guarded background upgrade path.
                     // User add-on order and Jio/YouTube fallback order stay strict.
                     resolveProviderCandidates(providers, defer = {
-                        policy.allowsArchive && it.kind == PlaybackSourceKind.INTERNET_ARCHIVE
+                        !bestQualityFirst && policy.allowsArchive && it.kind == PlaybackSourceKind.INTERNET_ARCHIVE
                     }, priorityGraceMs = {
-                        if (!policy.maximum && providers.size > 1 && it.kind == PlaybackSourceKind.YOUTUBE)
+                        if (!bestQualityFirst && !policy.maximum && providers.size > 1 && it.kind == PlaybackSourceKind.YOUTUBE)
                             PROVIDER_PRIORITY_GRACE_MS else null
                     }, resolve = ::resolveProvider)
                 }
@@ -647,7 +656,7 @@ internal class StreamResolver(
             }
         coroutineContext.ensureActive()
         val result = withStream(track, capped(resolved))
-        synchronized(cache) {
+        if (resolved !== cachedFallback) synchronized(cache) {
             val youtube = YouTubeAudioStreamService.isYouTubeAudio(result.id, result.audioUrl)
             cache[key] = CachedStream(result, System.currentTimeMillis() + if (youtube) 24 * 60 * 60_000L else 300_000L)
             while (cache.size > 128) cache.remove(cache.keys.first())
@@ -729,6 +738,7 @@ internal class StreamResolver(
         const val ADDON_STARTUP_TIMEOUT_MS = 16_000L
         const val PROVIDER_PRIORITY_GRACE_MS = 6_000L
         const val LOSSLESS_LOOKUP_TIMEOUT_MS = 2_500L
+        private const val BEST_QUALITY_SOURCE_WAIT_MS = 8_000L
         private const val MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS = 20_000L
         private val verifiedLosslessCache = LinkedHashMap<String, Pair<MusicTrack, Long>>(128, 0.75f, true)
         private val rejectedLosslessUrls = LinkedHashMap<String, Long>(256, 0.75f, true)

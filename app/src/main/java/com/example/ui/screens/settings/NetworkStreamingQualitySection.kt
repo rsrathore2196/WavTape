@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -46,9 +47,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.local.AudioQualityPreferences
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.NetworkConnectionType
 import com.example.playback.NetworkQualityMonitor
+import com.example.playback.PlaybackMode
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.liquidGlassCard
 import com.example.ui.theme.liquidGlassSwitchColors
@@ -96,6 +99,8 @@ internal fun NetworkStreamingQualitySection() {
         HorizontalDivider(color = colors.dividerColor)
         NetworkQualityRow("Mobile Data Streaming Quality", prefs.cellularQualityCeiling.label) { editingWifi = false }
         HorizontalDivider(color = colors.dividerColor)
+        PlaybackModeSetting()
+        HorizontalDivider(color = colors.dividerColor)
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
@@ -106,7 +111,7 @@ internal fun NetworkStreamingQualitySection() {
             com.example.ui.theme.AccentSwitch(checked = prefs.treatMeteredWifiAsCellular, onCheckedChange = protectHotspots,
                 colors = liquidGlassSwitchColors(colors))
         }
-        Text("These profiles control streaming quality. Maximum / Lossless enables verified background lossless upgrades. " +
+        Text("These profiles control streaming quality. Fast Start can upgrade to lossless with Maximum / Lossless. " +
             "Current playback continues while new bitrate limits apply to upcoming tracks. If no stream fits, the lowest available rate is used.", color = colors.textMuted, fontSize = 11.sp, lineHeight = 15.sp)
     }
 
@@ -157,6 +162,48 @@ internal fun NetworkStreamingQualitySection() {
             confirmButton = { TextButton(onClick = { editingWifi = null }) { Text("Close", color = colors.primaryAccent) } }
         )
     }
+}
+
+@Composable
+internal fun PlaybackModeSetting() {
+    val context = LocalContext.current.applicationContext
+    val colors = LocalAppColors.current
+    val modes = remember(context) { AudioQualityPreferences.observePlaybackMode(context) }
+    val selected by modes.collectAsStateWithLifecycle(initialValue = PlaybackMode.BEST_QUALITY)
+    var open by remember { mutableStateOf(false) }
+    NetworkQualityRow("Playback Mode", selected.title) { open = true }
+    if (open) AlertDialog(
+        onDismissRequest = { open = false },
+        containerColor = colors.bottomSheetBackground,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Playback Mode", color = colors.textPrimary, fontSize = 21.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()).selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                PlaybackMode.entries.forEach { mode ->
+                    val checked = selected == mode
+                    val shape = RoundedCornerShape(16.dp)
+                    Row(Modifier.fillMaxWidth().clip(shape)
+                        .background(if (checked) colors.primaryAccent.copy(alpha = 0.12f) else colors.cardBackground)
+                        .selectable(selected = checked, role = Role.RadioButton, onClick = {
+                            AudioQualityPreferences.setPlaybackMode(context, mode)
+                            open = false
+                        }).padding(horizontal = 10.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        RadioButton(selected = checked, onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = colors.primaryAccent,
+                                unselectedColor = colors.textMuted))
+                        Column(Modifier.weight(1f)) {
+                            Text(mode.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(mode.description, color = colors.textSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text("Done", color = colors.primaryAccent) } }
+    )
 }
 
 @Composable

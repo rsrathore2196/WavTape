@@ -18,7 +18,10 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.flac.FlacExtractor
+import androidx.media3.extractor.mkv.MatroskaExtractor
+import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.ogg.OggExtractor
 import androidx.media3.extractor.wav.WavExtractor
 import com.example.service.MusicCache
 import kotlinx.coroutines.CancellationException
@@ -75,6 +78,14 @@ internal object LosslessStreamPrebuffer {
         return AudioInfo(codec, bitrate.coerceAtLeast(0), format.sampleRate, bits)
     }
 
+    private fun preparationAudioInfo(format: Format, requireLossless: Boolean): AudioInfo? {
+        if (requireLossless) return audioInfo(format)
+        if (format.sampleMimeType?.startsWith("audio/") != true || format.sampleRate <= 0 ||
+            format.channelCount <= 0 || format.drmInitData != null) return null
+        val codec = com.example.data.remote.YouTubeAudioStreamService.displayCodec(format.sampleMimeType, format.codecs)
+        return AudioInfo(codec, (format.averageBitrate / 1000).coerceAtLeast(0), format.sampleRate, 0)
+    }
+
     /** Prepare a small prefix through the same cache; no extra player or audio focus. */
     suspend fun warmSource(context: Context, item: MediaItem): Boolean = withContext(com.example.performance.AppDispatchers.Io) {
         val uri = item.localConfiguration?.uri ?: return@withContext false
@@ -105,11 +116,12 @@ internal object LosslessStreamPrebuffer {
      */
     suspend fun prepareAdaptiveSource(context: Context, item: MediaItem, expectedDurationMs: Long,
         stillCurrent: () -> Boolean, durationToleranceMs: Long = 5_000L, automatic: Boolean = false,
-        currentPosition: () -> Long = { 0L }): Boolean {
+        currentPosition: () -> Long = { 0L }, requireLossless: Boolean = true): Boolean {
         if (automatic) return com.example.performance.BackgroundWorkCoordinator.startup(
             com.example.performance.BackgroundWorkCoordinator.StartupPriority.DEFERRED, requireForeground = false,
             label = "Adaptive lossless preparation") {
-            prepareAdaptiveSource(context, item, expectedDurationMs, stillCurrent, durationToleranceMs, currentPosition = currentPosition)
+            prepareAdaptiveSource(context, item, expectedDurationMs, stillCurrent, durationToleranceMs,
+                currentPosition = currentPosition, requireLossless = requireLossless)
         }
         return withContext(com.example.performance.AppDispatchers.Io) {
             worker.withLock {
@@ -174,7 +186,7 @@ internal object LosslessStreamPrebuffer {
                     val supported = withContext(com.example.performance.AppDispatchers.CpuBounded) {
                         val audio = metadata.formats.filter { it.sampleMimeType?.startsWith("audio/") == true }
                         audio.isNotEmpty() && metadata.formats.none { it.sampleMimeType?.startsWith("video/") == true } &&
-                            audio.any { format -> format.drmInitData == null && audioInfo(format) != null &&
+                            audio.any { format -> preparationAudioInfo(format, requireLossless) != null &&
                                 (format.sampleMimeType == MimeTypes.AUDIO_RAW ||
                                     MediaCodecUtil.getDecoderInfos(format.sampleMimeType!!, false, false).any { it.isFormatSupported(format) }) }
                     }
@@ -189,7 +201,7 @@ internal object LosslessStreamPrebuffer {
                             val periodIndex = (0 until dash.periodCount).lastOrNull { dash.getPeriod(it).startMs <= position } ?: 0
                             val period = dash.getPeriod(periodIndex)
                             val representation = period.adaptationSets.filter { it.type == C.TRACK_TYPE_AUDIO }
-                                .flatMap { it.representations }.filter { audioInfo(it.format) != null && it.format.drmInitData == null }
+                                .flatMap { it.representations }.filter { preparationAudioInfo(it.format, requireLossless) != null }
                                 .maxByOrNull { it.format.bitrate }
                             val base = representation?.baseUrls?.firstOrNull()?.url
                             if (representation == null || base == null) emptyList() else buildList {
@@ -236,17 +248,17 @@ internal object LosslessStreamPrebuffer {
 
     suspend fun prepare(context: Context, item: MediaItem, expectedDurationMs: Long,
         currentPosition: () -> Long, stillCurrent: () -> Boolean, durationToleranceMs: Long = 5_000L,
-        allowUnknownDuration: Boolean = false, automatic: Boolean = false): Prepared? {
+        allowUnknownDuration: Boolean = false, automatic: Boolean = false, requireLossless: Boolean = true): Prepared? {
         val coordinator = com.example.performance.BackgroundWorkCoordinator
         suspend fun attempt(): Prepared? = coordinator.finishBoundedBatch {
             prepareAttempt(context, item, expectedDurationMs, currentPosition, stillCurrent,
-                durationToleranceMs, allowUnknownDuration, automatic)
+                durationToleranceMs, allowUnknownDuration, automatic, requireLossless)
         }
         if (!automatic) return attempt()
         while (withContext(Dispatchers.Main.immediate) { stillCurrent() }) {
             try {
                 return coordinator.startup(com.example.performance.BackgroundWorkCoordinator.StartupPriority.DEFERRED, requireForeground = false,
-                    label = "Automatic lossless prebuffer") { attempt() }
+                    label = "Automatic stream prebuffer") { attempt() }
             } catch (_: PreparationDeferred) {
                 // The byte cache survives; all extractor/cache locks and the
                 // coordinator lease have closed. A gesture is not a bad FLAC.
@@ -257,7 +269,7 @@ internal object LosslessStreamPrebuffer {
 
     private suspend fun prepareAttempt(context: Context, item: MediaItem, expectedDurationMs: Long,
         currentPosition: () -> Long, stillCurrent: () -> Boolean, durationToleranceMs: Long,
-        allowUnknownDuration: Boolean, automatic: Boolean): Prepared? = withContext(com.example.performance.AppDispatchers.Io) {
+        allowUnknownDuration: Boolean, automatic: Boolean, requireLossless: Boolean): Prepared? = withContext(com.example.performance.AppDispatchers.Io) {
         worker.withLock {
             fun checkpoint() {
                 currentCheck(automatic)
@@ -268,10 +280,13 @@ internal object LosslessStreamPrebuffer {
             fun allowed(): Boolean {
                 if (uri.scheme in setOf("file", "content")) return true
                 val policy = NetworkQualityMonitor.getInstance(context).sourcePolicySnapshot()
-                if (!policy.maximum || !policy.online) return false
+                if (!policy.online || requireLossless && !policy.maximum) return false
                 val host = uri.host.orEmpty().lowercase(java.util.Locale.ROOT)
-                return if (host == "archive.org" || host.endsWith(".archive.org")) policy.allowsArchive
-                    else com.example.data.remote.StreamingAddons.isVerified(uri.toString(), policy)
+                return when {
+                    host == "archive.org" || host.endsWith(".archive.org") -> policy.allowsArchive
+                    !requireLossless && (host == "saavncdn.com" || host.endsWith(".saavncdn.com")) -> policy.allows(PlaybackSourceKind.JIOSAAVN)
+                    else -> com.example.data.remote.StreamingAddons.isVerified(uri.toString(), policy)
+                }
             }
             if (!allowed()) {
                 LosslessDiagnostics.record(item.mediaId, LosslessDiagnostics.Reason.NETWORK_POLICY_BLOCKED, "prebuffer")
@@ -307,7 +322,8 @@ internal object LosslessStreamPrebuffer {
                 if (remaining >= 0L) fullLength = position + remaining
                 return DefaultExtractorInput(reader, position, fullLength)
             }
-            val extractors = arrayOf(FlacExtractor(), WavExtractor(), Mp4Extractor())
+            val extractors = if (requireLossless) listOf(FlacExtractor(), WavExtractor(), Mp4Extractor())
+                else listOf(Mp4Extractor(), Mp3Extractor(), OggExtractor(), MatroskaExtractor(), FlacExtractor(), WavExtractor())
             try {
                 var input = openAt(0L)
                 val extractor = extractors.firstOrNull { candidate ->
@@ -353,12 +369,12 @@ internal object LosslessStreamPrebuffer {
                 while (format == null || seekMap == null) if (!step())
                     throw PreparationFailure(LosslessDiagnostics.Reason.METADATA_INCOMPLETE, "No complete audio format")
                 val verifiedFormat = format ?: return@withLock null
-                val info = audioInfo(verifiedFormat) ?: throw PreparationFailure(
+                val info = preparationAudioInfo(verifiedFormat, requireLossless) ?: throw PreparationFailure(
                     if (verifiedFormat.sampleMimeType.isNullOrBlank() ||
                         (verifiedFormat.sampleMimeType in setOf(MimeTypes.AUDIO_FLAC, MimeTypes.AUDIO_ALAC, MimeTypes.AUDIO_RAW) &&
                             (verifiedFormat.sampleRate <= 0 || verifiedFormat.channelCount <= 0)))
                         LosslessDiagnostics.Reason.METADATA_INCOMPLETE else LosslessDiagnostics.Reason.DECODER_UNSUPPORTED,
-                    "Container did not contain a complete supported lossless format")
+                    "Container did not contain a complete supported audio format")
                 if (verifiedFormat.sampleMimeType != MimeTypes.AUDIO_RAW &&
                     MediaCodecUtil.getDecoderInfos(verifiedFormat.sampleMimeType!!, false, false)
                         .none { it.isFormatSupported(verifiedFormat) }) throw PreparationFailure(

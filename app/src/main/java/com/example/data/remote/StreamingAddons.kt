@@ -152,10 +152,13 @@ object StreamingAddons {
             }
         } finally { lock.unlock() }
     }
-    private suspend fun configuredEndpoint(base: String, path: String, query: String? = null, tier: String,
-        dolbyAtmos: Boolean = false): HttpUrl {
-        val config = try { withTimeoutOrNull(2_500L) { configuration(base) } } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { null }
+    private suspend fun requestConfiguration(base: String): Configuration? =
+        try { withTimeoutOrNull(2_500L) { configuration(base) } }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+
+    private fun configuredEndpoint(base: String, path: String, query: String? = null, tier: String,
+        config: Configuration?, dolbyAtmos: Boolean = false): HttpUrl {
         val builder = endpoint(base, path, query).newBuilder()
         config?.defaults?.forEach { (key, value) -> builder.setQueryParameter(key, value) }
         val options = config?.qualities.orEmpty()
@@ -202,9 +205,9 @@ object StreamingAddons {
         }
         return JSONArray()
     }
-    private suspend fun search(base: String, name: String, query: String, ceiling: AudioQualityCeiling,
+    private suspend fun search(base: String, name: String, query: String, ceiling: AudioQualityCeiling, config: Configuration?,
         tier: String = quality(ceiling)): List<MusicTrack> {
-        val body = get(configuredEndpoint(base, "search", query.trim(), tier), "search", MAX_SEARCH_BYTES)
+        val body = get(configuredEndpoint(base, "search", query.trim(), tier, config), "search", MAX_SEARCH_BYTES)
         return withContext(AppDispatchers.CpuBounded) {
             val rows = array(body)
             (0 until minOf(rows.length(), 20)).mapNotNull { index ->
@@ -218,11 +221,12 @@ object StreamingAddons {
             }
         }
     }
-    private suspend fun searchPreferred(base: String, name: String, query: String, ceiling: AudioQualityCeiling): List<MusicTrack> {
-        val first = search(base, name, query, ceiling)
+    private suspend fun searchPreferred(base: String, name: String, query: String, ceiling: AudioQualityCeiling,
+        config: Configuration?): List<MusicTrack> {
+        val first = search(base, name, query, ceiling, config)
         if (first.isNotEmpty() || ceiling != AudioQualityCeiling.MAX) return first
-        val highResolution = search(base, name, query, ceiling, "hi_res")
-        return highResolution.ifEmpty { search(base, name, query, ceiling, "lossless") }
+        val highResolution = search(base, name, query, ceiling, config, "hi_res")
+        return highResolution.ifEmpty { search(base, name, query, ceiling, config, "lossless") }
     }
     private suspend fun activeAddons(context: Context, policy: PlaybackSourcePolicy): List<PlaybackSource> {
         OtherSettingsPreferences.loadPlaybackSources(context)
@@ -246,7 +250,7 @@ object StreamingAddons {
                 try {
                     val found = com.example.recommendation.DiscoveryRequestCoordinator.shared(
                         "addon-search:${source.id}:${query.trim()}:${policy.key}", essential = true, network = false) {
-                        searchPreferred(source.baseUrl, source.name, query, policy.ceiling)
+                        searchPreferred(source.baseUrl, source.name, query, policy.ceiling, requestConfiguration(source.baseUrl))
                     }
                     if (stillEnabled(context, source, policy)) completed[source.id] = found
                 } catch (e: CancellationException) { throw e } catch (_: Exception) { }
@@ -290,6 +294,9 @@ object StreamingAddons {
         try {
             var completed = false
             val result = withTimeoutOrNull(15_000L) {
+                // One manifest attempt serves this recording's search and stream requests,
+                // including servers that serve audio but have an unavailable manifest.
+                val config = requestConfiguration(base)
                 val candidates = if (selected != null) listOf(track) else {
                     val queries = withContext(AppDispatchers.CpuBounded) {
                         val title = com.example.data.repository.StreamResolver.extractCleanTitle(track.title, track.artist)
@@ -298,7 +305,7 @@ object StreamingAddons {
                     }
                     var matched = emptyList<MusicTrack>()
                     for (query in queries) {
-                        val found = searchPreferred(base, source.name, query, policy.ceiling)
+                        val found = searchPreferred(base, source.name, query, policy.ceiling, config)
                         matched = withContext(AppDispatchers.CpuBounded) { found.mapNotNull { candidate ->
                             RecordingIdentity.providerConfidence(track, candidate)?.let { candidate to it }
                         }.sortedByDescending { it.second }.take(2).map { it.first } }
@@ -314,7 +321,8 @@ object StreamingAddons {
                 for (tier in tiers) for (candidate in candidates) {
                     val id = providerId(base, candidate.id) ?: continue
                     suspend fun request(atmos: Boolean): MusicTrack? {
-                        val url = configuredEndpoint(base, "stream", tier = tier, dolbyAtmos = atmos).newBuilder().addPathSegment(id).build()
+                        val url = configuredEndpoint(base, "stream", tier = tier, config = config, dolbyAtmos = atmos)
+                            .newBuilder().addPathSegment(id).build()
                         if (!tried.add(url)) return null
                         val body = try { get(url, "stream", MAX_STREAM_BYTES) } catch (e: CancellationException) { throw e }
                             catch (_: IOException) { return null }

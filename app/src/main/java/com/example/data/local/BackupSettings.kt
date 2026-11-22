@@ -25,7 +25,7 @@ internal object BackupSettings {
         },
         "xtreme_audio_quality_prefs" to mapOf("wifi_quality_ceiling" to "string", "cellular_quality_ceiling" to "string",
             "treat_metered_wifi_as_cellular" to "boolean", "prefer_youtube_opus" to "boolean",
-            "enhancer_return_to_youtube" to "boolean"),
+            "enhancer_return_to_youtube" to "boolean", "playback_mode" to "string"),
         "xtreme_playback_sources_prefs" to mapOf("sources_v2" to "string", "sources_order" to "string"),
         "xtreme_smart_cache_preferences" to mapOf("key_max_quota_bytes" to "long", "key_smart_auto_trim" to "boolean",
             "key_auto_precache" to "boolean", "key_wifi_only" to "boolean"),
