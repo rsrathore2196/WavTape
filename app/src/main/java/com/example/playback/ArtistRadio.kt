@@ -1,5 +1,6 @@
 package com.example.playback
 
+import android.os.Bundle
 import com.example.data.model.MusicTrack
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.remote.YouTubeMusicApiService
@@ -7,6 +8,16 @@ import com.example.recommendation.HomeRecommendationPolicy
 import kotlinx.coroutines.CancellationException
 
 internal const val ARTIST_RADIO_EXTRA = "queue_artist_radio"
+internal const val ARTIST_RADIO_SHUFFLE_EXTRA = "queue_artist_radio_shuffle"
+
+internal fun Bundle.artistRadio(): ArtistRadio? = getString(ARTIST_RADIO_EXTRA)
+    ?.takeIf(String::isNotBlank)
+    ?.let { ArtistRadio(it, shuffle = getBoolean(ARTIST_RADIO_SHUFFLE_EXTRA)) }
+
+internal fun Bundle.putArtistRadio(name: String, shuffle: Boolean) {
+    putString(ARTIST_RADIO_EXTRA, name)
+    putBoolean(ARTIST_RADIO_SHUFFLE_EXTRA, shuffle)
+}
 
 internal data class ArtistRadio(val name: String, val shuffle: Boolean = false) {
     private val artistKey = HomeRecommendationPolicy.mainArtistKey(name)

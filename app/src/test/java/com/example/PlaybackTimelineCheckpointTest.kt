@@ -9,6 +9,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
 import com.example.playback.ARTIST_RADIO_EXTRA
+import com.example.playback.ArtistRadio
+import com.example.playback.artistRadio
+import com.example.playback.putArtistRadio
 import com.example.service.PlaybackSessionStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -116,18 +119,23 @@ class PlaybackTimelineCheckpointTest {
         val original = item("artist-song")
         val scoped = original.buildUpon().setMediaMetadata(original.mediaMetadata.buildUpon()
             .setExtras(Bundle().apply { putString(ARTIST_RADIO_EXTRA, "Selected Artist") }).build()).build()
+        val shuffled = item("shuffled-song").let { song ->
+            song.buildUpon().setMediaMetadata(song.mediaMetadata.buildUpon()
+                .setExtras(Bundle().apply { putArtistRadio("Selected Artist", shuffle = true) }).build()).build()
+        }
         val regular = item("regular-song")
-        PlaybackSessionStore.checkpoint(context, QueueTimeline(listOf(scoped, regular)), 0, 130_000)
+        PlaybackSessionStore.checkpoint(context, QueueTimeline(listOf(scoped, shuffled, regular)), 1, 130_000)
         val saved = File(context.filesDir, "real_playback_session.json")
         withTimeout(5_000L) {
-            while (runCatching { "\"artistRadio\":\"Selected Artist\"" !in saved.readText() }.getOrDefault(true)) delay(10)
+            while (runCatching { "\"artistRadioShuffle\":true" !in saved.readText() }.getOrDefault(true)) delay(10)
         }
         // Clear the in-process snapshot so restore must decode the session file.
         PlaybackSessionStore::class.java.getDeclaredField("latest").apply { isAccessible = true }
             .set(PlaybackSessionStore, null)
         val restored = requireNotNull(PlaybackSessionStore.restore(context))
-        assertEquals("Selected Artist", restored.items[0].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
-        assertNull(restored.items[1].mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
+        assertEquals(ArtistRadio("Selected Artist"), restored.items[0].mediaMetadata.extras?.artistRadio())
+        assertEquals(ArtistRadio("Selected Artist", shuffle = true), restored.items[restored.index].mediaMetadata.extras?.artistRadio())
+        assertNull(restored.items[2].mediaMetadata.extras?.artistRadio())
     }
 
     @Test fun queueEncodingTracksArtistRadioChangesForTheSameMediaItem() {

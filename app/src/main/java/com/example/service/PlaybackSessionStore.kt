@@ -9,6 +9,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Timeline
 import com.example.data.remote.YouTubeAudioStreamService
+import com.example.playback.ARTIST_RADIO_EXTRA
+import com.example.playback.ARTIST_RADIO_SHUFFLE_EXTRA
+import com.example.playback.putArtistRadio
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
@@ -115,7 +118,10 @@ internal object PlaybackSessionStore {
                     put("isLossless", extras?.getBoolean("isLossless", false) ?: false)
                     put("recommendationOnly", extras?.getBoolean("recommendation_only", false) ?: false)
                     put("queueCollection", extras?.getBoolean("queue_collection", false) ?: false)
-                    extras?.getString(com.example.playback.ARTIST_RADIO_EXTRA)?.let { put("artistRadio", it) }
+                    extras?.getString(ARTIST_RADIO_EXTRA)?.let { name ->
+                        put("artistRadio", name)
+                        if (extras.getBoolean(ARTIST_RADIO_SHUFFLE_EXTRA)) put("artistRadioShuffle", true)
+                    }
                 })
         }
         return queue.toString().toByteArray(Charsets.UTF_8).also {
@@ -203,8 +209,8 @@ internal object PlaybackSessionStore {
                                 putBoolean("isLossless", entry.optBoolean("isLossless"))
                                 putBoolean("recommendation_only", entry.optBoolean("recommendationOnly"))
                                 putBoolean("queue_collection", entry.optBoolean("queueCollection"))
-                                entry.optString("artistRadio").takeIf(String::isNotBlank)?.let {
-                                    putString(com.example.playback.ARTIST_RADIO_EXTRA, it)
+                                entry.optString("artistRadio").takeIf(String::isNotBlank)?.let { artist ->
+                                    putArtistRadio(artist, shuffle = entry.optBoolean("artistRadioShuffle"))
                                 }
                                 entry.optJSONObject("enhancerOrigin")?.let { origin ->
                                     com.example.playback.SourceTransitionOrigin.keys.forEach { key -> when (val value = origin.opt(key)) {

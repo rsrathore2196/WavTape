@@ -197,6 +197,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.example.data.model.MusicTrack
+import com.example.data.model.queueIdentity
 import com.example.playback.PlayerUiState
 import com.example.playback.RepeatMode
 import com.example.ui.theme.LocalAppColors
@@ -1211,7 +1212,7 @@ fun ExpandedPlayerScreen(
                                 }
                             }
                             PlayerTimelineSection(
-                                trackId = track.id,
+                                track = track,
                                 currentPositionProvider = currentPositionProvider,
                                 playbackPositionFlow = playbackPositionFlow,
                                 trackDurationProvider = trackDurationProvider,
@@ -2134,7 +2135,7 @@ fun ExpandedPlayerScreen(
                 .graphicsLayer { alpha = 1f - lyricsExpansion.value }
                 .then(if (lyricsExpanded) Modifier.clearAndSetSemantics { } else Modifier)) {
             PlayerTimelineSection(
-                trackId = track.id,
+                track = track,
                 currentPositionProvider = currentPositionProvider,
                 playbackPositionFlow = playbackPositionFlow,
                 trackDurationProvider = trackDurationProvider,
@@ -3190,7 +3191,7 @@ private fun PlayerOptionsMenu(
 
 @Composable
 private fun PlayerTimelineSection(
-    trackId: String,
+    track: MusicTrack,
     currentPositionProvider: () -> Long,
     playbackPositionFlow: StateFlow<Long>?,
     trackDurationProvider: () -> Long,
@@ -3205,16 +3206,17 @@ private fun PlayerTimelineSection(
     qualityFade: State<Float>? = null
 ) {
     val appColors = LocalAppColors.current
-    var isUserScrubbing by remember(trackId) { mutableStateOf(false) }
-    var scrubPosition by remember(trackId) { mutableFloatStateOf(0f) }
+    val selection = track.queueIdentity
+    var isUserScrubbing by remember(selection) { mutableStateOf(false) }
+    var scrubPosition by remember(selection) { mutableFloatStateOf(0f) }
 
     // Dynamic real-time playback position state
-    var livePosition by remember(trackId) { mutableLongStateOf(currentPositionProvider()) }
+    var livePosition by remember(selection) { mutableLongStateOf(currentPositionProvider()) }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val latestPositionProvider by rememberUpdatedState(currentPositionProvider)
     // Same visible cadence, suspended while the activity is not resumed.
-    LaunchedEffect(trackId, isPlaying, playbackPositionFlow, lifecycle, active) {
+    LaunchedEffect(selection, isPlaying, playbackPositionFlow, lifecycle, active) {
         if (!active) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if (!isUserScrubbing) livePosition = latestPositionProvider()
@@ -3265,9 +3267,9 @@ private fun PlayerTimelineSection(
         if (isEffectivelyDark) Color.White else Color.Black
     } else if (isEffectivelyDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.65f)
 
-    val seekStarted = remember(trackId) { { isUserScrubbing = true } }
-    val seekProgress = remember(trackId) { { fraction: Float -> scrubPosition = fraction } }
-    val seekFinished = remember(trackId, trackDuration, onSeekTo) {
+    val seekStarted = remember(selection) { { isUserScrubbing = true } }
+    val seekProgress = remember(selection) { { fraction: Float -> scrubPosition = fraction } }
+    val seekFinished = remember(selection, trackDuration, onSeekTo) {
         { fraction: Float ->
             val seekPos = (fraction * trackDuration).toLong()
             livePosition = seekPos
@@ -3275,7 +3277,7 @@ private fun PlayerTimelineSection(
             isUserScrubbing = false
         }
     }
-    val seekCancelled = remember(trackId) {
+    val seekCancelled = remember(selection) {
         {
             isUserScrubbing = false
             livePosition = latestPositionProvider()
@@ -3292,7 +3294,7 @@ private fun PlayerTimelineSection(
             onSeekStarted = seekStarted,
             onSeekProgress = seekProgress,
             onSeekFinished = seekFinished,
-            gestureKey = trackId,
+            gestureKey = selection,
             onSeekCancelled = seekCancelled,
             isDark = isEffectivelyDark,
             barColor = liveProgressColor,
@@ -3323,7 +3325,7 @@ private fun PlayerTimelineSection(
                     alpha = qualityFade?.let { 1f - it.value } ?: if (showQuality) 1f else 0f
                 }.then(if (!showQuality) Modifier.clearAndSetSemantics { } else Modifier)
             ) {
-                AudioQualityBadge(trackId = trackId, fallbackText = qualityChipText,
+                AudioQualityBadge(trackId = track.id, fallbackText = qualityChipText,
                     background = chipBgColor, border = chipBorderColor, content = chipContentColor, enabled = showQuality && active)
             }
 

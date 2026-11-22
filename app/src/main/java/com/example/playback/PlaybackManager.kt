@@ -320,9 +320,9 @@ class PlaybackManager(
     private var artistRadio: ArtistRadio? = null
     private var artistRadioCursor = ArtistRadioCursor()
 
-    private fun updateArtistRadio(name: String?, shuffle: Boolean = false) {
-        if (artistRadio?.name == name && artistRadio?.shuffle == shuffle) return
-        artistRadio = name?.takeIf(String::isNotBlank)?.let { ArtistRadio(it, shuffle = shuffle) }
+    private fun updateArtistRadio(station: ArtistRadio?) {
+        if (artistRadio == station) return
+        artistRadio = station
         artistRadioCursor = ArtistRadioCursor()
         cancelQueueRefill()
     }
@@ -346,7 +346,7 @@ class PlaybackManager(
                     pendingRestoredSession = saved
                     val extras = saved.items[saved.index].mediaMetadata.extras
                     isCurrentSessionExplicitPlaylist = extras?.getBoolean("queue_collection") == true
-                    updateArtistRadio(extras?.getString(ARTIST_RADIO_EXTRA))
+                    updateArtistRadio(extras?.artistRadio())
                     activeQueue = tracks
                     val current = tracks[saved.index]
                     positionClock.sample(saved.positionMs, false)
@@ -891,7 +891,7 @@ class PlaybackManager(
         if (pendingSelectionId == null) synchronizeControllerQueue(player)
         player.currentMediaItem?.takeIf { pendingSelectionId == null }?.let { item ->
             isCurrentSessionExplicitPlaylist = item.mediaMetadata.extras?.getBoolean("queue_collection") == true
-            updateArtistRadio(item.mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
+            updateArtistRadio(item.mediaMetadata.extras?.artistRadio())
             val track = activeQueue.getOrNull(player.currentMediaItemIndex) ?: controllerTrack(item)
             recoveryGuard.select(track.id)
             _uiState.update { it.copy(currentTrack = track, queue = queueSnapshot(), currentIndex = player.currentMediaItemIndex,
@@ -1039,7 +1039,7 @@ class PlaybackManager(
                     if (pendingSelectionId == trackId) pendingSelectionId = null
                     val oldTrack = _uiState.value.currentTrack
                     val sameOccurrence = matchesQueueSelection(oldTrack, mediaItem)
-                    if (!sameOccurrence) updateArtistRadio(mediaItem.mediaMetadata.extras?.getString(ARTIST_RADIO_EXTRA))
+                    if (!sameOccurrence) updateArtistRadio(mediaItem.mediaMetadata.extras?.artistRadio())
                     if (!sameOccurrence) selectionGeneration++
                     if (oldTrack?.id != trackId || !sameOccurrence || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
                         recoveryJob?.cancel()
@@ -1784,9 +1784,10 @@ class PlaybackManager(
         val currentTrack = _uiState.value.currentTrack
         val requestedIdentity = track.queueIdentity
         val isSameTrack = currentTrack?.queueIdentity == requestedIdentity
+        val station = artistRadioName?.takeIf(String::isNotBlank)?.let { ArtistRadio(it, shuffle = artistRadioShuffle) }
         // A different occurrence or queue is a new selection even if it starts on the audible recording.
         val debounceSelection = sinceLastRequest < 450L && lastRequestedQueueIdentity == requestedIdentity &&
-            !isInfiniteRadio && artistRadio == null && artistRadioName == null &&
+            !isInfiniteRadio && artistRadio == null && station == null &&
             isExplicitPlaylist == isCurrentSessionExplicitPlaylist &&
             (!isExplicitPlaylist || queue == lastRequestedCollection)
 
@@ -1830,8 +1831,7 @@ class PlaybackManager(
         // Cancel previous unresolved network/stream resolution job and search queue jobs
         activeSearchPlayJob?.cancel()
         playResolutionJob?.cancel()
-        if (artistRadio?.name == artistRadioName && artistRadio?.shuffle == artistRadioShuffle) cancelQueueRefill()
-        else updateArtistRadio(artistRadioName, artistRadioShuffle)
+        if (artistRadio == station) cancelQueueRefill() else updateArtistRadio(station)
         val generation = beginSelection(track)
         val startupTrace = selectionStartupTrace
         pendingPolicyRestart = { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName, artistRadioShuffle) }
@@ -2191,7 +2191,7 @@ class PlaybackManager(
     fun playQueuedTrack(track: MusicTrack) {
         playTrack(track, _uiState.value.queue.ifEmpty { listOf(track) }, isExplicitPlaylist = isCurrentSessionExplicitPlaylist,
             isInfiniteRadio = _uiState.value.isInfiniteRadio, collectionLoader = collectionContinuation, preserveQueue = true,
-            artistRadioName = artistRadio?.name)
+            artistRadioName = artistRadio?.name, artistRadioShuffle = artistRadio?.shuffle == true)
     }
 
     fun playFromSearch(track: MusicTrack, @Suppress("UNUSED_PARAMETER") searchContextPool: List<MusicTrack>) {
@@ -2204,7 +2204,8 @@ class PlaybackManager(
         val current = _uiState.value.currentTrack ?: return
         recoveryGuard.select(current.id, newRequest = true)
         playTrack(current, activeQueue.ifEmpty { selectionContext }, isCurrentSessionExplicitPlaylist,
-            _uiState.value.isInfiniteRadio, collectionContinuation, preserveQueue = true, artistRadioName = artistRadio?.name)
+            _uiState.value.isInfiniteRadio, collectionContinuation, preserveQueue = true,
+            artistRadioName = artistRadio?.name, artistRadioShuffle = artistRadio?.shuffle == true)
     }
 
     fun setAutoplayEnabled(enabled: Boolean) {
@@ -2246,7 +2247,7 @@ class PlaybackManager(
         if (selected != null && player.currentMediaItem?.mediaId != selected.id) {
             playTrack(selected, _uiState.value.queue.ifEmpty { selectionContext.ifEmpty { listOf(selected) } },
                 isCurrentSessionExplicitPlaylist, _uiState.value.isInfiniteRadio, collectionContinuation, preserveQueue = true,
-                artistRadioName = artistRadio?.name)
+                artistRadioName = artistRadio?.name, artistRadioShuffle = artistRadio?.shuffle == true)
             return
         }
 
@@ -2650,9 +2651,9 @@ class PlaybackManager(
         }).build()).build()
 
     private data class QueueMetadata(val collection: Boolean, val currentId: String?, val deadline: Long,
-        val origin: SourceTransitionOrigin?, val maxBitrate: Int, val artistRadioName: String?)
+        val origin: SourceTransitionOrigin?, val maxBitrate: Int, val artistRadio: ArtistRadio?)
     private fun queueMetadata() = QueueMetadata(isCurrentSessionExplicitPlaylist, _uiState.value.currentTrack?.id,
-        initialJioDeadlineMs, enhancerOrigin, NetworkQualityMonitor.getInstance(context).currentMaxBitrateBps, artistRadio?.name)
+        initialJioDeadlineMs, enhancerOrigin, NetworkQualityMonitor.getInstance(context).currentMaxBitrateBps, artistRadio)
     private fun MusicTrack.toMediaItem(targetQuality: AudioQuality = _uiState.value.selectedQuality,
         preparedPolicy: PlaybackSourcePolicy? = null, startupTrace: Long = 0L,
         metadata: QueueMetadata = queueMetadata()): MediaItem {
@@ -2694,7 +2695,7 @@ class PlaybackManager(
                         putString("media_source", source)
                         putBoolean("recommendation_only", recommendationOnly)
                         putBoolean("queue_collection", metadata.collection)
-                        metadata.artistRadioName?.let { putString(ARTIST_RADIO_EXTRA, it) }
+                        metadata.artistRadio?.let { putArtistRadio(it.name, it.shuffle) }
                         putLong("jio_start_deadline", if (id == metadata.currentId) metadata.deadline else 0L)
                         putLong("duration", durationMs)
                         putBoolean("isLiked", isLiked)

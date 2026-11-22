@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.MusicTrack
+import com.example.playback.ArtistRadio
 import com.example.playback.PlaybackManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -62,6 +63,47 @@ class PlaybackSelectionReadinessTest {
             manager.playTrack(first, entries, isExplicitPlaylist = true)
             manager.playTrack(second, entries, isExplicitPlaylist = true)
             assertEquals(second, manager.uiState.value.currentTrack)
+        } finally {
+            manager.release()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun queueSelectionAndRetryKeepTheArtistShuffleMode() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val manager = PlaybackManager(ApplicationProvider.getApplicationContext<Application>())
+        val first = MusicTrack("first", "First", "Artist", "Album", 180_000, "", "https://audio.example/first.m4a")
+        val second = first.copy(id = "second", title = "Second")
+        val station = PlaybackManager::class.java.getDeclaredField("artistRadio").apply { isAccessible = true }
+        try {
+            manager.playArtistRadio(first, "Artist", listOf(first, second), shuffle = true)
+            val expected = ArtistRadio("Artist", shuffle = true)
+            assertEquals(expected, station.get(manager))
+            manager.playQueuedTrack(second)
+            assertEquals(expected, station.get(manager))
+            manager.retryPlayback()
+            assertEquals(expected, station.get(manager))
+        } finally {
+            manager.release()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun regularQueueTransitionKeepsItsRefillGeneration() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val manager = PlaybackManager(ApplicationProvider.getApplicationContext<Application>())
+        val beforeRefill = PlaybackManager::class.java.getDeclaredField("queueGeneration").apply { isAccessible = true }
+        val updateStation = PlaybackManager::class.java.getDeclaredMethod("updateArtistRadio", ArtistRadio::class.java)
+            .apply { isAccessible = true }
+        try {
+            val initial = beforeRefill.getLong(manager)
+            updateStation.invoke(manager, null)
+            assertEquals(initial, beforeRefill.getLong(manager))
+            updateStation.invoke(manager, ArtistRadio("Artist", shuffle = true))
+            val artist = beforeRefill.getLong(manager)
+            assertTrue(artist > initial)
+            updateStation.invoke(manager, ArtistRadio("Artist", shuffle = true))
+            assertEquals(artist, beforeRefill.getLong(manager))
         } finally {
             manager.release()
             Dispatchers.resetMain()
