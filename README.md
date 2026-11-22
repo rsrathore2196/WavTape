@@ -96,14 +96,22 @@
 
 ### 🎧 Premium Streaming & Audio Engine
 - **Hi-Res Lossless & HQ Listening:** Enjoy FLAC, WAV, AAC, and bitrate tiers up to 24-bit/192 kHz studio master quality, with adjustable audio quality settings for mobile or high-fidelity listening.
+- **Custom Add-ons for Hi-Res Lossless:** Extend studio-quality and Hi-Res Lossless playback with Custom Add-ons support.
+- **Dolby Atmos & Spatial Audio:** Experience immersive Dolby Atmos and Spatial Audio with enhanced output precision on compatible devices.
 - **Audio DSP & Equalizer:** Tune playback with a 5-band hardware equalizer, preset modes including Flat, Bass Boost, Studio Master, Vocal Enhance, Electronic, Rock, and Acoustic, plus Crystal Clarity and bass enhancement processing.
+- **Audiophile Audio Pipeline:** Inspect detailed playback source, audio quality, and output precision insights directly inside the player.
 - **Gapless, Smooth Playback:** Gapless transitions, 16-bit PCM hardware output, predictive pre-buffering, and a local LRU cache help reduce stutter and lag on weaker connections.
+- **Seamless Crossfade:** Smoothly blend transitions between consecutive tracks for a natural, uninterrupted listening flow.
+- **Reimagined Synced Lyrics:** Follow smoothly animated, multilingual lyrics with **Lyrics Translation & Romanization**, **Custom Lyrics Offset Adjustment**, **Adjustable Lyrics Text Size**, and **Custom `.LRC` Lyrics Import**.
 - **Background & Controls:** Persistent lock screen and notification playback controls keep music playing in the background with AndroidX Media3 support.
 - **Smart Recommendations:** Discover more relevant tracks, regional chart hits, personalized mixes, and artist-based suggestions without repetitive country tags.
 - **Fresh Genre Discovery:** Shuffle through curated genre sessions with better track rotation and new recommendations every time you open a section.
 
 ### 🎨 Material You Interface & Customization
 - **Modern Material 3 UI:** Clean, glass-inspired layouts with dynamic AMOLED dark mode, light mode, or system theme matching.
+- **Liquid Glass Design & Adaptive Themes:** Translucent, adaptive Liquid Glass surfaces and refined visual depth harmonized with improved adaptive Material Design theming across the entire app.
+- **Full-Screen Album Art & Immersive Player:** Adaptive player backgrounds with full-screen album art support for a richer, more immersive Now Playing experience.
+- **Fluid Motion & Smooth Transitions:** Refined screen transitions and responsive animations crafted for natural, effortless navigation across Android devices.
 - **Custom Themes & Colors:** Choose from 10 curated presets and fine-tune accent, canvas, card, and gradient colors with live visual changes.
 - **Player UX & Visuals:** Ambient album glow, dynamic blur/liquid glass effects, high-contrast typography, full-screen player polish, and tactile haptic feedback.
 - **Text & Layout Controls:** Adjust text size, UI density, theme mode, and mini-player actions like the favorite heart and next-track control.
@@ -111,12 +119,17 @@
 
 ### 🔍 Search, Library & Discovery
 - **Instant Online Search:** Search tracks, artists, albums, and top hits with a fast, debounced engine.
+- **Offline Downloads:** Download your favorite tracks for uninterrupted offline listening anytime, without depending on an active internet connection.
+- **Connected Music Accounts (YouTube, Spotify & Last.fm):** Link your **YouTube**, **Spotify**, and **Last.fm** accounts for **Two-Way Playlist Sync**, **Two-Way Liked Songs Sync**, and **Music Scrobbling**.
+- **Listening Stats & Shareable Highlights:** Visualize your listening journey with **Weekly**, **Monthly**, and **Lifetime** insights, plus shareable Listening Stats highlights.
+- **Enhanced Artist Profiles:** Explore dedicated artist pages synced directly with YouTube Music artist accounts and profiles.
 - **Personalized Library:** Save favorites, track listening history, revisit recently played music, and follow most-listened artists and curated recommendations.
 - **Playlists & Queue:** Create and manage playlists, reorder tracks, shuffle, loop, and resume playback without interruption.
 - **Import from Other Services:** Import playlists from Spotify, Apple Music, Amazon Music, and custom local music sources.
 - **Home & Discovery Cards:** Explore trending tracks, personalized mixes, country/language recommendations, and inspired song sections from the Home screen.
 
 ### 🧰 Smart Settings, Backup & Privacy
+- **Performance Profiles & 120 Hz Support:** Choose dedicated performance profiles with adaptive refresh-rate support up to **120 Hz** on compatible devices and broad Android compatibility including Android 17.
 - **Smart Storage & Cache:** Clear cache, smart auto-trim, configure cache quotas, and run one-tap optimization to keep storage under control.
 - **Backup & Restore:** Create backups of playlists, library entries, and preferences, restore them from phone storage, and automate backups to a chosen folder.
 - **Privacy & Proxy Controls:** Use proxy settings and privacy-conscious preferences without invasive tracking or unnecessary permissions.
