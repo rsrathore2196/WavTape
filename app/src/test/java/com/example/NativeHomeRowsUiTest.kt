@@ -1,8 +1,13 @@
 package com.example
 
 import android.app.Application
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -14,6 +19,7 @@ import com.example.ui.theme.DarkAppColors
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.viewmodel.SectionState
+import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -21,13 +27,16 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.File
 
+@OptIn(ExperimentalRoborazziApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h891dp-port")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NativeHomeRowsUiTest {
     @get:Rule val compose = createComposeRule()
     private val fullTitle = "Artist 1 - Native song 1 (Live Remix) (Official Music Video)"
+    private val backdrop = Color(0xFF324A58)
     private val tracks = (1..20).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
         originalProviderTitle = if (it == 1) fullTitle else "") }
     private fun content(kind: NativeShelfKind, trending: Boolean = false, subtitle: String = "",
@@ -35,15 +44,31 @@ class NativeHomeRowsUiTest {
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false),
                 LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false) {
-                SectionCardLayout(SectionState(title = "Native shelf", subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
-                    DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
-                    onTrackClick = click, tracksPrepared = true, nativeKind = kind, resolveSongCovers = trending,
-                    shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
+                Box(Modifier.background(backdrop)) {
+                    SectionCardLayout(SectionState(title = "Native shelf", subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
+                        DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
+                        onTrackClick = click, tracksPrepared = true, nativeKind = kind, resolveSongCovers = trending,
+                        shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
+                }
             }
         } }
         compose.onNodeWithText(fullTitle).assertIsDisplayed()
         compose.onNodeWithText(tracks[1].title).assertIsDisplayed()
     }
+    @Test fun quickPicksFrameShowsTheHomeBackgroundThroughItsInterior() {
+        content(NativeShelfKind.QUICK_PICKS)
+        val imageFile = File.createTempFile("quick-picks-frame-", ".png")
+        try {
+            compose.onNodeWithTag("native_quick_picks_frame").captureRoboImage(imageFile.absolutePath,
+                RoborazziOptions(taskType = RoborazziTaskType.Record))
+            val image = javax.imageio.ImageIO.read(imageFile)
+            assertEquals(backdrop.toArgb(), image.getRGB(6, image.height / 2))
+            assertNotEquals(backdrop.toArgb(), image.getRGB(0, image.height / 2))
+        } finally {
+            imageFile.delete()
+        }
+    }
+
     @Test fun quickPicksHasTwoColumnsAndThreeRowsPerLazyPageWithOriginalQueueOrder() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }

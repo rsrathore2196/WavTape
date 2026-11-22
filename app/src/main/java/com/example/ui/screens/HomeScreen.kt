@@ -854,7 +854,7 @@ fun SectionCardLayout(
     val frameShape = RoundedCornerShape(22.dp)
     val headingPadding = if (quickPicks) 14.dp else 20.dp
     val frame = if (quickPicks) Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-        .clip(frameShape).background(cardBg).border(BorderStroke(1.dp, cardBorderColor), frameShape)
+        .clip(frameShape).border(BorderStroke(1.dp, cardBorderColor), frameShape)
         .testTag("native_quick_picks_frame").padding(vertical = 14.dp)
         else Modifier
     Column(modifier = Modifier.padding(top = 22.dp).then(frame)) {

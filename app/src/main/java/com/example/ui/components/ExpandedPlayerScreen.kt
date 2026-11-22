@@ -1553,20 +1553,25 @@ fun ExpandedPlayerScreen(
                     } else Box(Modifier)
                 }
             } else {
-                val spaceForControls = ((configuration.screenHeightDp - 560f) / 200f).coerceIn(0f, 1f)
-                val extraControlSpacing = 8.dp * spaceForControls
-                val transportGap = 14.dp + extraControlSpacing
-                PortraitPlayerExpansion(
-                    expansion = lyricsExpansion,
-                    lyricsVisibility = lyricsVisibility,
-                    artworkToTimelineGap = 14.dp + extraControlSpacing / 2,
-                    modifier = Modifier
-                        .fillMaxSize()
+                BoxWithConstraints(
+                    Modifier.fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
                         .padding(horizontal = if (isFullScreenArt) 0.dp else 24.dp)
                         .widthIn(max = 500.dp)
                 ) {
+                    val baselineSpacing = (maxHeight - 520.dp).coerceIn(0.dp, 200.dp) * .04f
+                    // Allocate extra viewport height between control groups so it
+                    // does not all become empty space around the square cover.
+                    val tallSpace = (maxHeight - 680.dp).coerceAtLeast(0.dp)
+                    val transportGap = 14.dp + baselineSpacing + tallSpace * .18f
+                    val artworkToMetadataGap = 16.dp + baselineSpacing / 2 + tallSpace * .10f
+                    PortraitPlayerExpansion(
+                        expansion = lyricsExpansion,
+                        lyricsVisibility = lyricsVisibility,
+                        modifier = Modifier.fillMaxSize(),
+                        artworkToTimelineGap = 14.dp + baselineSpacing / 2 + tallSpace * .14f
+                    ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1577,7 +1582,7 @@ fun ExpandedPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp - extraControlSpacing / 2),
+                    .padding(vertical = 12.dp - baselineSpacing / 2),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1965,7 +1970,7 @@ fun ExpandedPlayerScreen(
                                     }
                                 }
                             }
-                            Spacer(Modifier.height(16.dp + extraControlSpacing / 2))
+                            Spacer(Modifier.height(artworkToMetadataGap))
                             // TRACK INFO & FAVORITE TOGGLE
                             Row(
                                 modifier = Modifier
@@ -2438,6 +2443,7 @@ fun ExpandedPlayerScreen(
                 }
             }
             }
+                    }
         }
     }
 
@@ -2761,9 +2767,9 @@ private fun Modifier.animatedArtworkShadow(accent: State<Color>, shape: androidx
     }
 
 private fun Modifier.animatedSquareArtworkSize(fraction: State<Float>): Modifier = layout { measurable, constraints ->
-    // Apply the existing scale spring after fitting both axes so short screens
-    // keep their square cover above the title throughout the motion.
-    val available = minOf(constraints.maxWidth, constraints.maxHeight)
+    // Apply the existing scale spring to a square that fits compact layouts
+    // and has a maximum size on wide portrait screens.
+    val available = minOf(constraints.maxWidth, constraints.maxHeight, 400.dp.roundToPx())
     val side = (available * fraction.value).roundToInt().coerceIn(0, available)
     val placeable = measurable.measure(Constraints.fixed(side, side))
     layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }

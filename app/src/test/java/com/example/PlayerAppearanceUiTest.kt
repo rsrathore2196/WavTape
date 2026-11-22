@@ -79,6 +79,44 @@ class PlayerAppearanceUiTest {
     @Test @Config(sdk = [34], qualifiers = "w320dp-h560dp-port")
     fun compactPortraitKeepsEveryControlInTheViewport() = checkPortraitSpacing(12)
 
+    @Test @Config(sdk = [34], qualifiers = "w780dp-h1232dp-port")
+    fun aTallerViewportSpreadsTheControlsAndCapsTheSquareCover() {
+        var height by mutableStateOf(880.dp)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false,
+                dynamicAlbumGlow = false), LocalDynamicGlassEnabled provides false) {
+                Box(Modifier.fillMaxWidth().height(height).testTag("portrait_player_viewport")) {
+                    ExpandedPlayerScreen(PlayerUiState(currentTrack = track, isPlaying = true),
+                        {}, {}, {}, {}, {}, {}, {}, {}, {}, onAddToPlaylist = {}, isScreenVisible = false)
+                }
+            }
+        } }
+        compose.mainClock.advanceTimeBy(800)
+        fun bounds(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true)
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val shorterGap = bounds("expanded_player_play_pause").top - bounds("player_timeline_section").bottom
+        val shorterFooterGap = bounds("sound_output_device_button").top - bounds("expanded_player_play_pause").bottom
+        compose.runOnIdle { height = 1160.dp }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        val viewport = bounds("portrait_player_viewport")
+        val cover = bounds("flip_album_art_card")
+        val title = bounds("player_track_title")
+        val timeline = bounds("player_timeline_section")
+        val play = bounds("expanded_player_play_pause")
+        val footer = bounds("sound_output_device_button")
+        val minimumGrowth = with(compose.density) { 35.dp.toPx() }
+        assertTrue(play.top - timeline.bottom > shorterGap + minimumGrowth)
+        assertTrue(footer.top - play.bottom > shorterFooterGap + minimumGrowth)
+        assertTrue("Track details and controls occupy over 40% of the tall viewport",
+            viewport.bottom - title.top > viewport.height * .40f)
+        assertTrue(cover.bottom < title.top)
+        assertEquals(cover.width, cover.height, 1f)
+        assertEquals(with(compose.density) { 400.dp.toPx() }, cover.width, 1f)
+        assertTrue(footer.bottom <= viewport.bottom)
+    }
+
     private fun checkPortraitSpacing(minimumGapDp: Int) {
         var playing by mutableStateOf(false)
         compose.mainClock.autoAdvance = false
