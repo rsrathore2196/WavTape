@@ -41,6 +41,8 @@ class HomeRadioUiTest {
         compose.onNodeWithTag("hero_play_infinite_radio_button").assertIsEnabled().performClick()
         assertEquals(song, heroSelection)
         compose.onNodeWithTag("home_screen").performScrollToKey("server_shelf_native")
+        compose.onNodeWithText("A mix of songs to try").assertIsDisplayed()
+        compose.onNodeWithTag("native_quick_picks_frame").assertIsDisplayed()
         compose.onNodeWithTag("most_listened_artist_row").assertDoesNotExist()
         compose.onNodeWithTag("artist_radio_shelf").assertDoesNotExist()
     }
@@ -60,6 +62,7 @@ class HomeRadioUiTest {
             }
         } }
         compose.onNodeWithTag("home_screen").performScrollToKey("most_listened_artists")
+        compose.onNodeWithText("Artists you play most often").assertIsDisplayed()
         compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
         compose.onNodeWithTag("view_artist_Artist One").assertIsDisplayed().performClick()
         assertEquals(first.name, openedArtist)

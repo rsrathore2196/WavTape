@@ -71,6 +71,7 @@ class HomeSilentLoadingUiTest {
             compose.runOnIdle { scope.launch { list.scrollToItem(index) } }
             compose.waitForIdle()
             compose.runOnIdle { assertEquals(key, list.layoutInfo.visibleItemsInfo.first { it.index == index }.key) }
+            if (key == "profile_shelf") compose.onNodeWithText("Based on your music preferences").assertIsDisplayed()
         }
     }
     @Test fun delayedOptionalShelvesPreserveTheNativeViewportKeyAndOffset() {

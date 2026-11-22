@@ -71,6 +71,8 @@ class LandscapeScreensUiTest {
         assertEquals(px(240f), rect("infinite_radio_hero_card").height, 1f)
         compose.onNodeWithTag("landscape_home_overview").assertDoesNotExist()
         compose.onNodeWithTag("landscape_recent_grid").assertDoesNotExist()
+        compose.onNodeWithTag("home_screen").performScrollToNode(hasText("Pick up where you left off"))
+        compose.onNodeWithText("Pick up where you left off").assertIsDisplayed()
         compose.onNodeWithTag("home_screen").performScrollToNode(hasTestTag("habit_pill_recent-4"))
         compose.onNodeWithTag("habit_pill_recent-4").assertIsDisplayed()
         compose.onNodeWithTag("habit_pill_recent-5").assertDoesNotExist()
@@ -92,6 +94,7 @@ class LandscapeScreensUiTest {
             if (index % 3 > 0) assertTrue(rect("habit_pill_recent-$index").right < cell.left)
         }
         compose.onAllNodesWithText("Recently Played").assertCountEquals(1)
+        compose.onNodeWithText("Pick up where you left off").assertIsDisplayed()
         compose.onNodeWithTag("habit_pill_recent-7").assertDoesNotExist()
         compose.onNodeWithTag("habit_pill_recent-4").performClick()
         assertEquals(tracks[3], played)
