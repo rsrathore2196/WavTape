@@ -76,6 +76,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -1553,25 +1554,16 @@ fun ExpandedPlayerScreen(
                     } else Box(Modifier)
                 }
             } else {
-                BoxWithConstraints(
-                    Modifier.fillMaxSize()
+                PortraitPlayerExpansion(
+                    expansion = lyricsExpansion,
+                    lyricsVisibility = lyricsVisibility,
+                    modifier = Modifier
+                        .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
                         .padding(horizontal = if (isFullScreenArt) 0.dp else 24.dp)
                         .widthIn(max = 500.dp)
                 ) {
-                    val baselineSpacing = (maxHeight - 520.dp).coerceIn(0.dp, 200.dp) * .04f
-                    // Allocate extra viewport height between control groups so it
-                    // does not all become empty space around the square cover.
-                    val tallSpace = (maxHeight - 680.dp).coerceAtLeast(0.dp)
-                    val transportGap = 14.dp + baselineSpacing + tallSpace * .18f
-                    val artworkToMetadataGap = 16.dp + baselineSpacing / 2 + tallSpace * .10f
-                    PortraitPlayerExpansion(
-                        expansion = lyricsExpansion,
-                        lyricsVisibility = lyricsVisibility,
-                        modifier = Modifier.fillMaxSize(),
-                        artworkToTimelineGap = 14.dp + baselineSpacing / 2 + tallSpace * .14f
-                    ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1582,7 +1574,7 @@ fun ExpandedPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp - baselineSpacing / 2),
+                    .padding(vertical = if (isLandscape) 6.dp else 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1801,7 +1793,13 @@ fun ExpandedPlayerScreen(
                                             .testTag("flip_album_art_card")
                                     } else {
                                         Modifier
-                                            .animatedSquareArtworkSize(albumArtScale)
+                                            .fillMaxHeight(if (isLandscape) 0.88f else 1f)
+                                            .animatedFillMaxWidth(albumArtScale)
+                                            .sizeIn(
+                                                maxWidth = if (isLandscape) 210.dp else 330.dp,
+                                                maxHeight = if (isLandscape) 210.dp else 330.dp
+                                            )
+                                            .aspectRatio(1f)
                                             .sharedElement(
                                                 rememberSharedContentState("lyrics_artwork_${track.id}"),
                                                 animatedVisibilityScope = this@AnimatedContent,
@@ -1970,7 +1968,7 @@ fun ExpandedPlayerScreen(
                                     }
                                 }
                             }
-                            Spacer(Modifier.height(artworkToMetadataGap))
+                            Spacer(Modifier.height(16.dp))
                             // TRACK INFO & FAVORITE TOGGLE
                             Row(
                                 modifier = Modifier
@@ -2148,7 +2146,7 @@ fun ExpandedPlayerScreen(
                     .graphicsLayer { alpha = 1f - lyricsExpansion.value }
                     .then(if (lyricsExpanded) Modifier.clearAndSetSemantics { } else Modifier)
             ) {
-            Spacer(modifier = Modifier.height(transportGap))
+            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 14.dp))
 
             // MAIN CONTROL CLUSTER (Shuffle, Prev, Play/Pause, Next, Repeat/Replay) in Full Liquid Glass UI
             Row(
@@ -2308,7 +2306,7 @@ fun ExpandedPlayerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(transportGap))
+            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 14.dp))
 
             // BOTTOM BAR (Lyrics Button on bottom-left, Output Devices in bottom-centre, Queue on bottom-right)
             Row(
@@ -2443,7 +2441,6 @@ fun ExpandedPlayerScreen(
                 }
             }
             }
-                    }
         }
     }
 
@@ -2766,12 +2763,15 @@ private fun Modifier.animatedArtworkShadow(accent: State<Color>, shape: androidx
         ambientShadowColor = Color.Black
     }
 
-private fun Modifier.animatedSquareArtworkSize(fraction: State<Float>): Modifier = layout { measurable, constraints ->
-    // Apply the existing scale spring to a square that fits compact layouts
-    // and has a maximum size on wide portrait screens.
-    val available = minOf(constraints.maxWidth, constraints.maxHeight, 400.dp.roundToPx())
-    val side = (available * fraction.value).roundToInt().coerceIn(0, available)
-    val placeable = measurable.measure(Constraints.fixed(side, side))
+private fun Modifier.animatedFillMaxWidth(fraction: State<Float>): Modifier = layout { measurable, constraints ->
+    // Match fillMaxWidth's constraints exactly, reading the spring during measurement
+    // instead of recomposing every control and shared-element target on each frame.
+    val widthConstraints = if (constraints.hasBoundedWidth) {
+        val width = (constraints.maxWidth * fraction.value).roundToInt()
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+        constraints.copy(minWidth = width, maxWidth = width)
+    } else constraints
+    val placeable = measurable.measure(widthConstraints)
     layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
 }
 

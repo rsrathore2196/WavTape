@@ -8,8 +8,6 @@ import com.example.ui.util.localizedCatalogText
 
 import android.content.res.Configuration
 import android.graphics.Typeface
-import com.example.data.model.HomeShelfIdentity
-import com.example.data.model.NativeShelfKind
 import com.example.data.model.ServerHomeItem
 import com.example.data.model.nativeKind
 import com.example.data.model.requiresSongArtwork
@@ -467,7 +465,6 @@ fun HomeScreenContent(
                                 color = textPrimaryColor
                             )
                         )
-                        HomeShelfSubtitle(stringResource(R.string.home_recently_played_subtitle), textMutedColor)
                         Spacer(modifier = Modifier.height(10.dp))
 
                         val rowCount = (pillsTracks.size + 1) / 2
@@ -521,7 +518,7 @@ fun HomeScreenContent(
                 artworkItem(state = listState, key = "profile_shelf", contentType = "server_song_shelf") {
                     val title = if (resolvedProfile.title == "Music for You") stringResource(R.string.music_for_you)
                         else resolvedProfile.title
-                    val subtitle = if (resolvedProfile.subtitle.isBlank() || resolvedProfile.subtitle == "Based on your music preferences") stringResource(R.string.music_for_you_subtitle)
+                    val subtitle = if (resolvedProfile.subtitle == "Based on your music preferences") stringResource(R.string.music_for_you_subtitle)
                         else resolvedProfile.subtitle
                     val section = remember(resolvedProfile, title, subtitle) {
                         SectionState(title = title, subtitle = subtitle,
@@ -544,14 +541,15 @@ fun HomeScreenContent(
                     val artistListState = rememberLazyListState()
                     ObserveHomeScroll(artistListState)
                     Column(Modifier.padding(top = 22.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 stringResource(R.string.most_listened_artists),
+                                modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = textPrimaryColor
                             )
-                            HomeShelfSubtitle(stringResource(R.string.home_most_listened_artists_subtitle), textMutedColor)
                         }
                         Spacer(Modifier.height(12.dp))
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -745,11 +743,10 @@ private fun LandscapeHomeOverview(seed: MusicTrack?, currentPlayingId: String?, 
         if (recentTracks.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) { radio() }
         else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             radio()
-            Column(Modifier.weight(1f).heightIn(min = 240.dp).testTag("landscape_recent_grid"),
+            Column(Modifier.weight(1f).height(240.dp).testTag("landscape_recent_grid"),
                 verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.recently_played), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold,
                     fontSize = 18.sp, color = colors.textPrimary))
-                HomeShelfSubtitle(stringResource(R.string.home_recently_played_subtitle), colors.textMuted)
                 Spacer(Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (row in 0 until (visibleRecents.size + recentColumns - 1) / recentColumns) {
@@ -801,25 +798,6 @@ internal fun VisibleItemArtwork(state: LazyListState, key: String, defaultVisibl
         com.example.ui.components.LocalVisualEffectsActive provides (parentEffectsActive && inViewport), content = content)
 }
 
-@Composable
-private fun HomeShelfSubtitle(subtitle: String, color: Color) {
-    Spacer(Modifier.height(2.dp))
-    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = color,
-        maxLines = 2, overflow = TextOverflow.Ellipsis)
-}
-
-private fun shelfSubtitleResource(title: String, kind: NativeShelfKind, items: List<ServerHomeItem>): Int {
-    if (kind == NativeShelfKind.QUICK_PICKS) return R.string.home_quick_picks_subtitle
-    if (kind == NativeShelfKind.MUSIC_VIDEOS) return R.string.home_music_videos_subtitle
-    val heading = HomeShelfIdentity.title(title)
-    return when {
-        heading == "trending" || heading.startsWith("trending ") -> R.string.home_trending_subtitle
-        items.isNotEmpty() && items.all { it is ServerHomeItem.Album } -> R.string.home_albums_subtitle
-        items.isNotEmpty() && items.all { it is ServerHomeItem.Playlist } -> R.string.home_playlists_subtitle
-        else -> R.string.home_catalog_shelf_subtitle
-    }
-}
-
 /**
  * Standard horizontal shelf layout for home cards with skeleton placeholder loader support.
  */
@@ -835,7 +813,7 @@ fun SectionCardLayout(
     tracksPrepared: Boolean = false,
     shelfItems: List<ServerHomeItem> = emptyList(),
     onOpenCatalog: (CatalogDestination) -> Unit = {},
-    nativeKind: NativeShelfKind = NativeShelfKind.STANDARD,
+    nativeKind: com.example.data.model.NativeShelfKind = com.example.data.model.NativeShelfKind.STANDARD,
     resolveSongCovers: Boolean = false,
     artworkContext: String = ""
 ) {
@@ -850,15 +828,8 @@ fun SectionCardLayout(
     }
     val shelfListState = rememberLazyListState()
     ObserveHomeScroll(shelfListState)
-    val quickPicks = nativeKind == NativeShelfKind.QUICK_PICKS
-    val frameShape = RoundedCornerShape(22.dp)
-    val headingPadding = if (quickPicks) 14.dp else 20.dp
-    val frame = if (quickPicks) Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-        .clip(frameShape).border(BorderStroke(1.dp, cardBorderColor), frameShape)
-        .testTag("native_quick_picks_frame").padding(vertical = 14.dp)
-        else Modifier
-    Column(modifier = Modifier.padding(top = 22.dp).then(frame)) {
-        Column(modifier = Modifier.padding(horizontal = headingPadding)) {
+    Column(modifier = Modifier.padding(top = 22.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
             if (state.isLoading && state.title.isBlank()) Box(Modifier.width(148.dp).height(22.dp)
                 .clip(RoundedCornerShape(4.dp)).then(rememberShimmerBackground()).testTag("home_shelf_heading_loading"))
             else Text(
@@ -869,12 +840,14 @@ fun SectionCardLayout(
                     color = textPrimaryColor
                 )
             )
-            if (state.title.isNotBlank() || state.subtitle.isNotBlank()) {
-                val subtitle = if (state.subtitle.isNotBlank()) localizedCatalogText(state.subtitle)
-                    else stringResource(remember(state.title, nativeKind, shelfItems) {
-                        shelfSubtitleResource(state.title, nativeKind, shelfItems)
-                    })
-                HomeShelfSubtitle(subtitle, textMutedColor)
+            if (state.subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = localizedCatalogText(state.subtitle),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = textMutedColor
+                    )
+                )
             }
         }
 
@@ -882,10 +855,9 @@ fun SectionCardLayout(
 
         if (state.isLoading && state.tracks.isEmpty() && shelfItems.isEmpty()) {
             SectionShimmerRow()
-        } else if (quickPicks) {
-            QuickPicksGrid(safeTracks, shelfListState, currentPlayingId, cardBg, cardBorderColor, textPrimaryColor, textMutedColor,
-                contentInset = headingPadding, play = onTrackClick)
-        } else if (nativeKind == NativeShelfKind.MUSIC_VIDEOS) {
+        } else if (nativeKind == com.example.data.model.NativeShelfKind.QUICK_PICKS) {
+            QuickPicksGrid(safeTracks, shelfListState, currentPlayingId, cardBg, cardBorderColor, textPrimaryColor, textMutedColor, onTrackClick)
+        } else if (nativeKind == com.example.data.model.NativeShelfKind.MUSIC_VIDEOS) {
             NativeMusicVideoRow(remember(shelfItems) { shelfItems.filterIsInstance<ServerHomeItem.Song>() }, safeTracks, shelfListState, currentPlayingId,
                 cardBg, cardBorderColor, textPrimaryColor, textMutedColor, onTrackClick)
         } else if (state.tracks.isNotEmpty() || shelfItems.isNotEmpty()) {
