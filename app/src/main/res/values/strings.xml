@@ -22,6 +22,15 @@
     <string name="home_greeting_format" tools:ignore="MissingTranslation">%1$s, %2$s</string>
     <string name="recently_played">Recently Played</string>
     <string name="most_listened_artists">Most Listened Artists</string>
+    <!-- Shelf descriptions use English wherever a translation is unavailable. -->
+    <string name="home_recently_played_subtitle" tools:ignore="MissingTranslation">Pick up where you left off</string>
+    <string name="home_most_listened_artists_subtitle" tools:ignore="MissingTranslation">Play artist radio or explore an artist’s page</string>
+    <string name="home_quick_picks_subtitle" tools:ignore="MissingTranslation">A mix of songs to try</string>
+    <string name="home_music_videos_subtitle" tools:ignore="MissingTranslation">Watch music videos from the catalog</string>
+    <string name="home_trending_subtitle" tools:ignore="MissingTranslation">Find out what’s popular right now</string>
+    <string name="home_albums_subtitle" tools:ignore="MissingTranslation">Browse albums and singles</string>
+    <string name="home_playlists_subtitle" tools:ignore="MissingTranslation">Find playlists for your next listen</string>
+    <string name="home_catalog_shelf_subtitle" tools:ignore="MissingTranslation">Explore this selection from YouTube Music</string>
     <string name="music_for_you">Music for You</string>
     <string name="music_for_you_subtitle">Based on your music preferences</string>
     <string name="infinite_radio">Infinite Radio</string>

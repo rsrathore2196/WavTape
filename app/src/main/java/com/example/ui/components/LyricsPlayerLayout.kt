@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -52,6 +53,7 @@ internal fun PortraitPlayerExpansion(
     expansion: State<Float>,
     lyricsVisibility: State<Float>,
     modifier: Modifier = Modifier,
+    artworkToTimelineGap: Dp = 14.dp,
     content: @Composable () -> Unit
 ) {
     val geometry = remember(expansion, lyricsVisibility) { LyricsBodyGeometry(lyricsVisibility, expansion) }
@@ -69,7 +71,7 @@ internal fun PortraitPlayerExpansion(
             geometry.timelineHeight = timeline.height
             geometry.controlsHeight = controls.height
             geometry.optionsHeight = tools.height
-            geometry.gap = 14.dp.roundToPx()
+            geometry.gap = artworkToTimelineGap.roundToPx()
             geometry.focusedGap = 12.dp.roundToPx()
             geometry.artworkHeight.intValue = (fullHeight - timeline.height - controls.height - geometry.gap).coerceAtLeast(0)
             val body = measurables[1].measure(Constraints.fixed(width, fullHeight))

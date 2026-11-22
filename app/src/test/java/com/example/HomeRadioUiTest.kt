@@ -60,6 +60,7 @@ class HomeRadioUiTest {
             }
         } }
         compose.onNodeWithTag("home_screen").performScrollToKey("most_listened_artists")
+        compose.onNodeWithText("Play artist radio or explore an artist’s page").assertIsDisplayed()
         compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
         compose.onNodeWithTag("view_artist_Artist One").assertIsDisplayed().performClick()
         assertEquals(first.name, openedArtist)

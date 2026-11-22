@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -45,12 +46,12 @@ internal fun homeTrackTitle(track: MusicTrack): String = remember(track.title, t
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun QuickPicksGrid(tracks: List<MusicTrack>, state: LazyListState, playing: String?, background: Color, border: Color,
-    foreground: Color, muted: Color, play: (MusicTrack, List<MusicTrack>) -> Unit) {
+    foreground: Color, muted: Color, contentInset: Dp, play: (MusicTrack, List<MusicTrack>) -> Unit) {
     val pages = remember(tracks) { tracks.take(18).chunked(6) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val pageWidth = (maxWidth - 40.dp).coerceAtLeast(200.dp)
+        val pageWidth = (maxWidth - contentInset * 2).coerceAtLeast(0.dp)
         LazyRow(state = state, flingBehavior = rememberSnapFlingBehavior(state), modifier = Modifier.testTag("native_quick_picks_grid"),
-            contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            contentPadding = PaddingValues(horizontal = contentInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(pages, key = { it.firstOrNull()?.id ?: it.hashCode().toString() }, contentType = { "quick_picks_page" }) { page ->
                 VisibleItemArtwork(state, page.first().id) {
                     Column(Modifier.width(pageWidth), verticalArrangement = Arrangement.spacedBy(8.dp)) {

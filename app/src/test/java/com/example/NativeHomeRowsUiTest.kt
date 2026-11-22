@@ -30,11 +30,12 @@ class NativeHomeRowsUiTest {
     private val fullTitle = "Artist 1 - Native song 1 (Live Remix) (Official Music Video)"
     private val tracks = (1..20).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
         originalProviderTitle = if (it == 1) fullTitle else "") }
-    private fun content(kind: NativeShelfKind, trending: Boolean = false, click: (MusicTrack, List<MusicTrack>) -> Unit = { _, _ -> }) {
+    private fun content(kind: NativeShelfKind, trending: Boolean = false, subtitle: String = "",
+        click: (MusicTrack, List<MusicTrack>) -> Unit = { _, _ -> }) {
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false),
                 LocalDynamicGlassEnabled provides false, LocalVisualEffectsActive provides false, LocalArtworkRequestsActive provides false) {
-                SectionCardLayout(SectionState(title = "Native shelf", tracks = tracks, isLoaded = true), tracks[1].id,
+                SectionCardLayout(SectionState(title = "Native shelf", subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
                     DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
                     onTrackClick = click, tracksPrepared = true, nativeKind = kind, resolveSongCovers = trending,
                     shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
@@ -46,7 +47,12 @@ class NativeHomeRowsUiTest {
     @Test fun quickPicksHasTwoColumnsAndThreeRowsPerLazyPageWithOriginalQueueOrder() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }
+        val frame = compose.onNodeWithTag("native_quick_picks_frame").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithText("Native shelf").fetchSemanticsNode().boundsInRoot
+        val description = compose.onNodeWithText("A mix of songs to try").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val bounds = (1..6).map { compose.onNodeWithTag("habit_pill_yt_native$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+        assertTrue(title.top >= frame.top && description.top > title.bottom)
+        assertTrue(bounds.all { it.top > description.bottom && it.left > frame.left && it.right < frame.right && it.bottom < frame.bottom })
         for (row in 0..2) {
             assertEquals(bounds[row * 2].top, bounds[row * 2 + 1].top, .5f)
             assertTrue(bounds[row * 2].right < bounds[row * 2 + 1].right)
@@ -61,6 +67,7 @@ class NativeHomeRowsUiTest {
     @Test fun verifiedVideoArtworkIsLandscapeAndKeepsPlaybackQueue() {
         var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.MUSIC_VIDEOS) { _, list -> queue = list }
+        compose.onNodeWithText("Watch music videos from the catalog").assertIsDisplayed()
         compose.onNodeWithTag("native_video_art_yt_native1", useUnmergedTree = true)
             .assertWidthIsEqualTo(224.dp).assertHeightIsEqualTo(126.dp)
         compose.onNodeWithText(fullTitle).performClick()
@@ -78,10 +85,17 @@ class NativeHomeRowsUiTest {
     }
     @Test fun standardMusicShelvesKeepTheirExistingSquareArtwork() {
         content(NativeShelfKind.STANDARD)
+        compose.onNodeWithText("Explore this selection from YouTube Music").assertIsDisplayed()
+        compose.onNodeWithTag("native_quick_picks_frame").assertDoesNotExist()
         compose.onNodeWithTag("native_music_video_row").assertDoesNotExist()
         compose.onNodeWithTag("native_quick_picks_grid").assertDoesNotExist()
         compose.onNodeWithContentDescription(fullTitle, useUnmergedTree = true)
             .assertWidthIsEqualTo(163.2.dp).assertHeightIsEqualTo(163.2.dp)
+    }
+    @Test fun providerDescriptionTakesPrecedenceOverTheFallback() {
+        content(NativeShelfKind.STANDARD, subtitle = "Handpicked songs for the weekend")
+        compose.onNodeWithText("Handpicked songs for the weekend").assertIsDisplayed()
+        compose.onNodeWithText("Explore this selection from YouTube Music").assertDoesNotExist()
     }
     @Test fun trendingUsesLandscapeArtworkAndKeepsItsPlaybackQueue() {
         var queue: List<MusicTrack> = emptyList()

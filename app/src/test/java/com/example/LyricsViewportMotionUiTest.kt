@@ -151,7 +151,7 @@ class LyricsViewportMotionUiTest {
         val visibility = mutableFloatStateOf(0f)
         var artworkMeasures = 0
         compose.setContent {
-            PortraitPlayerExpansion(focus, visibility, Modifier.size(360.dp, 800.dp)) {
+            PortraitPlayerExpansion(focus, visibility, Modifier.size(360.dp, 800.dp), artworkToTimelineGap = 18.dp) {
                 Box(Modifier.fillMaxWidth().height(56.dp))
                 Box(Modifier.fillMaxSize().lyricsBodyEndpoint(false)) {
                     Box(Modifier.fillMaxSize().testTag("outgoing_sleeve").layout { measurable, constraints ->

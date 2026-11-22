@@ -73,6 +73,48 @@ class PlayerAppearanceUiTest {
             javax.imageio.ImageIO.read(file)
         } finally { file.delete() }
     }
+
+    @Test fun roomyPortraitSeparatesTimelineTransportAndBottomActions() = checkPortraitSpacing(20)
+
+    @Test @Config(sdk = [34], qualifiers = "w320dp-h560dp-port")
+    fun compactPortraitKeepsEveryControlInTheViewport() = checkPortraitSpacing(12)
+
+    private fun checkPortraitSpacing(minimumGapDp: Int) {
+        var playing by mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false,
+                dynamicAlbumGlow = false), LocalDynamicGlassEnabled provides false) {
+                ExpandedPlayerScreen(PlayerUiState(currentTrack = track, isPlaying = playing), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                    onAddToPlaylist = {}, isScreenVisible = false)
+            }
+        } }
+        compose.mainClock.advanceTimeBy(800)
+        fun bounds(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+            .fetchSemanticsNode().boundsInRoot
+        val artwork = bounds("flip_album_art_card")
+        val title = bounds("player_track_title")
+        val favorite = bounds("player_favorite_toggle")
+        val timeline = bounds("player_timeline_section")
+        val play = bounds("expanded_player_play_pause")
+        val actions = bounds("sound_output_device_button")
+        val minGap = with(compose.density) { minimumGapDp.dp.toPx() }
+        assertTrue(artwork.bottom < title.top)
+        assertTrue(favorite.bottom < timeline.top)
+        assertTrue(play.top - timeline.bottom >= minGap)
+        assertTrue(actions.top - play.bottom >= minGap)
+        assertTrue(actions.bottom <= compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom)
+        compose.runOnIdle { playing = true }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(800)
+        val playingArtwork = bounds("flip_album_art_card")
+        assertTrue("The cover should grow on play: ${artwork.width} -> ${playingArtwork.width}",
+            playingArtwork.width > artwork.width)
+        assertEquals(playingArtwork.width, playingArtwork.height, 1f)
+        assertTrue(playingArtwork.bottom < bounds("player_track_title").top)
+    }
+
     @Test fun favoritesRemainNeutralAndFunctionalInBothAppColorModes() {
         var colors by mutableStateOf(DarkAppColors.copy(primaryAccent = androidx.compose.ui.graphics.Color.Magenta,
             dynamicGlassEnabled = true, dynamicAlbumGlow = false))
