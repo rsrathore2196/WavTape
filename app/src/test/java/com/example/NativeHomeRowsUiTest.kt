@@ -43,6 +43,7 @@ class NativeHomeRowsUiTest {
     private val tracks = (1..20).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
         originalProviderTitle = if (it == 1) fullTitle else "") }
     private fun content(kind: NativeShelfKind, trending: Boolean = false, subtitle: String = "",
+        shuffle: ((MusicTrack, List<MusicTrack>) -> Unit)? = null,
         click: (MusicTrack, List<MusicTrack>) -> Unit = { _, _ -> }) {
         val title = if (trending) "Trending" else "Native shelf"
         compose.setContent { MaterialTheme {
@@ -51,7 +52,8 @@ class NativeHomeRowsUiTest {
                 Box(Modifier.background(homeBackground)) {
                     SectionCardLayout(SectionState(title = title, subtitle = subtitle, tracks = tracks, isLoaded = true), tracks[1].id,
                         DarkAppColors.cardBackground, DarkAppColors.cardBorder, DarkAppColors.textPrimary, DarkAppColors.textMuted,
-                        onTrackClick = click, tracksPrepared = true, nativeKind = kind, resolveSongCovers = trending,
+                        onTrackClick = click, onShuffleQuickPicks = shuffle ?: click, tracksPrepared = true,
+                        nativeKind = kind, resolveSongCovers = trending,
                         shelfItems = tracks.map { ServerHomeItem.Song(it, "MUSIC_VIDEO_TYPE_OMV") })
                 }
             }
@@ -114,10 +116,36 @@ class NativeHomeRowsUiTest {
         compose.onNodeWithTag("habit_pill_yt_native20").assertDoesNotExist()
         compose.runOnIdle { assertEquals(tracks[17], selected); assertEquals(tracks, queue) }
     }
+
+    @Test fun quickPicksShuffleStartsAnExplicitQueueFromOnlyTheDisplayedTracks() {
+        val original = tracks.take(18)
+        val requests = mutableListOf<Pair<MusicTrack, List<MusicTrack>>>()
+        content(NativeShelfKind.QUICK_PICKS, shuffle = { track, queue -> requests += track to queue }) { _, _ ->
+            fail("Shuffle must not start discovery playback")
+        }
+        val button = compose.onNodeWithContentDescription("Shuffle Quick Picks").assertIsDisplayed()
+        val frame = compose.onNodeWithTag("native_quick_picks_frame").fetchSemanticsNode().boundsInRoot
+        val buttonBounds = button.fetchSemanticsNode().boundsInRoot
+        assertTrue(buttonBounds.left > frame.center.x && buttonBounds.right < frame.right)
+        assertTrue(buttonBounds.top > frame.top && buttonBounds.bottom < frame.bottom)
+
+        repeat(3) { button.performClick() }
+        compose.runOnIdle {
+            assertEquals(3, requests.size)
+            requests.forEach { (start, queue) ->
+                assertEquals(original.size, queue.size)
+                assertEquals(original.toSet(), queue.toSet())
+                assertEquals(queue.first(), start)
+            }
+            assertTrue(requests.any { (_, queue) -> queue != original })
+        }
+    }
+
     @Test fun standardMusicShelvesKeepTheirExistingSquareArtwork() {
         content(NativeShelfKind.STANDARD)
         compose.onNodeWithText("More to discover on YouTube Music").assertIsDisplayed()
         compose.onNodeWithTag("native_quick_picks_frame").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Shuffle Quick Picks").assertDoesNotExist()
         compose.onNodeWithTag("native_music_video_row").assertDoesNotExist()
         compose.onNodeWithTag("native_quick_picks_grid").assertDoesNotExist()
         compose.onNodeWithContentDescription(fullTitle, useUnmergedTree = true)

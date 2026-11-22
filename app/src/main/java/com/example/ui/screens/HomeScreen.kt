@@ -64,10 +64,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.xtremeLiquidGlassBackground
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -220,7 +222,8 @@ fun HomeScreen(
     onOpenArtist: (com.example.data.repository.CatalogArtist) -> Unit = {},
     onOpenCatalog: (CatalogDestination) -> Unit = {},
     onPlayArtistRadio: ((MostListenedArtist) -> Unit)? = null,
-    isStartingRadio: Boolean = false
+    isStartingRadio: Boolean = false,
+    onShuffleQuickPicks: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick
 ) {
     val isRefreshing by homeViewModel.isRefreshing.collectAsStateWithLifecycle()
     val scrollMonitor: (Any, Boolean) -> Unit = remember(homeViewModel) {
@@ -243,6 +246,7 @@ fun HomeScreen(
             isAutoplayEnabled = isAutoplayEnabled,
             currentPlayingTrackId = currentPlayingTrackId ?: currentTrack?.id ?: playerUiState?.currentTrack?.id,
             onTrackClick = onTrackClick,
+            onShuffleQuickPicks = onShuffleQuickPicks,
             onToggleFavorite = onToggleFavorite,
             onOpenSettings = onOpenSettings,
             onPlayInfiniteRadio = onPlayInfiniteRadio,
@@ -283,7 +287,8 @@ fun HomeScreenContent(
     onOpenCatalog: (CatalogDestination) -> Unit = {},
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
-    onPlayArtistRadio: ((MostListenedArtist) -> Unit)? = null
+    onPlayArtistRadio: ((MostListenedArtist) -> Unit)? = null,
+    onShuffleQuickPicks: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Only structural visibility is observed by the lazy-list owner. Section
@@ -590,6 +595,7 @@ fun HomeScreenContent(
                             SectionCardLayout(state = section, tracksPrepared = true,
                                 currentPlayingId = currentPlayingId, cardBg = cardBg, cardBorderColor = cardBorderColor,
                                 textPrimaryColor = textPrimaryColor, textMutedColor = textMutedColor, onTrackClick = onTrackClick,
+                                onShuffleQuickPicks = onShuffleQuickPicks,
                                 shelfItems = shelf?.items.orEmpty(), onOpenCatalog = onOpenCatalog,
                                 nativeKind = remember(shelf) { shelf?.nativeKind() ?: NativeShelfKind.STANDARD },
                                 resolveSongCovers = shelf?.requiresSongArtwork() == true,
@@ -838,7 +844,8 @@ fun SectionCardLayout(
     onOpenCatalog: (CatalogDestination) -> Unit = {},
     nativeKind: NativeShelfKind = NativeShelfKind.STANDARD,
     resolveSongCovers: Boolean = false,
-    artworkContext: String = ""
+    artworkContext: String = "",
+    onShuffleQuickPicks: (MusicTrack, List<MusicTrack>) -> Unit = onTrackClick
 ) {
     // If no verified tracks and not loading, completely hide the entire shelf
     if (!state.isLoading && state.tracks.isEmpty() && shelfItems.isEmpty()) {
@@ -852,6 +859,7 @@ fun SectionCardLayout(
     val shelfListState = rememberLazyListState()
     ObserveHomeScroll(shelfListState)
     val quickPicks = nativeKind == NativeShelfKind.QUICK_PICKS
+    val showShuffle = quickPicks && safeTracks.isNotEmpty()
     val frameMargin = if (quickPicks) 12.dp else 0.dp
     val contentInset = 20.dp - frameMargin
     val frame = if (quickPicks) {
@@ -862,25 +870,46 @@ fun SectionCardLayout(
             .padding(vertical = 12.dp)
     } else Modifier
     Column(modifier = Modifier.padding(top = 22.dp).then(frame)) {
-        Column(modifier = Modifier.padding(horizontal = contentInset)) {
-            if (state.isLoading && state.title.isBlank()) {
-                Box(Modifier.width(148.dp).height(22.dp)
-                    .clip(RoundedCornerShape(4.dp)).then(rememberShimmerBackground()).testTag("home_shelf_heading_loading"))
-            } else {
-                Text(
-                    text = localizedCatalogText(state.title),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = textPrimaryColor
+        Row(
+            modifier = Modifier.padding(horizontal = contentInset),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(if (showShuffle) Modifier.weight(1f) else Modifier) {
+                if (state.isLoading && state.title.isBlank()) {
+                    Box(Modifier.width(148.dp).height(22.dp)
+                        .clip(RoundedCornerShape(4.dp)).then(rememberShimmerBackground()).testTag("home_shelf_heading_loading"))
+                } else {
+                    Text(
+                        text = localizedCatalogText(state.title),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = textPrimaryColor
+                        )
                     )
-                )
-                val subtitle = localizedCatalogText(state.subtitle).ifBlank {
-                    stringResource(remember(state.title, nativeKind, shelfItems) {
-                        homeShelfSubtitleResource(state.title, nativeKind, shelfItems)
-                    })
+                    val subtitle = localizedCatalogText(state.subtitle).ifBlank {
+                        stringResource(remember(state.title, nativeKind, shelfItems) {
+                            homeShelfSubtitleResource(state.title, nativeKind, shelfItems)
+                        })
+                    }
+                    HomeShelfSubtitle(subtitle, textMutedColor)
                 }
-                HomeShelfSubtitle(subtitle, textMutedColor)
+            }
+            if (showShuffle) {
+                IconButton(
+                    onClick = {
+                        val queue = safeTracks.take(QUICK_PICKS_TRACK_LIMIT).shuffled()
+                        onShuffleQuickPicks(queue.first(), queue)
+                    },
+                    modifier = Modifier.testTag("native_quick_picks_shuffle")
+                ) {
+                    Icon(
+                        Icons.Default.Shuffle,
+                        contentDescription = stringResource(R.string.home_quick_picks_shuffle),
+                        modifier = Modifier.size(20.dp),
+                        tint = textPrimaryColor
+                    )
+                }
             }
         }
 

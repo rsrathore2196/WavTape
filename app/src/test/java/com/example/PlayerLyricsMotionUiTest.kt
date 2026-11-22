@@ -41,6 +41,9 @@ class PlayerLyricsMotionUiTest {
 
     @Test fun largerSystemTextKeepsTheSameSmoothReturnAndMeasuredHeaderInset() = checkMinimizing(fontScale = 1.4f)
 
+    @Test @Config(qualifiers = "w550dp-h1100dp-port")
+    fun tallPortraitKeepsTheSmoothLyricsTransitionWithRoomierControls() = checkMinimizing()
+
     private fun checkMinimizing(fontScale: Float = 1f) {
         val song = MusicTrack(lyrics.trackId, "Song", "Artist", "Album", 180_000, "", "")
         var seek: Long? = null

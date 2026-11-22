@@ -42,12 +42,14 @@ internal fun homeTrackTitle(track: MusicTrack): String = remember(track.title, t
     CatalogNames.clean(track.originalProviderTitle.ifBlank { track.title })
 }
 
+internal const val QUICK_PICKS_TRACK_LIMIT = 18
+
 /** Six native songs per page, in row-major server order. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun QuickPicksGrid(tracks: List<MusicTrack>, state: LazyListState, playing: String?, background: Color, border: Color,
     foreground: Color, muted: Color, contentInset: Dp, play: (MusicTrack, List<MusicTrack>) -> Unit) {
-    val pages = remember(tracks) { tracks.take(18).chunked(6) }
+    val pages = remember(tracks) { tracks.take(QUICK_PICKS_TRACK_LIMIT).chunked(6) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val pageWidth = (maxWidth - contentInset * 2).coerceAtLeast(0.dp)
         LazyRow(state = state, flingBehavior = rememberSnapFlingBehavior(state), modifier = Modifier.testTag("native_quick_picks_grid"),

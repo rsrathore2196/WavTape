@@ -27,6 +27,7 @@
     <string name="home_recently_played_subtitle" tools:ignore="MissingTranslation">Pick up where you left off</string>
     <string name="home_most_listened_artists_subtitle" tools:ignore="MissingTranslation">Artists you play most often</string>
     <string name="home_quick_picks_subtitle" tools:ignore="MissingTranslation">A mix of songs to try</string>
+    <string name="home_quick_picks_shuffle" tools:ignore="MissingTranslation">Shuffle Quick Picks</string>
     <string name="home_music_videos_subtitle" tools:ignore="MissingTranslation">Music videos to watch</string>
     <string name="home_trending_subtitle" tools:ignore="MissingTranslation">Popular on YouTube Music right now</string>
     <string name="home_albums_subtitle" tools:ignore="MissingTranslation">Albums and singles to explore</string>

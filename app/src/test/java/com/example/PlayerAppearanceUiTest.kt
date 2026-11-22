@@ -161,6 +161,51 @@ class PlayerAppearanceUiTest {
         }
     }
 
+    @Test @Config(qualifiers = "w550dp-h1180dp-port")
+    fun compactPortraitKeepsTheOriginalControlSpacing() =
+        assertPortraitControlSpacing(620, timelineGap = 17..17, footerGap = 33..33)
+
+    @Test @Config(qualifiers = "w550dp-h1180dp-port")
+    fun tallerPortraitGainsAModestAmountOfSpaceBetweenControlGroups() =
+        assertPortraitControlSpacing(795, timelineGap = 18..20, footerGap = 35..37)
+
+    @Test @Config(qualifiers = "w550dp-h1180dp-port")
+    fun veryTallPortraitCapsTheExtraSpaceBetweenControlGroups() =
+        assertPortraitControlSpacing(1130, timelineGap = 21..21, footerGap = 39..39)
+
+    private fun assertPortraitControlSpacing(heightDp: Int, timelineGap: IntRange, footerGap: IntRange) {
+        OtherSettingsPreferences.setFullScreenAlbumArt(context, true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicGlassEnabled = false,
+                dynamicAlbumGlow = false), LocalDynamicGlassEnabled provides false) {
+                Box(Modifier.fillMaxWidth().height(heightDp.dp).testTag("player_spacing_viewport")) {
+                    ExpandedPlayerScreen(PlayerUiState(currentTrack = track), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                        onAddToPlaylist = {}, isScreenVisible = false)
+                }
+            }
+        } }
+        compose.mainClock.advanceTimeBy(800)
+
+        fun bounds(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true)
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val timeline = bounds("player_timeline_section")
+        val transport = bounds("expanded_player_play_pause")
+        val footer = bounds("player_lyrics_button")
+        val viewport = bounds("player_spacing_viewport")
+        assertTrue(bounds("player_track_title").bottom < timeline.top)
+        assertTrue(footer.bottom < viewport.bottom)
+        with(compose.density) {
+            assertEquals(heightDp.dp.toPx(), viewport.height, 1f)
+            fun assertGap(actual: Float, expected: IntRange) {
+                assertTrue("Expected $expected dp at a $heightDp dp viewport. Measured ${actual.toDp()}.",
+                    actual in (expected.first.dp.toPx() - 0.5f)..(expected.last.dp.toPx() + 0.5f))
+            }
+            assertGap(transport.top - timeline.bottom, timelineGap)
+            assertGap(footer.top - transport.bottom, footerGap)
+        }
+    }
+
     private fun assertClearPlayerControls() {
         var colors by mutableStateOf(DarkAppColors.copy(primaryAccent = Color.Magenta))
         compose.mainClock.autoAdvance = false

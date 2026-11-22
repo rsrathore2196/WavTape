@@ -1554,9 +1554,7 @@ fun ExpandedPlayerScreen(
                     } else Box(Modifier)
                 }
             } else {
-                PortraitPlayerExpansion(
-                    expansion = lyricsExpansion,
-                    lyricsVisibility = lyricsVisibility,
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
@@ -1564,6 +1562,16 @@ fun ExpandedPlayerScreen(
                         .padding(horizontal = if (isFullScreenArt) 0.dp else 24.dp)
                         .widthIn(max = 500.dp)
                 ) {
+                    // Use the height inside the system bars and cap the extra room
+                    // so the control groups stay close on tall windows.
+                    val extraRoom = ((maxHeight - 660.dp) / 220.dp).coerceIn(0f, 1f)
+                    val timelineToTransportGap = 14.dp + 4.dp * extraRoom
+                    val transportToFooterGap = 14.dp + 6.dp * extraRoom
+                    PortraitPlayerExpansion(
+                        expansion = lyricsExpansion,
+                        lyricsVisibility = lyricsVisibility,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2146,7 +2154,7 @@ fun ExpandedPlayerScreen(
                     .graphicsLayer { alpha = 1f - lyricsExpansion.value }
                     .then(if (lyricsExpanded) Modifier.clearAndSetSemantics { } else Modifier)
             ) {
-            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 14.dp))
+            Spacer(modifier = Modifier.height(timelineToTransportGap))
 
             // MAIN CONTROL CLUSTER (Shuffle, Prev, Play/Pause, Next, Repeat/Replay) in Full Liquid Glass UI
             Row(
@@ -2306,7 +2314,7 @@ fun ExpandedPlayerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 14.dp))
+            Spacer(modifier = Modifier.height(transportToFooterGap))
 
             // BOTTOM BAR (Lyrics Button on bottom-left, Output Devices in bottom-centre, Queue on bottom-right)
             Row(
@@ -2441,6 +2449,7 @@ fun ExpandedPlayerScreen(
                 }
             }
             }
+                    }
         }
     }
 

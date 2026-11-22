@@ -385,6 +385,7 @@ fun MainNavigationScaffold(
                                 onOpenArtist = onHomeOpenArtist,
                                 onOpenCatalog = viewModel.catalogBrowser::open,
                                 onTrackClick = onHomeTrackClick,
+                                onShuffleQuickPicks = viewModel::playPlaylistTrack,
                                 onToggleFavorite = onHomeToggleFavorite,
                                 onOpenSettings = onHomeOpenSettings,
                                 onPlayInfiniteRadio = onHomePlayInfiniteRadio,
