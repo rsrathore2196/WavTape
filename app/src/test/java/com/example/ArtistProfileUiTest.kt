@@ -66,7 +66,8 @@ class ArtistProfileUiTest {
         } }
         compose.onAllNodesWithText("Main Artist").assertCountEquals(1)
         compose.onNodeWithTag("artist_profile_name").assertTextEquals("Main Artist").assertIsDisplayed()
-        compose.onNodeWithText("Subscribers").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("catalog_detail_list").performScrollToKey("artist_stats")
+        compose.onNodeWithText("Subscribers").assertIsDisplayed()
         compose.onNodeWithText("1.2M").assertIsDisplayed()
         compose.onNodeWithText("Monthly listeners").assertIsDisplayed()
         compose.onNodeWithText("3.4M").assertIsDisplayed()
@@ -75,9 +76,60 @@ class ArtistProfileUiTest {
         compose.onNodeWithText("Show less").assertIsDisplayed()
         // Scroll the vertical collection first. A prefetched LazyRow child can
         // exist before it is placed; scrolling that child only moves its row.
-        compose.onNodeWithTag("catalog_detail_list").performScrollToIndex(3)
+        compose.onNodeWithTag("catalog_detail_list").performScrollToKey("artist_releases_0")
         compose.onNodeWithTag("artist_release_MPRErelease").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(release, opened) }
+    }
+
+    @Test fun artistActionButtonsMatchCatalogProportionsAndTriggerRadioShuffleAndYouTube() {
+        val artist = CatalogArtist("UC1234567890abcdef", "Main Artist")
+        val song = com.example.data.model.MusicTrack("yt_abcdefghijk", "Solo Hit", "Main Artist", "Single", 180_000, "", "")
+        val profile = CatalogArtistProfile(artist, songs = listOf(song))
+        val radioCalls = mutableListOf<Triple<CatalogArtist, List<com.example.data.model.MusicTrack>, Boolean>>()
+        var youtubeOpened: CatalogArtist? = null
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalAppColors provides DarkAppColors, LocalArtworkRequestsActive provides false,
+                LocalVisualEffectsActive provides false) {
+                CatalogDetailScreen(
+                    CatalogDetailState(CatalogDestination.Artist(artist), tracks = listOf(song), artistProfile = profile),
+                    PlayerUiState(), {}, {}, { _, _ -> }, {}, { _, _ -> },
+                    onPlayArtistRadio = { target, tracks, shuffle -> radioCalls += Triple(target, tracks, shuffle) },
+                    onOpenArtistYouTube = { youtubeOpened = it }
+                )
+            }
+        } }
+        compose.onNodeWithTag("catalog_detail_list").performScrollToKey("artist_playback_actions")
+        val shuffleBounds = compose.onNodeWithTag("artist_shuffle").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val playBounds = compose.onNodeWithTag("artist_play").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val youtubeBounds = compose.onNodeWithTag("artist_youtube").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+
+        assertTrue("Shuffle should be left of Play", shuffleBounds.right < playBounds.left)
+        assertTrue("Play should be left of YouTube", playBounds.right < youtubeBounds.left)
+        assertEquals(shuffleBounds.width, shuffleBounds.height, 1f)
+        assertEquals(playBounds.width, playBounds.height, 1f)
+        assertEquals(youtubeBounds.width, youtubeBounds.height, 1f)
+        assertEquals("YouTube button must match Shuffle button size", shuffleBounds.width, youtubeBounds.width, 1f)
+        assertTrue("Center Play button must be larger than Shuffle and YouTube", playBounds.width > shuffleBounds.width)
+        assertEquals(shuffleBounds.center.y, playBounds.center.y, 1.5f)
+        assertEquals(youtubeBounds.center.y, playBounds.center.y, 1.5f)
+
+        compose.onNodeWithTag("artist_shuffle").performClick()
+        compose.onNodeWithTag("artist_play").performClick()
+        compose.onNodeWithTag("artist_youtube").performClick()
+        compose.runOnIdle {
+            assertEquals(2, radioCalls.size)
+            assertEquals(Triple(artist, listOf(song), true), radioCalls[0])
+            assertEquals(Triple(artist, listOf(song), false), radioCalls[1])
+            assertEquals(artist, youtubeOpened)
+        }
+        assertEquals(
+            "https://www.youtube.com/channel/UC1234567890abcdef",
+            com.example.ui.screens.artistYouTubeUrl(artist)
+        )
+        assertEquals(
+            "https://www.youtube.com/results?search_query=Main%20Artist",
+            com.example.ui.screens.artistYouTubeUrl(CatalogArtist("jiosaavn_42", "Main Artist"))
+        )
     }
 
     @Test @Config(qualifiers = "w1440dp-h900dp-land")

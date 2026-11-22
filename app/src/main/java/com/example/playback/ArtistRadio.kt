@@ -8,7 +8,7 @@ import kotlinx.coroutines.CancellationException
 
 internal const val ARTIST_RADIO_EXTRA = "queue_artist_radio"
 
-internal data class ArtistRadio(val name: String) {
+internal data class ArtistRadio(val name: String, val shuffle: Boolean = false) {
     private val artistKey = HomeRecommendationPolicy.mainArtistKey(name)
 
     fun includes(track: MusicTrack, credits: List<String> = emptyList()): Boolean =
@@ -55,10 +55,15 @@ internal suspend fun ArtistRadio.loadSongs(
             break
         }
         val token = page.continuation?.takeIf(visited::add)
-        next = ArtistRadioCursor(token, page.tracks.filter { track ->
+        val matched = page.tracks.filter { track ->
             YouTubeAudioStreamService.videoIdFromReference(track.id, track.audioUrl) != null &&
                 includes(track, page.artistCredits[track.id].orEmpty())
-        }, exhausted = token == null)
+        }
+        next = ArtistRadioCursor(
+            continuation = token,
+            pending = if (shuffle) matched.shuffled() else matched,
+            exhausted = token == null
+        )
     }
     return ArtistRadioBatch(tracks, next)
 }

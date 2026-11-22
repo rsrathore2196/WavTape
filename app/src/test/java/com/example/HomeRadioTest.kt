@@ -91,6 +91,49 @@ class HomeRadioTest {
         }.tracks.isEmpty())
     }
 
+    @Test fun artistPageRadioAndShuffleQueueIncludesOnlyArtistSongsSinglesAndCollaborations() = runBlocking {
+        val solo = seed.copy(id = "yt_solo1234567", title = "Solo Single", artist = seed.artist)
+        val collab = second.copy(
+            id = "yt_collab12345",
+            title = "Duet Single",
+            artist = "${second.artist}, ${seed.artist}",
+            primaryArtists = listOf(second.artist, seed.artist)
+        )
+        val unrelated = second.copy(id = "yt_other123456", title = "Unrelated Track")
+        val ordered = com.example.ui.viewmodel.prepareArtistRadioQueue(
+            artistName = seed.artist,
+            initialTracks = listOf(unrelated, solo, collab, solo),
+            shuffle = false
+        ) { error("Local artist tracks should avoid redundant network search") }
+        assertEquals(listOf(solo, collab), ordered)
+
+        val shuffled = com.example.ui.viewmodel.prepareArtistRadioQueue(
+            artistName = seed.artist,
+            initialTracks = listOf(unrelated, solo, collab),
+            shuffle = true
+        ) { error("Local artist tracks should avoid redundant network search") }
+        assertEquals(setOf(solo, collab), shuffled.toSet())
+        assertEquals(2, shuffled.size)
+
+        val remoteOnly = com.example.ui.viewmodel.prepareArtistRadioQueue(
+            artistName = seed.artist,
+            initialTracks = listOf(unrelated),
+            shuffle = false
+        ) { name ->
+            assertEquals(seed.artist, name)
+            SongSearchPage(
+                tracks = listOf(unrelated, collab, solo),
+                continuation = null,
+                artistCredits = mapOf(
+                    unrelated.id to listOf(second.artist),
+                    collab.id to listOf(second.artist, seed.artist),
+                    solo.id to listOf(seed.artist)
+                )
+            )
+        }
+        assertEquals(listOf(collab, solo), remoteOnly)
+    }
+
     @Test fun seedOnlyRadioFollowsTheAutomixAndKeepsOnlyPlayableNewTracksInOrder() = runBlocking {
         val automix = JSONObject().put("automixPreviewVideoRenderer", JSONObject().put("content", JSONObject()
             .put("automixPlaylistVideoRenderer", JSONObject().put("navigationEndpoint", JSONObject()

@@ -39,3 +39,29 @@ internal suspend fun findArtistRadioSeed(
             }
         }
 }
+
+/**
+ * Prepares an artist-only queue (songs, singles, and collaborations credited to [artistName])
+ * for the artist page Play Radio and Shuffle buttons.
+ */
+internal suspend fun prepareArtistRadioQueue(
+    artistName: String,
+    initialTracks: List<MusicTrack>,
+    shuffle: Boolean,
+    search: suspend (String) -> YouTubeMusicApiService.SongSearchPage
+): List<MusicTrack> {
+    val station = ArtistRadio(artistName, shuffle = shuffle)
+    val localMatches = initialTracks
+        .filter { isNativeRadioSeed(it) && station.includes(it) }
+        .distinctBy { it.id }
+    if (localMatches.isNotEmpty()) {
+        return if (shuffle) localMatches.shuffled() else localMatches
+    }
+    val remoteMatches = withTimeoutOrNull(5_000L) {
+        val page = search(artistName)
+        page.tracks.filter { track ->
+            isNativeRadioSeed(track) && station.includes(track, page.artistCredits[track.id].orEmpty())
+        }.distinctBy { it.id }
+    }.orEmpty()
+    return if (shuffle) remoteMatches.shuffled() else remoteMatches
+}

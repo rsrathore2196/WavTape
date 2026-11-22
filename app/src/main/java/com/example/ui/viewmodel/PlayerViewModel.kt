@@ -1035,6 +1035,51 @@ class PlayerViewModel(
 
     fun playArtistRadio(artist: MostListenedArtist) = startHomeRadio(seedTrack = null, artist = artist)
 
+    fun playArtistCatalogRadio(
+        artist: com.example.data.repository.CatalogArtist,
+        tracks: List<MusicTrack>,
+        shuffle: Boolean = false
+    ) {
+        if (artist.name.isBlank()) return
+        activePlaybackLaunchJob?.cancel()
+        val request = Any().also { homeRadioRequest = it }
+        activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+            _startingHomeRadio.value = true
+            try {
+                val profile = _userProfile.value
+                val requestKey = com.example.data.cache.HomeCacheIdentity.home(profile)
+                val region = com.example.data.cache.HomeCacheIdentity.region(profile)
+                val queue = withContext(AppDispatchers.Io) {
+                    prepareArtistRadioQueue(artist.name, tracks, shuffle) { name ->
+                        com.example.data.remote.YouTubeMusicApiService.searchSongsPage(
+                            name,
+                            useInnerTubeX = true,
+                            countryCode = region,
+                            transportTimeoutMs = 4_000L
+                        )
+                    }
+                }
+                ensureActive()
+                if (requestKey != com.example.data.cache.HomeCacheIdentity.home(_userProfile.value)) return@launch
+                val pivot = queue.firstOrNull()
+                if (pivot == null) {
+                    playbackManager.reportPlaybackLookupFailure("No songs available for ${artist.name}. Please try again.")
+                    return@launch
+                }
+                playbackManager.playArtistRadio(pivot, artist.name, queue = queue, shuffle = shuffle)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                playbackManager.reportPlaybackLookupFailure("Artist radio couldn't load. Please try again.")
+            } finally {
+                if (homeRadioRequest === request) {
+                    homeRadioRequest = null
+                    _startingHomeRadio.value = false
+                }
+            }
+        }
+    }
+
     private fun startHomeRadio(seedTrack: MusicTrack?, artist: MostListenedArtist? = null) {
         activePlaybackLaunchJob?.cancel()
         val request = Any().also { homeRadioRequest = it }

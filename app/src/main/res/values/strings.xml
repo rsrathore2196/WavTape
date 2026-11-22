@@ -36,6 +36,8 @@
     <string name="infinite_radio">Infinite Radio</string>
     <!-- These actions use the default strings wherever translations are unavailable. -->
     <string name="play_radio" tools:ignore="MissingTranslation">Play radio</string>
+    <string name="artist_shuffle" tools:ignore="MissingTranslation">Shuffle</string>
+    <string name="artist_open_youtube" tools:ignore="MissingTranslation">Open on YouTube</string>
     <string name="view_artist" tools:ignore="MissingTranslation">View artist</string>
     <string name="radio_subtitle">A fresh random mix · Endless discoveries</string>
     <string name="now_playing">NOW PLAYING</string>

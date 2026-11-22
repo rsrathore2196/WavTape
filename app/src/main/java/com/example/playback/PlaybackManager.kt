@@ -319,9 +319,9 @@ class PlaybackManager(
     private var artistRadio: ArtistRadio? = null
     private var artistRadioCursor = ArtistRadioCursor()
 
-    private fun updateArtistRadio(name: String?) {
-        if (artistRadio?.name == name) return
-        artistRadio = name?.takeIf(String::isNotBlank)?.let(::ArtistRadio)
+    private fun updateArtistRadio(name: String?, shuffle: Boolean = false) {
+        if (artistRadio?.name == name && artistRadio?.shuffle == shuffle) return
+        artistRadio = name?.takeIf(String::isNotBlank)?.let { ArtistRadio(it, shuffle = shuffle) }
         artistRadioCursor = ArtistRadioCursor()
         cancelQueueRefill()
     }
@@ -1754,17 +1754,28 @@ class PlaybackManager(
             ?: throw IllegalStateException("Player connection timed out. Please try again.")
     }
 
-    internal fun playArtistRadio(track: MusicTrack, artistName: String) {
+    internal fun playArtistRadio(
+        track: MusicTrack,
+        artistName: String,
+        queue: List<MusicTrack> = listOf(track),
+        shuffle: Boolean = false
+    ) {
         artistRadioCursor = ArtistRadioCursor()
         setAutoplayEnabled(true)
-        playTrack(track, preserveQueue = true, artistRadioName = artistName)
+        playTrack(
+            track = track,
+            queue = queue.ifEmpty { listOf(track) },
+            preserveQueue = true,
+            artistRadioName = artistName,
+            artistRadioShuffle = shuffle
+        )
     }
 
     fun playTrack(track: MusicTrack, queue: List<MusicTrack> = listOf(track), isExplicitPlaylist: Boolean = false,
         isInfiniteRadio: Boolean = false, collectionLoader: CollectionPlaybackContinuation? = null,
-        preserveQueue: Boolean = false, artistRadioName: String? = null) {
+        preserveQueue: Boolean = false, artistRadioName: String? = null, artistRadioShuffle: Boolean = false) {
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            scope.launch { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName) }
+            scope.launch { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName, artistRadioShuffle) }
             return
         }
         val now = System.currentTimeMillis()
@@ -1811,10 +1822,11 @@ class PlaybackManager(
         // Cancel previous unresolved network/stream resolution job and search queue jobs
         activeSearchPlayJob?.cancel()
         playResolutionJob?.cancel()
-        if (artistRadio?.name == artistRadioName) cancelQueueRefill() else updateArtistRadio(artistRadioName)
+        if (artistRadio?.name == artistRadioName && artistRadio?.shuffle == artistRadioShuffle) cancelQueueRefill()
+        else updateArtistRadio(artistRadioName, artistRadioShuffle)
         val generation = beginSelection(track)
         val startupTrace = selectionStartupTrace
-        pendingPolicyRestart = { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName) }
+        pendingPolicyRestart = { playTrack(track, queue, isExplicitPlaylist, isInfiniteRadio, collectionLoader, preserveQueue, artistRadioName, artistRadioShuffle) }
         val jioDeadline = initialJioDeadlineMs
 
         val repo = repository

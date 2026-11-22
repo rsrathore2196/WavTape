@@ -533,6 +533,9 @@ fun MainNavigationScaffold(
                                     viewModel.playCatalogCollection(it, detail, shuffle = true)
                                 }
                             },
+                            onPlayArtistRadio = { artist, tracks, shuffle ->
+                                viewModel.playArtistCatalogRadio(artist, tracks, shuffle)
+                            },
                             onPlay = { track, queue ->
                                 if (detail.destination is com.example.data.repository.CatalogDestination.Album ||
                                     detail.destination is com.example.data.repository.CatalogDestination.Playlist)
