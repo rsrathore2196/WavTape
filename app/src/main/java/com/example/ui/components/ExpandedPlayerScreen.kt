@@ -1562,14 +1562,17 @@ fun ExpandedPlayerScreen(
                         .padding(horizontal = if (isFullScreenArt) 0.dp else 24.dp)
                         .widthIn(max = 500.dp)
                 ) {
-                    // Use the height inside the system bars and cap the extra room
-                    // so the control groups stay close on tall windows.
-                    val extraRoom = ((maxHeight - 660.dp) / 220.dp).coerceIn(0f, 1f)
-                    val timelineToTransportGap = 14.dp + 4.dp * extraRoom
-                    val transportToFooterGap = 14.dp + 6.dp * extraRoom
+                    // Dynamically add modest, capped breathing room between portrait control groups
+                    // on taller screens so the spacing stays balanced like a tall phone without drifting apart.
+                    val extraRoom = ((maxHeight - 620.dp) / 200.dp).coerceIn(0f, 1f)
+                    val metadataToTimelineGap = 14.dp + 8.dp * extraRoom
+                    val timelineToTransportGap = 14.dp + 8.dp * extraRoom
+                    val transportToFooterGap = 14.dp + 10.dp * extraRoom
+                    val footerBottomPadding = 16.dp + 4.dp * extraRoom
                     PortraitPlayerExpansion(
                         expansion = lyricsExpansion,
                         lyricsVisibility = lyricsVisibility,
+                        collapsedBodyGap = metadataToTimelineGap,
                         modifier = Modifier.fillMaxSize()
                     ) {
             Column(
@@ -2320,7 +2323,7 @@ fun ExpandedPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = if (isLandscape) 4.dp else 16.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = footerBottomPadding),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {

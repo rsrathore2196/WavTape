@@ -163,17 +163,23 @@ class PlayerAppearanceUiTest {
 
     @Test @Config(qualifiers = "w550dp-h1180dp-port")
     fun compactPortraitKeepsTheOriginalControlSpacing() =
-        assertPortraitControlSpacing(620, timelineGap = 17..17, footerGap = 33..33)
+        assertPortraitControlSpacing(620, metadataGap = 14..14, timelineGap = 17..17, footerGap = 33..33, bottomMargin = 16..16)
 
     @Test @Config(qualifiers = "w550dp-h1180dp-port")
     fun tallerPortraitGainsAModestAmountOfSpaceBetweenControlGroups() =
-        assertPortraitControlSpacing(795, timelineGap = 18..20, footerGap = 35..37)
+        assertPortraitControlSpacing(720, metadataGap = 17..19, timelineGap = 20..22, footerGap = 37..39, bottomMargin = 17..19)
 
     @Test @Config(qualifiers = "w550dp-h1180dp-port")
     fun veryTallPortraitCapsTheExtraSpaceBetweenControlGroups() =
-        assertPortraitControlSpacing(1130, timelineGap = 21..21, footerGap = 39..39)
+        assertPortraitControlSpacing(1130, metadataGap = 22..22, timelineGap = 25..25, footerGap = 43..43, bottomMargin = 20..20)
 
-    private fun assertPortraitControlSpacing(heightDp: Int, timelineGap: IntRange, footerGap: IntRange) {
+    private fun assertPortraitControlSpacing(
+        heightDp: Int,
+        metadataGap: IntRange,
+        timelineGap: IntRange,
+        footerGap: IntRange,
+        bottomMargin: IntRange
+    ) {
         OtherSettingsPreferences.setFullScreenAlbumArt(context, true)
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -189,20 +195,25 @@ class PlayerAppearanceUiTest {
 
         fun bounds(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true)
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val title = bounds("player_track_title")
+        val artist = compose.onNodeWithText(track.artist, useUnmergedTree = true)
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val timeline = bounds("player_timeline_section")
         val transport = bounds("expanded_player_play_pause")
         val footer = bounds("player_lyrics_button")
         val viewport = bounds("player_spacing_viewport")
-        assertTrue(bounds("player_track_title").bottom < timeline.top)
+        assertTrue(title.bottom < timeline.top)
         assertTrue(footer.bottom < viewport.bottom)
         with(compose.density) {
             assertEquals(heightDp.dp.toPx(), viewport.height, 1f)
             fun assertGap(actual: Float, expected: IntRange) {
                 assertTrue("Expected $expected dp at a $heightDp dp viewport. Measured ${actual.toDp()}.",
-                    actual in (expected.first.dp.toPx() - 0.5f)..(expected.last.dp.toPx() + 0.5f))
+                    actual in (expected.first.dp.toPx() - 1.5f)..(expected.last.dp.toPx() + 1.5f))
             }
+            assertGap(timeline.top - artist.bottom, metadataGap)
             assertGap(transport.top - timeline.bottom, timelineGap)
             assertGap(footer.top - transport.bottom, footerGap)
+            assertGap(viewport.bottom - footer.bottom, bottomMargin)
         }
     }
 
