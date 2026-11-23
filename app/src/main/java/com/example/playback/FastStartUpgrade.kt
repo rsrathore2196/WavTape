@@ -1,43 +1,46 @@
 package com.example.playback
 
+import android.content.Context
+import androidx.media3.common.MediaItem
 import com.example.data.model.MusicTrack
-import com.example.performance.BackgroundWorkCoordinator
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.launch
+import com.example.data.repository.RecordingIdentity
+import com.example.service.MusicCache
 
-/** One optional provider lookup per playing occurrence and source policy. */
-internal class FastStartUpgrade(private val scope: CoroutineScope) {
-    private var job: Job? = null
+/** Coalesces automatic requests for one playing occurrence and source policy. */
+internal class FastStartUpgrade {
     private var attemptedKey: String? = null
 
-    fun request(key: String, stillPlaying: () -> Boolean, resolve: suspend () -> MusicTrack?,
-        onReady: (MusicTrack) -> Unit) {
-        if (attemptedKey == key || !stillPlaying()) return
-        cancel()
+    fun claim(key: String): Boolean {
+        if (attemptedKey == key) return false
         attemptedKey = key
-        job = scope.launch {
-            try {
-                val candidate = BackgroundWorkCoordinator.localDataPreparation { resolve() }
-                if (candidate != null && stillPlaying()) {
-                    job = null
-                    onReady(candidate)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                android.util.Log.d("FastStartUpgrade", "The starting stream remains active: ${error.javaClass.simpleName}")
-            } finally {
-                if (job === currentCoroutineContext()[Job]) job = null
-            }
-        }
+        return true
     }
 
-    fun cancel(reset: Boolean = false) {
-        job?.cancel()
-        job = null
-        if (reset) attemptedKey = null
+    fun reset() {
+        attemptedKey = null
     }
+}
+
+/** Check the replacement at the live playhead before changing the active Media3 item. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+internal suspend fun prepareFastStartReplacement(
+    context: Context, item: MediaItem, original: MusicTrack, replacement: MusicTrack,
+    position: () -> Long, stillCurrent: () -> Boolean, automatic: Boolean
+): Boolean {
+    if (!stillCurrent()) return false
+    if (item.localConfiguration?.uri?.scheme == MusicCache.OFFLINE_SCHEME) return true
+    val matchingIsrc = RecordingIdentity.isrc(original.isrc)?.let { it == RecordingIdentity.isrc(replacement.isrc) } == true
+    val tolerance = if (matchingIsrc) 8_000L else 5_000L
+    if (LosslessStreamPrebuffer.isAdaptiveSource(item)) {
+        return LosslessStreamPrebuffer.prepareAdaptiveSource(context, item, original.durationMs, stillCurrent,
+            durationToleranceMs = tolerance, currentPosition = position, automatic = automatic,
+            requireLossless = replacement.isLossless)
+    }
+    val prepared = LosslessStreamPrebuffer.prepare(context, item, original.durationMs, position, stillCurrent,
+        durationToleranceMs = tolerance, allowUnknownDuration = matchingIsrc, automatic = automatic,
+        requireLossless = replacement.isLossless)
+    if (!stillCurrent()) return false
+    val ready = prepared?.covers(position()) == true
+    if (!ready) LosslessDiagnostics.prebufferRejected(original.id, prepared != null)
+    return ready
 }

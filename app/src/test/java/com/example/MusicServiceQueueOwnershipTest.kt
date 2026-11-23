@@ -5,8 +5,14 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import android.os.Looper
+import android.net.Uri
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.datasource.cache.ContentMetadataMutations
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AudioQualityPreferences
@@ -15,11 +21,14 @@ import com.example.data.local.PlaybackSourcesPreferences
 import com.example.data.model.MusicTrack
 import com.example.data.model.toMediaItem
 import com.example.data.remote.InternetArchiveApiService.LosslessSearchPage
+import com.example.data.remote.StreamingAddons
 import com.example.data.repository.MusicRepository
 import com.example.data.repository.StreamResolver
 import com.example.playback.*
 import com.example.service.MusicService
+import com.example.service.MusicCache
 import com.example.service.PolicyResolvingMediaSource
+import com.example.service.StreamedAudioRepresentations
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicInteger
@@ -63,6 +72,9 @@ class MusicServiceQueueOwnershipTest {
     private var youtubeAvailable = false
     private var standardGate: CompletableDeferred<Unit>? = null
     private var archiveDelayMs: Long? = null
+    private val addonAddress = "https://files.example/fast-start.flac"
+    private var addonGate: CompletableDeferred<Unit>? = null
+    private val addonRequests = AtomicInteger()
 
     @Before fun setup() = runBlocking {
         StreamResolver.clearVerifiedLosslessCache()
@@ -102,6 +114,12 @@ class MusicServiceQueueOwnershipTest {
             resolveYouTube = { request, _, _, _ -> if (youtubeAvailable) request.copy(
                 audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=320000",
                 bitrateKbps = 128, qualityBadge = "Opus • 128 kbps") else null },
+            resolveAddon = { source, track, policy, _ ->
+                addonRequests.incrementAndGet()
+                addonGate?.await()
+                StreamingAddons.parseStream("""{"url":"$addonAddress","codec":"flac","bitrate":900000}""",
+                    source.baseUrl, track, track, policy, source.id)
+            },
             archiveAllowed = { monitor.sourcePolicySnapshot().key == it.key },
             findLossless = { _, _, allowed ->
                 assertNotEquals("Archive work must stay off Main", Looper.getMainLooper(), Looper.myLooper())
@@ -177,6 +195,133 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(archive.audioUrl, upgraded?.audioUrl)
         assertEquals(selected.id, upgraded?.id)
         assertEquals(1, requests.get())
+    }
+
+    @Test fun automaticAndManualFastStartTryTheNextSourceWhenTheFirstCannotResume() = runBlocking {
+        val base = "https://addons.example/fast-start"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Fixture", baseUrl = base)
+        val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        val playing = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio",
+            source = "YouTube Music", bitrateKbps = 128)
+        for (manual in listOf(false, true)) {
+            if (manual) {
+                monitor.setAudioEnhancer(true, trackId = playing.id)
+                until { monitor.sourcePolicy.value.enhancer }
+            }
+            val checked = mutableListOf<String>()
+            val replacement = repository.resolveFastStartUpgrade(playing, monitor.sourcePolicy.value, manual = manual) {
+                checked += it.audioUrl
+                it.audioUrl != addonAddress
+            }
+            assertEquals(listOf(addonAddress, selected.audioUrl), checked)
+            assertEquals(selected.audioUrl, replacement?.audioUrl)
+            assertEquals(playing.id, replacement?.id)
+        }
+    }
+
+    @Test fun fastStartReturnsYoutubeBeforeTheAddonAndThenSelectsTheFirstPreparedProvider() = runBlocking {
+        val base = "https://addons.example/preferred"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
+        val sources = listOf(addon) + PlaybackSource.builtIns
+        val providerReady = CompletableDeferred<Unit>()
+        addonGate = providerReady
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        youtubeAvailable = true
+
+        val initial = withTimeout(3_000L) { repository.resolvePlaybackStart(selected) }
+        assertEquals(PlaybackMode.FAST_START, initial.mode)
+        assertEquals(PlaybackSource.youtube.id, SourceTransitionOrigin.sourceId(
+            initial.track.id, Uri.parse(initial.track.audioUrl), monitor.sourcePolicy.value))
+        assertEquals(0, addonRequests.get())
+        assertEquals(0, requests.get())
+
+        val replacement = async {
+            repository.resolveFastStartUpgrade(initial.track, monitor.sourcePolicy.value) { candidate ->
+                assertEquals(selected.id, candidate.id)
+                assertEquals(selected.title, candidate.title)
+                assertTrue(candidate.isLossless)
+                true
+            }
+        }
+        until { addonRequests.get() == 1 }
+        assertFalse(replacement.isCompleted)
+        providerReady.complete(Unit)
+        assertEquals(addonAddress, withTimeout(4_000L) { replacement.await() }?.audioUrl)
+        assertEquals("Archive ranks below the verified add-on", 0, requests.get())
+    }
+
+    @Test fun fastStartServiceSwitchesAnUnseekableYoutubeItemAtTheLivePosition() = runBlocking {
+        val sources = listOf(PlaybackSource.jio, PlaybackSource.youtube)
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        val policy = monitor.sourcePolicy.value
+        val bytes = wav()
+        val cache = MusicCache.getSimpleCache(app)
+        StreamedAudioRepresentations.remember(selected, policy)
+        val key = requireNotNull(StreamedAudioRepresentations.keyFor(Uri.parse(selected.audioUrl)))
+        val hole = cache.startReadWrite(key, 0L, bytes.size.toLong())
+        try {
+            val file = cache.startFile(key, 0L, bytes.size.toLong())
+            file.writeBytes(bytes)
+            cache.commitFile(file, bytes.size.toLong())
+        } finally { cache.releaseHoleSpan(hole) }
+        cache.applyContentMetadataMutations(key, ContentMetadataMutations().also {
+            ContentMetadataMutations.setContentLength(it, bytes.size.toLong())
+        })
+        StreamedAudioRepresentations.persistBinding(cache, key)
+        val starting = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio",
+            source = "YouTube Music", bitrateKbps = 128).toMediaItem()
+        var item = starting.buildUpon().setMediaMetadata(starting.mediaMetadata.buildUpon()
+            .setExtras(android.os.Bundle(starting.mediaMetadata.extras).apply {
+                putString("source_policy_key", policy.key)
+                putPlaybackMode(PlaybackMode.FAST_START)
+            }).build()).build()
+        var seek: Pair<Int, Long>? = null
+        var resume = false
+        var position = 38_000L
+        val player = Proxy.newProxyInstance(ExoPlayer::class.java.classLoader, arrayOf(ExoPlayer::class.java)) { _, method, args ->
+            when (method.name) {
+                "getCurrentMediaItem" -> item
+                "getCurrentTimeline" -> Timeline.EMPTY
+                "getCurrentMediaItemIndex" -> 1
+                "getMediaItemCount" -> 3
+                "getRepeatMode" -> Player.REPEAT_MODE_OFF
+                "isPlaying", "getPlayWhenReady" -> true
+                "isCurrentMediaItemSeekable", "isCurrentMediaItemLive", "getShuffleModeEnabled" -> false
+                "getPlaybackState" -> Player.STATE_READY
+                "getDuration" -> selected.durationMs
+                "getCurrentPosition" -> position
+                "getPlaybackParameters" -> androidx.media3.common.PlaybackParameters.DEFAULT
+                "replaceMediaItem" -> {
+                    assertEquals(1, args!![0])
+                    item = args[1] as MediaItem
+                    ReflectionHelpers.setField(service, "verifiedSignalUri", item.localConfiguration!!.uri)
+                    ReflectionHelpers.setField(service, "verifiedSignalFormat", Format.Builder()
+                        .setSampleMimeType(MimeTypes.AUDIO_AAC).setSampleRate(44_100).setChannelCount(2).build())
+                    ReflectionHelpers.setField(service, "verifiedSignalBitrate", 320)
+                    null
+                }
+                "seekTo" -> { seek = args!![0] as Int to (args[1] as Long); null }
+                "setPlayWhenReady" -> { resume = args!![0] as Boolean; null }
+                else -> null
+            }
+        } as ExoPlayer
+        try {
+            ReflectionHelpers.setField(service, "exoPlayer", player)
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "scheduleHeadlessLossless",
+                ReflectionHelpers.ClassParameter.from(PlaybackSourcePolicy::class.java, policy))
+            position = 42_500L
+            until { seek != null }
+            assertEquals(1 to 42_500L, seek)
+            assertTrue(resume)
+            assertEquals(starting.mediaId, item.mediaId)
+            assertEquals(PlaybackMode.FAST_START, item.playbackMode)
+            assertEquals(PlaybackSource.jio.id, item.localConfiguration!!.uri.getQueryParameter("provider"))
+        } finally { cache.removeResource(key) }
     }
 
     @Test fun speculativeServiceResolutionSharesAnAudibleLookupsResultWithoutOwningItsLifetime() = runBlocking {

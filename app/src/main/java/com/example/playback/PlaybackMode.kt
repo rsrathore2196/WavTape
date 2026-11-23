@@ -29,12 +29,16 @@ internal val MediaItem.playbackMode: PlaybackMode?
 internal fun PlaybackSourcePolicy.startupSourcesFor(trackId: String): List<PlaybackSource> =
     if (returnsToYouTube(trackId)) resolutionSourcesFor(trackId) else upgradeSources
 
-internal fun PlaybackSourcePolicy.fastStartUpgradeSources(track: MusicTrack): List<PlaybackSource> {
-    if (!online || SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), this) != PlaybackSource.youtube.id)
+internal fun PlaybackSourcePolicy.fastStartUpgradeSources(track: MusicTrack, manual: Boolean = false): List<PlaybackSource> {
+    if (!ready || !online || returnsToYouTube(track.id)) return emptyList()
+    val current = SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), this)
+    if (current == null || !manual && current != PlaybackSource.youtube.id)
         return emptyList()
-    return startupSourcesFor(track.id).takeWhile { it.kind != PlaybackSourceKind.YOUTUBE }
+    val ordered = upgradeSources
+    if (ordered.none { it.id == current }) return emptyList()
+    return ordered.takeWhile { it.id != current }
 }
 
-internal fun Player.canSwitchStartupStream(): Boolean =
-    isPlaying && isCurrentMediaItemSeekable && !isCurrentMediaItemLive &&
-        (duration <= 0L || duration - currentPosition > 8_000L)
+internal fun Player.canSwitchStartupStream(automatic: Boolean = true): Boolean =
+    playbackState == Player.STATE_READY && !isCurrentMediaItemLive &&
+        (!automatic || isPlaying && (duration <= 0L || duration - currentPosition > 8_000L))

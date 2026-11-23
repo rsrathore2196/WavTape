@@ -500,20 +500,31 @@ class MusicRepository private constructor(
             PlaybackStart(resolved, mode)
         }
 
-    internal suspend fun resolveFastStartUpgrade(track: MusicTrack, policy: PlaybackSourcePolicy): MusicTrack? =
-        kotlinx.coroutines.withTimeoutOrNull(35_000L) {
-            policy.fastStartUpgradeSources(track).firstNotNullOfOrNull { source ->
-                val candidate = if (source.kind == PlaybackSourceKind.INTERNET_ARCHIVE) {
+    internal suspend fun resolveFastStartUpgrade(
+        track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
+        stillCurrent: () -> Boolean = { true }, prepare: suspend (MusicTrack) -> Boolean = { true }
+    ): MusicTrack? = kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+        for (source in policy.fastStartUpgradeSources(track, manual)) {
+            if (!stillCurrent()) return@withTimeoutOrNull null
+            val candidate = kotlinx.coroutines.withTimeoutOrNull(16_000L) {
+                if (!manual && source.kind == PlaybackSourceKind.INTERNET_ARCHIVE) {
                     findLosslessUpgrade(track, automatic = true)?.copy(id = track.id)
                 } else try {
-                    resolvePlayableTrack(track, preferredSourceId = source.id, retainLosslessLookup = false)
+                    resolvePlayableTrack(track, preferredSourceId = source.id, manualUpgrade = manual,
+                        retainLosslessLookup = false)
                 } catch (_: TrackUnavailableException) { null }
-                candidate?.takeIf {
-                    policy.acceptsRemoteTrack(it) && SourceTransitionOrigin.sourceId(
-                        it.id, android.net.Uri.parse(it.audioUrl), policy) == source.id
-                }
+            } ?: continue
+            if (!stillCurrent()) return@withTimeoutOrNull null
+            if (candidate.id != track.id || candidate.audioUrl == track.audioUrl ||
+                !policy.acceptsRemoteTrack(candidate) || SourceTransitionOrigin.sourceId(
+                    candidate.id, android.net.Uri.parse(candidate.audioUrl), policy) != source.id) continue
+            // A matched URL that cannot resume the song is not an available upgrade.
+            if (kotlinx.coroutines.withTimeoutOrNull(10_000L) { prepare(candidate) } == true) {
+                return@withTimeoutOrNull candidate
             }
         }
+        null
+    }
 
     /** Apply the active quality tier consistently to every playback entry point. */
     suspend fun resolvePlayableTrack(

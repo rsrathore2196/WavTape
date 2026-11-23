@@ -146,6 +146,17 @@ class LosslessPrebufferRegressionTest {
         assertNull(LosslessStreamPrebuffer.prepare(app, fake, 20_000, { 6_000 }, { true }))
         assertEquals(LosslessDiagnostics.Reason.INVALID_FORMAT, LosslessDiagnostics.last(fake.mediaId)?.reason)
     }
+
+    @Test fun fastStartChecksTheReplacementBytesAtThePlayingPosition() = runBlocking {
+        val item = item("song.flac")
+        val current = MusicTrack(item.mediaId, "Song", "Artist", "Album", 24_000L, "",
+            "xtreme-youtube://audio/abcdefghijk/stream.audio")
+        val replacement = current.copy(audioUrl = item.localConfiguration!!.uri.toString(), isLossless = true)
+        assertTrue(prepareFastStartReplacement(app, item, current, replacement,
+            position = { 6_000L }, stillCurrent = { true }, automatic = false))
+        assertFalse(prepareFastStartReplacement(app, item, current, replacement,
+            position = { 6_000L }, stillCurrent = { false }, automatic = false))
+    }
     @Test fun nonMaximumProfileRejectsPreparationBeforeItTouchesPlayerOrNetwork() = runBlocking {
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.HIGH)
         assertNull(LosslessStreamPrebuffer.prepare(app, item("song.flac"), 20_000,
