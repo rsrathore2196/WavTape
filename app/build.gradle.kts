@@ -20,8 +20,8 @@ android {
     applicationId = "com.aistudio.xtremeplayer.vkmz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 11
-    versionName = "2.1"
+    versionCode = 12
+    versionName = "2.2"
 
     // Optional authenticated lyrics routes; public providers work without these values.
     for (keyName in listOf("PAXSENIX_API_KEY", "MUSIXMATCH_API_KEY")) {

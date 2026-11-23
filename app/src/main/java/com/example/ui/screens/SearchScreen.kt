@@ -204,7 +204,8 @@ private fun RecentSearchList(
 @Composable
 private fun GenreResultsPage(
     state: SearchUiState, modifier: Modifier, playingId: String?, isPlaying: Boolean,
-    isLoading: Boolean, pendingTrackId: String?, onReshuffle: () -> Unit,
+    isLoading: Boolean, pendingTrackId: String?, isShufflingGenre: Boolean,
+    onShuffleGenre: () -> Unit,
     onPlay: (MusicTrack, List<MusicTrack>) -> Unit, onFavorite: (MusicTrack) -> Unit,
     onOpenCatalog: (com.example.data.repository.CatalogDestination) -> Unit,
     onOpenAlbumByName: (String) -> Unit
@@ -228,8 +229,20 @@ private fun GenreResultsPage(
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(state.selectedGenre, style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold, color = colors.textPrimary, modifier = Modifier.weight(1f))
-                IconButton(onClick = onReshuffle, modifier = Modifier.testTag("reshuffle_genre_button")) {
-                    Icon(Icons.Default.Shuffle, "Reshuffle genre", tint = colors.primaryAccent)
+                IconButton(
+                    onClick = onShuffleGenre,
+                    enabled = !isShufflingGenre,
+                    modifier = Modifier.testTag("reshuffle_genre_button")
+                ) {
+                    if (isShufflingGenre) {
+                        VisibleCircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.primaryAccent
+                        )
+                    } else {
+                        Icon(Icons.Default.Shuffle, "Shuffle genre", tint = colors.primaryAccent)
+                    }
                 }
             }
         }
@@ -394,7 +407,9 @@ fun SearchScreen(
     onRemoveRecentSearch: (String) -> Unit = {},
     onClearRecentSearches: () -> Unit = {},
     onExploreVisibilityChanged: (Boolean) -> Unit = {},
-    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null
+    onSelectExploreCategory: ((ExploreCategory, Boolean) -> Unit)? = null,
+    onShuffleGenre: (() -> Unit)? = null,
+    isShufflingGenre: Boolean = false
 ) {
     val currentPlayingId = currentPlayingTrackId ?: playerUiState?.currentTrack?.id
     val isCurrentlyPlaying = isPlaying || (playerUiState?.isPlaying == true)
@@ -604,10 +619,20 @@ fun SearchScreen(
             state = searchState, modifier = modifier,
             playingId = currentPlayingId, isPlaying = isCurrentlyPlaying,
             isLoading = isCurrentlyLoading, pendingTrackId = pendingLoadingTrackId,
-            onReshuffle = {
-                val category = searchState.selectedExploreCategory
-                if (category != null && onSelectExploreCategory != null) onSelectExploreCategory(category, true)
-                else onSelectGenre(searchState.selectedGenre)
+            isShufflingGenre = isShufflingGenre,
+            onShuffleGenre = {
+                if (onShuffleGenre != null) {
+                    onShuffleGenre()
+                } else {
+                    val shuffled = com.example.ui.viewmodel.buildShuffledGenreQueue(
+                        tracks = searchState.result.songs,
+                        currentTrackId = currentPlayingId
+                    )
+                    if (shuffled.isNotEmpty()) {
+                        pendingLoadingTrackId = shuffled.first().id
+                        onTrackClick(shuffled.first(), shuffled)
+                    }
+                }
             },
             onPlay = { track, queue -> pendingLoadingTrackId = track.id; onTrackClick(track, queue) },
             onFavorite = onToggleFavorite, onOpenCatalog = onOpenCatalog, onOpenAlbumByName = onOpenAlbumByName

@@ -417,6 +417,8 @@ fun MainNavigationScaffold(
                                     onSelectGenre = { g -> viewModel.selectGenre(g) },
                                     onExploreVisibilityChanged = viewModel::setExploreVisible,
                                     onSelectExploreCategory = { category, force -> viewModel.selectExploreCategory(category, force) },
+                                    onShuffleGenre = viewModel::shufflePlayExploreGenre,
+                                    isShufflingGenre = viewModel.isShufflingExploreGenre.collectAsStateWithLifecycle().value,
                                     onSelectSource = { s -> viewModel.selectSource(s) },
                                     onTrackClick = { track, queue -> viewModel.playFromSearch(track, queue) },
                                     onToggleFavorite = { track -> viewModel.toggleLike(track) }

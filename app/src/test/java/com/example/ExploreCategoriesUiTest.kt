@@ -130,15 +130,58 @@ class ExploreCategoriesUiTest {
         assertEquals(CatalogDestination.Album(album), opened)
     }
 
-    @Test fun categoryRefreshRetainsItsEndpointAndExplicitRefreshIntent() {
-        var request: Pair<ExploreCategory, Boolean>? = null
+    @Test fun genreShuffleButtonInvokesExplicitGenreShuffleAndFallbackQueuesOnlyThatGenresTracks() {
+        var shuffleInvoked = false
         content {
-            SearchScreen(SearchUiState(selectedGenre = mood.title, selectedExploreCategory = mood),
-                onQueryChange = {}, onSelectGenre = {}, onTrackClick = { _, _ -> }, onToggleFavorite = {},
-                onSelectExploreCategory = { category, force -> request = category to force })
+            SearchScreen(
+                SearchUiState(selectedGenre = mood.title, selectedExploreCategory = mood),
+                onQueryChange = {},
+                onSelectGenre = {},
+                onTrackClick = { _, _ -> fail("Explicit onShuffleGenre callback should handle playback") },
+                onToggleFavorite = {},
+                onSelectExploreCategory = { _, _ -> fail("Shuffle button should play, not reload category") },
+                onShuffleGenre = { shuffleInvoked = true }
+            )
         }
         compose.onNodeWithTag("reshuffle_genre_button").performClick()
-        assertEquals(mood to true, request)
+        assertTrue(shuffleInvoked)
+    }
+
+    @Test fun genreShuffleFallbackPlaysAndFillsQueueWithShuffledGenreTracksOnly() {
+        val genreTracks = (1..6).map { index ->
+            com.example.data.model.MusicTrack(
+                id = "yt_genre_$index",
+                title = "Genre Song $index",
+                artist = "Genre Artist $index",
+                album = "Genre Album $index",
+                durationMs = 180_000L,
+                coverUrl = "",
+                audioUrl = "https://example.com/song_$index.m4a",
+                genre = mood.title
+            )
+        }
+        var playedTrack: com.example.data.model.MusicTrack? = null
+        var queuedTracks: List<com.example.data.model.MusicTrack> = emptyList()
+        content {
+            SearchScreen(
+                SearchUiState(
+                    selectedGenre = mood.title,
+                    selectedExploreCategory = mood,
+                    result = SearchResultCategory(matchedGenreOrType = mood.title, songs = genreTracks)
+                ),
+                currentPlayingTrackId = genreTracks.first().id,
+                onQueryChange = {},
+                onSelectGenre = {},
+                onTrackClick = { track, queue -> playedTrack = track; queuedTracks = queue },
+                onToggleFavorite = {}
+            )
+        }
+        compose.onNodeWithTag("reshuffle_genre_button").performClick()
+        assertNotNull(playedTrack)
+        assertEquals(queuedTracks.first(), playedTrack)
+        assertEquals(genreTracks.map { it.id }.toSet(), queuedTracks.map { it.id }.toSet())
+        assertEquals(genreTracks.size, queuedTracks.size)
+        assertNotEquals(genreTracks.first().id, playedTrack?.id)
     }
 
     @Test fun excludedGenresAreRemovedAndDanceRenamedAndSearchPillsExcludePlaylists() {

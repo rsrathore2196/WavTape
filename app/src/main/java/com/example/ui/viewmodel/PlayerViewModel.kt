@@ -1251,6 +1251,68 @@ class PlayerViewModel(
         }
     }
 
+    private val _isShufflingExploreGenre = MutableStateFlow(false)
+    val isShufflingExploreGenre: StateFlow<Boolean> = _isShufflingExploreGenre.asStateFlow()
+    private val genreShuffleGeneration = AtomicLong()
+
+    fun shufflePlayExploreGenre() {
+        val currentSearch = _searchState.value
+        val category = currentSearch.selectedExploreCategory
+        val genreTitle = currentSearch.selectedGenre.takeUnless { it.equals("All", ignoreCase = true) }.orEmpty()
+        if (category == null && genreTitle.isBlank()) return
+
+        val generation = genreShuffleGeneration.incrementAndGet()
+        activePlaybackLaunchJob?.cancel()
+        activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+            _isShufflingExploreGenre.value = true
+            try {
+                var results = currentSearch.result
+                if (results.songs.isEmpty() && results.catalogPlaylists.isEmpty() && results.catalogAlbums.isEmpty() && category != null) {
+                    results = withContext(AppDispatchers.Io) {
+                        repository.getExploreCategoryResults(category, forceRefresh = false)
+                    }
+                    ensureActive()
+                    _searchState.update { state ->
+                        if (state.selectedExploreCategory?.key == category.key) {
+                            state.copy(result = results, isSearching = false, genreError = null)
+                        } else state
+                    }
+                }
+
+                val collected = collectExploreGenreShuffleTracks(
+                    results = results,
+                    currentTrackId = playbackManager.uiState.value.currentTrack?.id,
+                    loadCollection = { destination -> catalogBrowser.prepareCollectionPlayback(destination) }
+                )
+                ensureActive()
+
+                val first = collected.tracks.firstOrNull()
+                if (first == null) {
+                    val label = genreTitle.ifBlank { category?.title.orEmpty() }.ifBlank { "this genre" }
+                    _libraryMessages.emit("No playable tracks found in $label.")
+                    return@launch
+                }
+
+                val continuation = collected.continuationSource?.let(catalogBrowser::playlistPlaybackContinuation)
+                playbackManager.playTrack(
+                    track = first,
+                    queue = collected.tracks,
+                    isExplicitPlaylist = true,
+                    collectionLoader = continuation
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                val label = genreTitle.ifBlank { category?.title.orEmpty() }.ifBlank { "genre" }
+                _libraryMessages.emit("Couldn't shuffle $label right now. Please try again.")
+            } finally {
+                if (genreShuffleGeneration.get() == generation) {
+                    _isShufflingExploreGenre.value = false
+                }
+            }
+        }
+    }
+
     fun selectExploreCategory(category: ExploreCategory, forceRefresh: Boolean = false) {
         val generation = legacySearchGeneration.incrementAndGet()
         val query = _searchState.value.query
