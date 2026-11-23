@@ -74,15 +74,15 @@ class NativeHomeRowsUiTest {
     }
 
     @OptIn(ExperimentalRoborazziApi::class)
-    @Test fun standardShelfFrameShowsTheHomeBackgroundThroughItsInterior() {
+    @Test fun standardShelfShowsTheHomeBackgroundAtItsOuterEdge() {
         content(NativeShelfKind.STANDARD)
-        val screenshot = File.createTempFile("home-shelf-outline-", ".png")
+        val screenshot = File.createTempFile("home-shelf-background-", ".png")
         try {
-            compose.onNodeWithTag("home_shelf_frame").captureRoboImage(screenshot.absolutePath,
+            compose.onNodeWithTag("home_shelf").captureRoboImage(screenshot.absolutePath,
                 RoborazziOptions(taskType = RoborazziTaskType.Record))
             val image = ImageIO.read(screenshot)
             assertEquals(homeBackground.toArgb(), image.getRGB(4, image.height / 2))
-            assertNotEquals(homeBackground.toArgb(), image.getRGB(0, image.height / 2))
+            assertEquals(homeBackground.toArgb(), image.getRGB(0, image.height / 2))
         } finally {
             screenshot.delete()
         }
@@ -91,12 +91,12 @@ class NativeHomeRowsUiTest {
     @Test fun quickPicksStacksFourUnframedTracksPerColumnWithOriginalQueueOrder() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }
-        val frame = compose.onNodeWithTag("native_quick_picks_frame").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val frame = compose.onNodeWithTag("native_quick_picks_shelf").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val title = compose.onNodeWithText("Native shelf").fetchSemanticsNode().boundsInRoot
         val subtitle = compose.onNodeWithText("A mix of songs to try").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue(title.top > frame.top && subtitle.top >= title.bottom)
         val bounds = (1..4).map { compose.onNodeWithTag("habit_pill_yt_native$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
-        assertTrue(bounds.all { it.left > frame.left && it.right < frame.right && it.top > subtitle.bottom && it.bottom < frame.bottom })
+        assertTrue(bounds.all { it.left > frame.left && it.right < frame.right && it.top > subtitle.bottom && it.bottom <= frame.bottom })
         for ((upper, lower) in bounds.zipWithNext()) {
             assertEquals(upper.left, lower.left, .5f)
             assertEquals(upper.right, lower.right, .5f)
@@ -156,9 +156,9 @@ class NativeHomeRowsUiTest {
         val video = compose.onNodeWithTag("native_video_art_yt_native1", useUnmergedTree = true)
             .assertWidthIsEqualTo(224.dp).assertHeightIsEqualTo(126.dp)
         val bounds = video.fetchSemanticsNode().boundsInRoot
-        val frame = compose.onNodeWithTag("home_shelf_frame").fetchSemanticsNode().boundsInRoot
+        val frame = compose.onNodeWithTag("home_shelf").fetchSemanticsNode().boundsInRoot
         assertTrue(bounds.left > frame.left && bounds.right < frame.right)
-        assertTrue(bounds.top > frame.top && bounds.bottom < frame.bottom)
+        assertTrue(bounds.top > frame.top && bounds.bottom <= frame.bottom)
         compose.onNodeWithText(fullTitle).performClick()
         compose.runOnIdle { assertEquals(tracks, queue) }
     }
@@ -198,7 +198,7 @@ class NativeHomeRowsUiTest {
             fail("Shuffle must not start discovery playback")
         }
         val button = compose.onNodeWithContentDescription("Shuffle Quick Picks").assertIsDisplayed()
-        val frame = compose.onNodeWithTag("native_quick_picks_frame").fetchSemanticsNode().boundsInRoot
+        val frame = compose.onNodeWithTag("native_quick_picks_shelf").fetchSemanticsNode().boundsInRoot
         val buttonBounds = button.fetchSemanticsNode().boundsInRoot
         assertTrue(buttonBounds.left > frame.center.x && buttonBounds.right < frame.right)
         assertTrue(buttonBounds.top > frame.top && buttonBounds.bottom < frame.bottom)
@@ -218,7 +218,7 @@ class NativeHomeRowsUiTest {
     @Test fun standardMusicShelvesKeepTheirExistingSquareArtwork() {
         content(NativeShelfKind.STANDARD)
         compose.onNodeWithText("More to discover on YouTube Music").assertIsDisplayed()
-        compose.onNodeWithTag("native_quick_picks_frame").assertDoesNotExist()
+        compose.onNodeWithTag("native_quick_picks_shelf").assertDoesNotExist()
         compose.onNodeWithContentDescription("Shuffle Quick Picks").assertDoesNotExist()
         compose.onNodeWithTag("native_music_video_row").assertDoesNotExist()
         compose.onNodeWithTag("native_quick_picks_grid").assertDoesNotExist()

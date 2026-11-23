@@ -300,24 +300,7 @@ fun Modifier.playerPrimaryLiquidGlassButton(
     elevation: Dp = 10.dp,
     translucency: Float = 0.82f,
     borderWidth: Dp = 1.dp
-): Modifier {
-    val profile = LocalLiquidGlassProfile.current
-    return if (!profile.allowSecondaryBackdropSampling) {
-        val dark = colors.isDark
-        val baseFill = if (dark) Color(0xFF252830).copy(alpha = 0.65f) else Color(0xFFFFFFFF).copy(alpha = 0.75f)
-        this
-            .then(if (profile.enableShadows) Modifier.shadow(elevation * profile.shadowElevationMultiplier, shape) else Modifier)
-            .clip(shape)
-            .background(baseFill)
-            .border(borderWidth, Color.White.copy(alpha = if (dark) 0.30f else 0.50f), shape)
-    } else {
-        xtremeLiquidGlassBackground(
-            shape = shape, elevation = elevation, appColors = com.example.ui.util.playerAppearanceColors(colors),
-            tintColor = Color.Transparent, surfaceTintAlpha = 0f, borderWidth = borderWidth,
-            baseFillAlpha = 0f
-        )
-    }
-}
+): Modifier = playerLiquidGlassButton(colors, shape, elevation, translucency = translucency, borderWidth = borderWidth)
 
 /**
  * Reusable modifier alias for backwards compatibility.

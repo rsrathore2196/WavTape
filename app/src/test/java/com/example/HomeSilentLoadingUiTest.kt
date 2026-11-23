@@ -58,7 +58,7 @@ class HomeSilentLoadingUiTest {
         content {
             list = listFixture(); scope = rememberCoroutineScope()
             HomeScreenContent(serverShelves = (1..3).map { ServerHomeShelf("s$it", "Native $it", tracks = listOf(song)) },
-                pillsCardTracks = listOf(song), mostListenedArtists = listOf(MostListenedArtist("Singer", 1, listOf(song))),
+                pillsCardTracks = (1..4).map { song.copy(id = "recent-$it", title = "Song $it") }, mostListenedArtists = listOf(MostListenedArtist("Singer", 1, listOf(song))),
                 profileShelf = ServerHomeShelf("profile", "Music for You", tracks = listOf(song)),
                 listState = list, onTrackClick = { _, _ -> }, onToggleFavorite = {})
         }

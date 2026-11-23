@@ -6,17 +6,44 @@ import androidx.compose.ui.graphics.luminance
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-/** A small, preblurred image of the selected cover, retaining its original proportions. */
+/** Small preblurred textures of the selected cover at two strengths. */
 @Immutable
 class ArtworkColorField internal constructor(
     internal val pixels: IntArray,
     internal val width: Int,
-    internal val height: Int
+    internal val height: Int,
+    private val lighterPixels: IntArray
 ) {
     override fun equals(other: Any?) = other is ArtworkColorField &&
-        width == other.width && height == other.height && pixels.contentEquals(other.pixels)
+        width == other.width && height == other.height && pixels.contentEquals(other.pixels) &&
+        lighterPixels.contentEquals(other.lighterPixels)
 
-    override fun hashCode() = 31 * (31 * width + height) + pixels.contentHashCode()
+    override fun hashCode() = 31 * (31 * (31 * width + height) + pixels.contentHashCode()) +
+        lighterPixels.contentHashCode()
+
+    internal fun lowerReflection(cropHeight: Int): IntArray {
+        val result = lighterPixels.copyOf()
+        val edgeRow = (height - cropHeight) / 2 + cropHeight - 1
+        val blendRows = (cropHeight * 0.15f).roundToInt().coerceAtLeast(1)
+        // Bilinear filtering can read the next texel just beyond a center crop.
+        val paddedEdge = (edgeRow + 1).coerceAtMost(height - 1)
+        for (y in (edgeRow - blendRows + 1).coerceAtLeast(0)..paddedEdge) {
+            val t = (edgeRow - y).coerceAtLeast(0).toFloat() / blendRows
+            val blend = t * t * (3f - 2f * t)
+            for (x in 0 until width) {
+                val index = y * width + x
+                val soft = pixels[index]
+                val clear = lighterPixels[index]
+                fun channel(shift: Int): Int {
+                    val from = (soft ushr shift) and 255
+                    val to = (clear ushr shift) and 255
+                    return (from + (to - from) * blend).roundToInt()
+                }
+                result[index] = opaqueRgb(channel(16), channel(8), channel(0))
+            }
+        }
+        return result
+    }
 }
 
 internal fun playerBackdropTone(color: Color): Color {
@@ -57,11 +84,14 @@ internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): Artwo
     }
     val scratch = IntArray(image.size)
     val radius = (maxOf(outWidth, outHeight) * 0.05f).roundToInt().coerceAtLeast(1)
-    repeat(3) {
+    fun smooth() {
         blurPass(image, scratch, outWidth, outHeight, radius, horizontal = true)
         blurPass(scratch, image, outWidth, outHeight, radius, horizontal = false)
     }
-    return ArtworkColorField(image, outWidth, outHeight)
+    smooth()
+    val lighter = image.copyOf()
+    repeat(2) { smooth() }
+    return ArtworkColorField(image, outWidth, outHeight, lighter)
 }
 
 private fun blurPass(source: IntArray, target: IntArray, width: Int, height: Int, radius: Int, horizontal: Boolean) {

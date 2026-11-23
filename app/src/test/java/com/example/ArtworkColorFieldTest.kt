@@ -69,4 +69,19 @@ class ArtworkColorFieldTest {
         assertTrue(upper.red > lower.red && lower.blue > upper.blue)
         assertTrue(center.red > 0f && center.blue > 0f)
     }
+
+    @Test fun lowerReflectionRetainsMoreDetailAndMatchesTheVisibleEdgeForBothCrops() {
+        val pixels = IntArray(64 * 64) { index ->
+            if (index % 64 in 29..35) 0xffffffff.toInt() else 0xff000000.toInt()
+        }
+        val field = extractPlayerArtworkColors(pixels, 64, 64)!!.colorField!!
+        for (cropHeight in listOf(64, 40)) {
+            val lower = field.lowerReflection(cropHeight)
+            val edge = ((field.height - cropHeight) / 2 + cropHeight - 1) * field.width
+            assertArrayEquals(field.pixels.copyOfRange(edge, edge + field.width),
+                lower.copyOfRange(edge, edge + field.width))
+            val detail = (field.height / 2) * field.width + 32
+            assertTrue(Color(lower[detail]).red > Color(field.pixels[detail]).red)
+        }
+    }
 }

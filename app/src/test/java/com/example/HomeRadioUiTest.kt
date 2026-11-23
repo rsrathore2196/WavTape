@@ -43,7 +43,7 @@ class HomeRadioUiTest {
         assertEquals(song, heroSelection)
         compose.onNodeWithTag("home_screen").performScrollToKey("server_shelf_native")
         compose.onNodeWithText("A mix of songs to try").assertIsDisplayed()
-        compose.onNodeWithTag("native_quick_picks_frame").assertIsDisplayed()
+        compose.onNodeWithTag("native_quick_picks_shelf").assertIsDisplayed()
         compose.onNodeWithTag("most_listened_artist_row").assertDoesNotExist()
         compose.onNodeWithTag("artist_radio_shelf").assertDoesNotExist()
     }
@@ -64,11 +64,11 @@ class HomeRadioUiTest {
         } }
         compose.onNodeWithTag("home_screen").performScrollToKey("most_listened_artists")
         compose.onNodeWithText("Artists you play most often").assertIsDisplayed()
-        val frame = compose.onNodeWithTag("home_artist_frame").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val frame = compose.onNodeWithTag("home_most_listened_artists").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val card = compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
             .fetchSemanticsNode().boundsInRoot
         assertTrue(card.left > frame.left && card.right < frame.right)
-        assertTrue(card.top > frame.top && card.bottom < frame.bottom)
+        assertTrue(card.top > frame.top && card.bottom <= frame.bottom)
         compose.onNodeWithTag("view_artist_Artist One").assertIsDisplayed().performClick()
         assertEquals(first.name, openedArtist)
         compose.onNodeWithTag("artist_radio_play_Artist One").assertIsDisplayed().performClick()

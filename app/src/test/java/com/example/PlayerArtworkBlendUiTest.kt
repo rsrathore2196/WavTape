@@ -43,7 +43,7 @@ class PlayerArtworkBlendUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test @Config(sdk = [28, 36])
-    fun blurredCoverReflectsAtBothEdgesAndTracksTheActualCoverBounds() {
+    fun lighterLowerReflectionKeepsTheWholeUpperPlayerAndBothSeamsIntact() {
         var inset by mutableStateOf(70.dp)
         var coverHeight by mutableStateOf(160.dp)
         val bounds = mutableStateOf<Rect?>(null)
@@ -57,28 +57,41 @@ class PlayerArtworkBlendUiTest {
             }.toArgb()
         }
         val field = com.example.ui.util.artworkColorField(pixels, 96, 96)
+        val evenlyBlurred = com.example.ui.util.ArtworkColorField(field.pixels, field.width, field.height, field.pixels)
+        val backdrop = mutableStateOf(evenlyBlurred)
         compose.setContent {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
                 LocalDynamicGlassEnabled provides true) {
                 // Offset the player and cover independently to check root-to-local alignment.
                 Box(Modifier.size(240.dp, 360.dp)) {
                     Box(Modifier.offset(x = 9.dp, y = 15.dp).size(200.dp, 320.dp).testTag("mirrored_cover_player")) {
-                        PlayerGlassBackground(bounds, colorField = rememberUpdatedState(field))
+                        PlayerGlassBackground(bounds, colorField = backdrop)
                         Box(Modifier.offset(x = 20.dp, y = inset).size(160.dp, coverHeight)
                             .onGloballyPositioned { bounds.value = it.boundsInRoot() })
                     }
                 }
             }
         }
-        fun verify() {
+        fun capture(): java.awt.image.BufferedImage {
             val file = java.io.File.createTempFile("mirrored-player-", ".png")
-            val image = try {
+            return try {
                 compose.onNodeWithTag("mirrored_cover_player").captureRoboImage(file.absolutePath,
                     roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
                 javax.imageio.ImageIO.read(file)
             } finally { file.delete() }
+        }
+        fun verify() {
+            compose.runOnIdle { backdrop.value = evenlyBlurred }
+            val original = capture()
+            compose.runOnIdle { backdrop.value = field }
+            val image = capture()
             val start = (image.height * inset.value / 320f).toInt()
             val end = (image.height * (inset.value + coverHeight.value) / 320f).toInt()
+            fun regionPixels(bitmap: java.awt.image.BufferedImage, y: Int, height: Int) =
+                bitmap.getRGB(0, y, bitmap.width, height, null, 0, bitmap.width)
+            assertArrayEquals(regionPixels(original, 0, end), regionPixels(image, 0, end))
+            assertFalse(regionPixels(original, end + 12, image.height - end - 12)
+                .contentEquals(regionPixels(image, end + 12, image.height - end - 12)))
             fun assertReflected(x: Int, inside: Int, outside: Int) {
                 val original = java.awt.Color(image.getRGB(x, inside))
                 val reflected = java.awt.Color(image.getRGB(x, outside))
@@ -90,8 +103,8 @@ class PlayerArtworkBlendUiTest {
             for (x in listOf(image.width / 4, image.width * 3 / 4)) {
                 for (offset in listOf(5, 15, 23)) {
                     assertReflected(x, start + offset, start - offset - 1)
-                    assertReflected(x, end - offset - 1, end + offset)
                 }
+                assertReflected(x, end - 1, end)
             }
             val left = image.width / 4
             val right = image.width * 3 / 4

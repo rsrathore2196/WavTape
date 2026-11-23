@@ -79,7 +79,7 @@ class HomeViewModel(private val repository: MusicRepository, private val playbac
     val mostListenedArtists = _mostListenedArtists.asStateFlow()
     private val _hasListenedArtists = MutableStateFlow(false)
     val hasListenedArtists = _hasListenedArtists.asStateFlow()
-    val hasRecentlyPlayed = recentlyPlayed.map { it.isNotEmpty() }
+    val hasRecentlyPlayedShelf = _listeningHistoryCard.map { it.tracks.size >= RECENTLY_PLAYED_CARD_LIMIT }
         .stateIn(owner, SharingStarted.Eagerly, false)
     private val _userMode = MutableStateFlow(HomeUserMode.LOADING)
     val userMode = _userMode.asStateFlow()

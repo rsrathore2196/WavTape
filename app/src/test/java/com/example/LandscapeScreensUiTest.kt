@@ -75,18 +75,48 @@ class LandscapeScreensUiTest {
         compose.onNodeWithText("Pick up where you left off").assertIsDisplayed()
         compose.onNodeWithTag("home_screen").performScrollToNode(hasTestTag("habit_pill_recent-4"))
         compose.onNodeWithTag("habit_pill_recent-4").assertIsDisplayed()
-        val frame = rect("home_recently_played_frame")
+        val frame = rect("home_recently_played_grid")
         val cell = rect("habit_pill_recent-4")
         val first = rect("habit_pill_recent-1")
         val second = rect("habit_pill_recent-2")
         val third = rect("habit_pill_recent-3")
-        assertTrue(cell.left > frame.left && cell.right < frame.right)
-        assertTrue(cell.top > frame.top && cell.bottom < frame.bottom)
+        assertTrue(cell.left >= frame.left && cell.right <= frame.right)
+        assertTrue(cell.top > frame.top && cell.bottom <= frame.bottom)
         assertEquals(first.top, second.top, 0.5f)
         assertEquals(third.top, cell.top, 0.5f)
         assertEquals(first.left, third.left, 0.5f)
         assertEquals(second.left, cell.left, 0.5f)
+        for ((column, pair) in listOf(first to third, second to cell).withIndex()) {
+            val (upper, lower) = pair
+            val divider = rect("recent_track_divider_0_$column")
+            assertTrue(divider.left > upper.left && divider.right < upper.right)
+            assertEquals(upper.center.x, divider.center.x, 0.5f)
+            assertEquals((upper.bottom + lower.top) / 2f, divider.center.y, 1f)
+        }
+        compose.onNodeWithTag("recent_track_divider_1_0").assertDoesNotExist()
         compose.onNodeWithTag("habit_pill_recent-5").assertDoesNotExist()
+    }
+
+    @Test fun portraitWaitsForFourRecentTracks() = assertRecentShelfUnlocksAtFour()
+
+    @Test @Config(qualifiers = "w740dp-h360dp-land")
+    fun landscapeWaitsForFourRecentTracks() = assertRecentShelfUnlocksAtFour()
+
+    private fun assertRecentShelfUnlocksAtFour() {
+        var recent by mutableStateOf(emptyList<MusicTrack>())
+        content {
+            HomeScreenContent(pillsCardTracks = recent, onTrackClick = { track, all -> played = track; queue = all },
+                onToggleFavorite = {})
+        }
+        for (count in 0..3) {
+            compose.runOnIdle { recent = tracks.take(count) }
+            compose.onNodeWithText("Recently Played").assertDoesNotExist()
+            compose.onNodeWithTag("habit_pill_recent-1").assertDoesNotExist()
+        }
+        compose.runOnIdle { recent = tracks.take(4) }
+        compose.onNodeWithTag("home_screen").performScrollToNode(hasTestTag("habit_pill_recent-4"))
+        compose.onNodeWithTag("habit_pill_recent-4").assertIsDisplayed().performClick()
+        assertEquals(tracks.take(4), queue)
     }
 
     @Test @Config(qualifiers = "w740dp-h360dp-land")

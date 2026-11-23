@@ -76,7 +76,7 @@ class HomeDeferredWorkTest {
             ShadowSystemClock.advanceBy(Duration.ofMillis(749)); delay(300)
             assertEquals(0, searches.get()); assertEquals(0, queries.get())
             ShadowSystemClock.advanceBy(Duration.ofMillis(1)); delay(300)
-            withTimeout(5_000) { vm.hasRecentlyPlayed.first { it } }
+            withTimeout(5_000) { vm.recentlyPlayed.first { it.isNotEmpty() } }
             assertEquals(0, searches.get()); assertEquals(0, queries.get())
             ShadowSystemClock.advanceBy(Duration.ofMillis(750))
             withTimeout(5_000) { vm.profileShelf.first { it != null } }

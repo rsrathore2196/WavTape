@@ -132,8 +132,9 @@ class AdaptiveHomeLoadingTest {
             stopClock()
             assertNull(vm.initialHomePreparedAt.value)
             assertTrue(vm.coreTabsReady.value)
-            assertTrue(vm.hasRecentlyPlayed.value)
+            assertTrue(vm.recentlyPlayed.value.isNotEmpty())
             assertEquals(listOf(song(1)), vm.listeningHistoryCard.value.tracks)
+            assertFalse(vm.hasRecentlyPlayedShelf.value)
             assertTrue(vm.profileShelfVisible.value)
             assertEquals("Music for You", vm.profileShelf.value?.title)
             assertEquals("Artist 1", vm.mostListenedArtists.value.single().name)
@@ -156,7 +157,7 @@ class AdaptiveHomeLoadingTest {
     @Test fun shortQuietGatesUseCompletionOfEachPreviousStage() = runBlocking<Unit> {
         history(); val vm = model(); stopClock()
         idle(749); assertEquals(0, historyReads.get()); idle(1); recent(vm)
-        assertTrue(vm.hasRecentlyPlayed.value); assertEquals(0, profiles.get()); assertEquals(0, artistReads.get())
+        assertTrue(vm.recentlyPlayed.value.isNotEmpty()); assertEquals(0, profiles.get()); assertEquals(0, artistReads.get())
         idle(749); assertEquals(0, profiles.get()); idle(1); profile(vm); assertEquals(0, artistReads.get())
         idle(749); assertEquals(0, artistReads.get()); idle(1); artists(vm)
         idle(749); assertEquals(3, vm.revealedShelfCount.value); idle(1)
@@ -185,12 +186,12 @@ class AdaptiveHomeLoadingTest {
     }
     @Test fun offlineTerminalHomeDoesNotDeadlockCoreOrDeferredLocalData() = runBlocking<Unit> {
         history(); val vm = model(failHome = true); stopClock(); assertTrue(vm.coreTabsReady.value)
-        assertTrue(titles(vm).isEmpty()); idle(); recent(vm); assertTrue(vm.hasRecentlyPlayed.value)
+        assertTrue(titles(vm).isEmpty()); idle(); recent(vm); assertTrue(vm.recentlyPlayed.value.isNotEmpty())
         assertTrue(primary.get() <= 1); assertTrue(supplements.get() <= 2)
     }
     @Test fun newUsersSettleEmptyLocalCardsAndContinueWithoutInventingListeningData() = runBlocking<Unit> {
         val vm = model(); stopClock(); throughArtists(vm)
-        assertFalse(vm.hasRecentlyPlayed.value); assertFalse(vm.hasListenedArtists.value); assertNotNull(vm.profileShelf.value)
+        assertFalse(vm.recentlyPlayed.value.isNotEmpty()); assertFalse(vm.hasListenedArtists.value); assertNotNull(vm.profileShelf.value)
         idle(750); withTimeout(5_000) { vm.revealedShelfCount.first { it == 4 } }
     }
     @Test fun completedStagesSurviveTabSwitchesWithoutAnotherCorePreparation() = runBlocking<Unit> {
@@ -206,10 +207,10 @@ class AdaptiveHomeLoadingTest {
     }
     @Test fun warmOpeningKeepsCachedRecentCardsWhileRoomWaitsForTheActualDraw() = runBlocking<Unit> {
         history(); cache(); val vm = model(); stopClock(); idle(); recent(vm)
-        assertTrue(vm.hasRecentlyPlayed.value)
+        assertTrue(vm.recentlyPlayed.value.isNotEmpty())
         val previousFrame = vm.initialHomePreparedAt.value
         BackgroundWorkCoordinator.foreground(false); vm.setHomeVisible(false)
-        assertTrue(vm.hasRecentlyPlayed.value)
+        assertTrue(vm.recentlyPlayed.value.isNotEmpty())
         delay(100)
         val readsBefore = historyReads.get()
         idle(60_000)
@@ -217,12 +218,12 @@ class AdaptiveHomeLoadingTest {
         withTimeout(5_000) { vm.initialHomePreparedAt.first { it != previousFrame } }
         // Time before the retained Home actually draws cannot earn idle credit.
         idle(60_000)
-        assertTrue(vm.hasRecentlyPlayed.value); assertEquals(readsBefore, historyReads.get())
+        assertTrue(vm.recentlyPlayed.value.isNotEmpty()); assertEquals(readsBefore, historyReads.get())
         assertTrue("Cached data remains usable before live Room admission", vm.listeningHistoryCard.value.tracks.isNotEmpty())
         vm.onHomeFrameDrawn()
-        idle(749); assertTrue(vm.hasRecentlyPlayed.value); assertEquals(readsBefore, historyReads.get())
+        idle(749); assertTrue(vm.recentlyPlayed.value.isNotEmpty()); assertEquals(readsBefore, historyReads.get())
         idle(1); recent(vm)
-        withTimeout(5_000) { vm.hasRecentlyPlayed.first { it } }
+        withTimeout(5_000) { vm.recentlyPlayed.first { it.isNotEmpty() } }
         assertTrue(historyReads.get() > readsBefore); assertEquals(1, cores.get())
         assertEquals(0, profiles.get()); assertEquals(0, artistReads.get())
     }

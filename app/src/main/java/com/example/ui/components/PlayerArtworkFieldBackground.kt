@@ -33,11 +33,9 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PlayerArtworkFieldBackground(field: ArtworkColorField, artworkBounds: State<Rect?>?,
     modifier: Modifier = Modifier) {
-    val cover = remember(field) {
-        Bitmap.createBitmap(field.pixels, field.width, field.height, Bitmap.Config.ARGB_8888).asImageBitmap()
-    }
+    val cover = remember(field) { ReflectedArtwork(field) }
     var shown by remember { mutableStateOf(cover) }
-    var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
+    var incoming by remember { mutableStateOf<ReflectedArtwork?>(null) }
     val opacity = remember { Animatable(0f) }
     val origin = remember { mutableStateOf(Offset.Zero) }
     LaunchedEffect(cover) {
@@ -64,7 +62,26 @@ internal fun PlayerArtworkFieldBackground(field: ArtworkColorField, artworkBound
     }
 }
 
-private fun DrawScope.drawReflectedCover(image: ImageBitmap, artwork: Rect, alpha: Float) {
+private class ReflectedArtwork(private val field: ArtworkColorField) {
+    val upper = image(field.pixels)
+    private var cachedHeight = 0
+    private var cachedLower = upper
+
+    fun lower(cropHeight: Int): ImageBitmap {
+        // Only a change in the source crop rebuilds the small seam-blended texture.
+        if (cachedHeight != cropHeight) {
+            cachedLower = image(field.lowerReflection(cropHeight))
+            cachedHeight = cropHeight
+        }
+        return cachedLower
+    }
+
+    private fun image(pixels: IntArray) =
+        Bitmap.createBitmap(pixels, field.width, field.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+private fun DrawScope.drawReflectedCover(cover: ReflectedArtwork, artwork: Rect, alpha: Float) {
+    val image = cover.upper
     // Crop the reference texture with the same center-fill rule as PlayerCoverArtwork.
     val scale = maxOf(artwork.width / image.width, artwork.height / image.height)
     val srcWidth = (artwork.width / scale).roundToInt().coerceIn(1, image.width)
@@ -86,7 +103,7 @@ private fun DrawScope.drawReflectedCover(image: ImageBitmap, artwork: Rect, alph
         // Reflect outwards from the visible cover. Neighboring tiles share the same edge.
         scale(if (column % 2 == 0) 1f else -1f, if (row % 2 == 0) 1f else -1f,
             pivot = Offset(x + width / 2f, y + height / 2f)) {
-            drawImage(image, srcOffset = source, srcSize = sourceSize,
+            drawImage(if (row > 0) cover.lower(srcHeight) else image, srcOffset = source, srcSize = sourceSize,
                 dstOffset = IntOffset(x, y), dstSize = destSize, alpha = alpha)
         }
     }
