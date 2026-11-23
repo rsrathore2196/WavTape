@@ -124,7 +124,7 @@ data class SignalPathState(
             C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN -> 32
             else -> 0
         }
-        fun channelLabel(channels: Int): String = when (channels) { 1 -> "Mono"; 2 -> "Stereo"; in 3..32 -> "$channels (Surround)"; else -> "—" }
+        fun channelLabel(channels: Int): String = when (channels) { 1 -> "Mono"; 2 -> "Stereo"; in 3..32 -> "$channels channels"; else -> "—" }
         fun pcmEncodingLabel(encoding: Int): String = when (encoding) {
             C.ENCODING_PCM_FLOAT -> "32-bit float PCM"
             C.ENCODING_PCM_8BIT -> "8-bit PCM"

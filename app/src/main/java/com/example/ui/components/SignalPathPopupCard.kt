@@ -117,16 +117,30 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     val muted = colors.textSecondary
     val quality = state.quality
     val known = quality.verified
-    val bitExact = state.bitPerfect && state.directApproved && state.outputRouteVerified &&
-        !state.sourcePrecisionReduced && !state.dspActive && !state.appResampling && state.appVolume == 1f
-    val bitPerfectStatus = when {
-        !state.bitPerfectRequested && state.bitPerfectBypassActive -> "Off • restoring playback processing"
-        !state.bitPerfectRequested -> "Off"
-        !state.bitPerfectBypassActive -> "On • waiting for the audio path"
-        bitExact -> "On • verified USB passthrough"
-        !state.outputRouteVerified -> "On • DSP bypassed, output unverified"
-        state.directApproved -> "On • direct output, bit-exactness unverified"
-        else -> "On • DSP bypassed on shared output"
+    val dspKnown = state.dspEncoding != C.ENCODING_INVALID && state.dspRateHz > 0
+    val outputKnown = state.outputEncoding != C.ENCODING_INVALID && state.outputRateHz > 0
+    val ratesKnown = state.inputRateHz > 0 && state.outputRateHz > 0
+    val sameRate = ratesKnown && state.inputRateHz == state.outputRateHz && !state.appResampling
+    val directRoute = outputKnown && state.outputRouteVerified && state.directApproved
+    val bitExact = state.bitPerfect && directRoute && sameRate && state.decoderEncoding != C.ENCODING_INVALID &&
+        !state.sourcePrecisionReduced && !state.dspActive && state.appVolume == 1f
+    val bitPerfectMode = when {
+        !state.bitPerfectRequested && state.bitPerfectBypassActive -> "Mode off (restoring playback processing)"
+        !state.bitPerfectRequested -> "Mode off"
+        !state.bitPerfectBypassActive -> "Mode on (waiting for the audio path)"
+        else -> "Mode on"
+    }
+    val bitExactStatus = when {
+        state.sourcePrecisionReduced -> "No — source precision reduced"
+        bitExact -> "Verified direct PCM • DSP bypassed"
+        !outputKnown || !ratesKnown || state.decoderEncoding == C.ENCODING_INVALID -> "Not yet verified"
+        state.appVolume != 1f -> "No — digital volume attenuation"
+        state.dspActive || state.appResampling -> "No — samples processed"
+        !sameRate -> "No — sample rates differ"
+        !state.outputRouteVerified -> "Output route unverified"
+        directRoute -> "Direct output • bit-exactness unverified"
+        state.decoderEncoding != state.outputEncoding -> "PCM format conversion • system path unverified"
+        else -> "App bypassed • system mixing not verified"
     }
     val centers = remember { mutableStateMapOf<Int, Offset>() }
     val bodyCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -228,16 +242,20 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                 "Format" to encoding(state.decoderEncoding),
                                 "Sample Rate" to rate(state.inputRateHz),
                                 "Channels" to SignalPathState.channelLabel(state.decoderChannels)))
-                            val ratesKnown = state.inputRateHz > 0 && state.outputRateHz > 0
-                            val sameRate = ratesKnown && state.inputRateHz == state.outputRateHz && !state.appResampling
                             stage(2, "RESAMPLER", Icons.Rounded.Tune, listOf(
                                 "I/O Rate" to "${rate(state.inputRateHz)} → ${rate(state.outputRateHz)}",
-                                "Type" to when { !ratesKnown -> "—"; sameRate -> "None detected in app"; state.appResampling -> "Speed / pitch processing"; else -> "Sample rate conversion" },
+                                "Type" to when {
+                                    !ratesKnown -> "—"
+                                    state.appResampling -> "Speed / pitch processing"
+                                    sameRate -> "None detected in app"
+                                    else -> "Sample rates differ"
+                                },
                                 "Cutoff" to "—", "Quality" to when {
                                     !ratesKnown -> "—"
-                                    sameRate && state.directApproved -> "Passthrough"
+                                    state.appResampling -> "Processed in app"
+                                    bitExact -> "Passthrough"
                                     sameRate -> "Matched at AudioTrack"
-                                    else -> "Processed"
+                                    else -> "Conversion unverified"
                                 },
                                 "PCM Conversion" to when {
                                     state.decoderEncoding == C.ENCODING_INVALID || state.outputEncoding == C.ENCODING_INVALID -> "—"
@@ -251,29 +269,44 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                     if (state.bufferCapacityFrames > 0) " (capacity ${state.bufferCapacityFrames})" else "" else "—"
                             stage(3, "DSP", Icons.Rounded.GraphicEq, listOf(
                                 "PCM Format" to encoding(state.dspEncoding), "Sample Rate" to rate(state.dspRateHz),
-                                "Gain" to if (state.eqActive) String.format(Locale.ROOT, "%.1f dB (configured; automatic headroom)",
-                                    effects.loudnessGainMb / 100.0) else if (state.dspActive) "Automatic headroom (not measured)" else "0.0 dB (bypassed)",
+                                "Gain" to when {
+                                    !dspKnown -> "—"
+                                    state.eqActive -> String.format(Locale.ROOT, "%.1f dB (configured; automatic headroom)", effects.loudnessGainMb / 100.0)
+                                    state.dspActive -> "Automatic headroom (not measured)"
+                                    else -> "0.0 dB (bypassed)"
+                                },
                                 "Measured" to "Not measured",
-                                "EQ Preset" to if (state.eqActive) effects.selectedPreset else "Flat (bypassed)",
-                                "Stereo Expand" to if (state.eqActive) "${100 + effects.virtualizerStrength.coerceIn(0, 1000) * 30 / 1000}% (configured)" else "100% (bypassed)",
-                                "Effects" to listOfNotNull("Equalizer".takeIf { state.eqActive }, "Spatial Audio".takeIf { state.spatialActive },
+                                "EQ Preset" to if (!dspKnown) "—" else if (state.eqActive) effects.selectedPreset else "Flat (bypassed)",
+                                "Stereo Expand" to when {
+                                    !dspKnown || state.decoderChannels <= 0 -> "—"
+                                    state.eqActive && !state.spatialActive && state.decoderChannels == 2 ->
+                                        "${100 + effects.virtualizerStrength.coerceIn(0, 1000) * 30 / 1000}% (configured)"
+                                    else -> "100% (bypassed)"
+                                },
+                                "Effects" to if (!dspKnown) "—" else listOfNotNull("Equalizer".takeIf { state.eqActive }, "Spatial Audio".takeIf { state.spatialActive },
                                     "Skip Silence".takeIf { state.skipSilenceActive }).joinToString(" + ").ifBlank { "Bypassed" },
-                                "Tempo" to String.format(Locale.ROOT, "%.2f× • pitch %.2f×", state.playbackSpeed, state.pitch),
-                                "Buffers" to buffer, "Output API" to "AudioTrack",
-                                "Bit-exact" to when { state.sourcePrecisionReduced -> "No — source precision reduced"; bitExact -> "Verified direct PCM • DSP bypassed"; state.appVolume != 1f -> "No — digital volume attenuation"; state.dspActive || state.appResampling -> "No — samples processed";
-                                    state.decoderEncoding == C.ENCODING_INVALID || state.outputEncoding == C.ENCODING_INVALID -> "Not yet verified";
-                                    state.decoderEncoding != state.outputEncoding -> "PCM format conversion • shared system path";
-                                    else -> "App bypassed • system mixing not verified" }))
+                                "Tempo" to if (dspKnown) String.format(Locale.ROOT, "%.2f× • pitch %.2f×", state.playbackSpeed, state.pitch) else "—",
+                                "Buffers" to buffer, "Output API" to if (outputKnown) "AudioTrack" else "—",
+                                "Bit-exact" to "$bitPerfectMode • $bitExactStatus"))
                             stage(4, "OUTPUT DEVICE", Icons.AutoMirrored.Rounded.VolumeUp, listOf(
-                                "Bit-Perfect Mode" to bitPerfectStatus,
-                                "Device Name" to state.outputDevice, "Route" to state.outputType,
-                                "Transport" to "AudioTrack • ${state.mode}",
-                                "Direct" to if (state.directApproved) "Active (verified direct route)" else "Not active (shared path)",
+                                "Device Name" to if (state.outputRouteVerified) state.outputDevice.ifBlank { "—" } else "—",
+                                "Route" to if (state.outputRouteVerified) state.outputType else "—",
+                                "Transport" to if (outputKnown) "AudioTrack • ${state.mode}" else "—",
+                                "Direct" to when {
+                                    !outputKnown -> "—"
+                                    directRoute -> "Active (verified direct route)"
+                                    !state.outputRouteVerified -> "Not yet verified"
+                                    else -> "Not active (${state.mode.lowercase(Locale.ROOT)} path)"
+                                },
                                 "AudioTrack" to state.outputFormat,
-                                "System" to if (state.directApproved) "Direct path • mixer bypassed" else "Mixer / HAL format not exposed by Android",
+                                "System" to when {
+                                    !outputKnown -> "—"
+                                    directRoute -> "Direct path • mixer bypassed"
+                                    else -> "Mixer / HAL format not exposed by Android"
+                                },
                                 "Route Verified" to if (state.outputRouteVerified) "Yes" else "Not yet verified",
                                 "Buffer" to if (state.buffering) "Buffering" else state.playbackStatus,
-                                "Glitches" to state.glitches.toString()))
+                                "Glitches" to if (outputKnown) state.glitches.toString() else "—"))
                         }
                     }
                 }

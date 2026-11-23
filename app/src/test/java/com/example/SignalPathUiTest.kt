@@ -42,10 +42,10 @@ class SignalPathUiTest {
     }
     private fun playing() = SignalPathState(trackId = "playing", source = "YouTube Music",
         quality = StreamQualityBadge("OPUS", 160, 48000, verified = true), sourceChannels = 2,
-        decoderName = "c2.android.opus.decoder", decoderEncoding = C.ENCODING_PCM_16BIT,
+        decoderName = "c2.android.opus.decoder", decoderEncoding = C.ENCODING_PCM_16BIT, decoderChannels = 2,
         dspEncoding = C.ENCODING_PCM_16BIT, dspRateHz = 48000,
         outputDevice = "Bluetooth TWS", outputType = "Bluetooth", inputRateHz = 48000, outputRateHz = 48000,
-        outputEncoding = C.ENCODING_PCM_16BIT, bufferSizeFrames = 24000)
+        outputEncoding = C.ENCODING_PCM_16BIT, outputRouteVerified = true, bufferSizeFrames = 24000)
 
     @Test @Config(qualifiers = "w400dp-h800dp-port")
     fun portraitBadgeKeepsOriginalTextSize() = checkBadgeTextSize(10f)
@@ -104,18 +104,21 @@ class SignalPathUiTest {
         compose.onNodeWithTag("pipeline_0_PCM Data Rate").assertTextEquals("PCM Data Rate: 4608 kbps")
     }
 
-    @Test fun pipelineSeparatesRequestedBypassSharedOutputAndVerifiedUsbPcm() {
+    @Test fun dspBitExactRowShowsBothRequestedModeAndVerifiedOutput() {
         AudioSignalPath.update { playing().copy(
             quality = StreamQualityBadge("FLAC", 2831, 96000, 24, lossless = true, verified = true),
             decoderName = "c2.android.flac.decoder", decoderEncoding = C.ENCODING_PCM_FLOAT, decoderChannels = 2,
             inputRateHz = 96_000, outputRateHz = 96_000, outputEncoding = C.ENCODING_PCM_FLOAT,
-            outputChannels = 2, outputRouteVerified = true, bitPerfectRequested = true) }
+            outputChannels = 2) }
         showBadge()
         compose.onNodeWithText("Hi-Res Lossless").performClick()
-        val mode = compose.onNodeWithTag("pipeline_4_Bit-Perfect Mode")
-        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • waiting for the audio path")
+        compose.onNodeWithTag("pipeline_4_Bit-Perfect Mode").assertDoesNotExist()
+        val mode = compose.onNodeWithTag("pipeline_3_Bit-exact")
+        mode.performScrollTo().assertTextEquals("Bit-exact: Mode off • App bypassed • system mixing not verified")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(bitPerfectRequested = true) } }
+        mode.assertTextEquals("Bit-exact: Mode on (waiting for the audio path) • App bypassed • system mixing not verified")
         compose.runOnIdle { AudioSignalPath.update { it.copy(bitPerfectBypassActive = true) } }
-        mode.assertTextEquals("Bit-Perfect Mode: On • DSP bypassed on shared output")
+        mode.assertTextEquals("Bit-exact: Mode on • App bypassed • system mixing not verified")
         compose.onNodeWithTag("pipeline_2_Quality").performScrollTo().assertTextEquals("Quality: Matched at AudioTrack")
         compose.onNodeWithTag("pipeline_1_Format").performScrollTo().assertTextEquals("Format: 32-bit float PCM")
         compose.onNodeWithTag("pipeline_1_Sample Rate").performScrollTo().assertTextEquals("Sample Rate: 96.0 kHz")
@@ -123,11 +126,15 @@ class SignalPathUiTest {
 
         compose.runOnIdle { AudioSignalPath.update { it.copy(outputType = "USB DAC", outputEncoding = C.ENCODING_PCM_24BIT,
             mode = "Direct", directApproved = true, bitPerfect = true) } }
-        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • verified USB passthrough")
+        mode.performScrollTo().assertTextEquals("Bit-exact: Mode on • Verified direct PCM • DSP bypassed")
         compose.onNodeWithTag("pipeline_4_AudioTrack").performScrollTo().assertTextEquals("AudioTrack: 24-bit PCM • 96.0 kHz • Stereo")
         compose.onNodeWithTag("pipeline_2_PCM Conversion").performScrollTo().assertTextEquals("PCM Conversion: Exact 24-bit packing")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(outputEncoding = C.ENCODING_PCM_16BIT) } }
+        mode.performScrollTo().assertTextEquals("Bit-exact: Mode on • No — source precision reduced")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(outputEncoding = C.ENCODING_PCM_24BIT, bitPerfectRequested = false) } }
+        mode.performScrollTo().assertTextEquals("Bit-exact: Mode off (restoring playback processing) • Verified direct PCM • DSP bypassed")
         compose.runOnIdle { AudioSignalPath.update { it.copy(bitPerfect = false, directApproved = false, outputRouteVerified = false) } }
-        mode.performScrollTo().assertTextEquals("Bit-Perfect Mode: On • DSP bypassed, output unverified")
+        mode.performScrollTo().assertTextEquals("Bit-exact: Mode off (restoring playback processing) • Output route unverified")
     }
 
     @Test fun oldTrackOrUnverifiedFallbackCannotProduceLosslessBadges() {
@@ -160,5 +167,19 @@ class SignalPathUiTest {
         compose.onNodeWithTag("pipeline_0_Bitrate").assertTextEquals("Bitrate: —")
         compose.onNodeWithTag("pipeline_3_Measured").performScrollTo().assertTextEquals("Measured: Not measured")
         compose.onNodeWithTag("pipeline_4_Device Name").performScrollTo().assertTextEquals("Device Name: Bluetooth TWS")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(outputRateHz = 44100,
+            sourceChannels = 6, decoderChannels = 6, outputChannels = 6) } }
+        compose.onNodeWithTag("pipeline_0_Channels").performScrollTo().assertTextEquals("Channels: 6 channels")
+        compose.onNodeWithTag("pipeline_1_Channels").performScrollTo().assertTextEquals("Channels: 6 channels")
+        compose.onNodeWithTag("pipeline_4_AudioTrack").performScrollTo().assertTextEquals("AudioTrack: 16-bit PCM • 44.1 kHz • 6 channels")
+        compose.onNodeWithTag("pipeline_2_Type").performScrollTo().assertTextEquals("Type: Sample rates differ")
+        compose.onNodeWithTag("pipeline_2_Quality").assertTextEquals("Quality: Conversion unverified")
+        compose.runOnIdle { AudioSignalPath.update { it.copy(outputRouteVerified = false, outputEncoding = C.ENCODING_INVALID,
+            outputRateHz = 0, dspEncoding = C.ENCODING_INVALID, dspRateHz = 0) } }
+        compose.onNodeWithTag("pipeline_3_Gain").performScrollTo().assertTextEquals("Gain: —")
+        compose.onNodeWithTag("pipeline_3_Output API").performScrollTo().assertTextEquals("Output API: —")
+        compose.onNodeWithTag("pipeline_3_Bit-exact").performScrollTo().assertTextEquals("Bit-exact: Mode off • Not yet verified")
+        compose.onNodeWithTag("pipeline_4_Device Name").performScrollTo().assertTextEquals("Device Name: —")
+        compose.onNodeWithTag("pipeline_4_Route").performScrollTo().assertTextEquals("Route: —")
     }
 }
