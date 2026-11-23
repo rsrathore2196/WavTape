@@ -102,6 +102,41 @@ class MiniPlayerPresentationUiTest {
         compose.runOnIdle { assertEquals(1, playTaps); assertEquals(1, skips); assertEquals(0, opens) }
     }
 
+    @Test fun sampledPlaybackButtonsRevealTheBackdropWithoutADarkOrColoredFill() {
+        var colors by mutableStateOf(DarkAppColors)
+        var backdropColor by mutableStateOf(Color.Black)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            val backdrop = rememberLiquidGlassBackdrop()
+            CompositionLocalProvider(LocalAppColors provides colors,
+                LocalDynamicGlassEnabled provides true, LocalLiquidGlassBackdrop provides backdrop,
+                LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().xtremeSharedBackdropSource().background(backdropColor))
+                    MiniPlayer(PlayerUiState(currentTrack = song), {}, {}, {}, {}, modifier = Modifier.padding(16.dp))
+                }
+            }
+        } }
+        for (theme in listOf(DarkAppColors, LightAppColors)) for (shade in listOf(55, 185)) {
+            compose.runOnIdle {
+                colors = theme.copy(dynamicGlassEnabled = true, primaryAccent = Color.Magenta)
+                backdropColor = Color(shade, shade, shade)
+            }
+            settle()
+            val mini = capture("mini_player_container")
+            val surface = java.awt.Color(mini.getRGB(mini.width * 3 / 5, mini.height * 7 / 10))
+            for (tag in listOf("mini_player_play_pause", "mini_player_next")) {
+                val image = capture(tag)
+                val sample = java.awt.Color(image.getRGB(image.width / 2, image.height * 4 / 5))
+                val maxFrost = if (theme.isDark) 40 else 85
+                assertTrue("$tag should stay clear over shade $shade", sample.red in (shade - 2)..(shade + maxFrost))
+                assertTrue("$tag must not darken the mini player surface", sample.red >= surface.red - 2)
+                assertEquals("$tag should stay neutral", sample.red, sample.green)
+                assertEquals("$tag should stay neutral", sample.red, sample.blue)
+            }
+        }
+    }
+
     @Test fun bothMiniPlayerLabelsUseHighContrastBoldTextWithoutBlackOutlineGlyphs() {
         var colors by mutableStateOf(DarkAppColors)
         compose.mainClock.autoAdvance = false

@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +24,7 @@ import coil.intercept.Interceptor
 import coil.request.SuccessResult
 import com.example.data.local.OtherSettingsPreferences
 import com.example.data.model.MusicTrack
+import com.example.performance.LiquidGlassProfile
 import com.example.playback.AudioSignalPath
 import com.example.playback.NetworkQualityMonitor
 import com.example.playback.PlayerUiState
@@ -218,24 +218,21 @@ class PlayerAppearanceUiTest {
         }
     }
 
-    private fun assertClearPlayerControls() {
+    private fun assertClearPlayerControls(profile: LiquidGlassProfile = LiquidGlassProfile.BALANCED) {
         var colors by mutableStateOf(DarkAppColors.copy(primaryAccent = Color.Magenta))
+        val artworkTone = java.awt.Color(0xffa66080.toInt())
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
             val backdrop = rememberLiquidGlassBackdrop()
             CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides true,
-                LocalLiquidGlassBackdrop provides backdrop) {
+                LocalLiquidGlassBackdrop provides backdrop, LocalLiquidGlassProfile provides profile) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Box(Modifier.fillMaxSize().xtremeSharedBackdropSource().background(Color(0xffc82c60)))
+                    Box(Modifier.fillMaxSize().xtremeSharedBackdropSource().background(Color(artworkTone.rgb)))
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         Box(Modifier.size(72.dp).playerLiquidGlassButton(colors, isActive = true)
                             .testTag("clear_secondary"))
                         Box(Modifier.size(104.dp).playerPrimaryLiquidGlassButton(colors)
                             .testTag("clear_primary"))
-                        Box(Modifier.size(72.dp).xtremeLiquidGlassBackground(
-                            shape = CircleShape, floatingDock = true, surfaceTintAlpha = 0f, borderWidth = 0.8.dp,
-                            elevation = 14.dp, appColors = DarkAppColors, baseFillAlpha = .33f, neutralFinish = true
-                        ).testTag("mini_glass_reference"))
                     }
                 }
             }
@@ -243,16 +240,15 @@ class PlayerAppearanceUiTest {
         compose.mainClock.advanceTimeBy(800)
         compose.waitForIdle()
         val dark = listOf("clear_secondary", "clear_primary").map(::capture)
-        val reference = capture("mini_glass_reference")
-        val dockCenter = reference.getRGB(reference.width / 2, reference.height / 2)
         compose.runOnIdle { colors = LightAppColors.copy(primaryAccent = Color.Blue) }
         compose.mainClock.advanceTimeBy(800)
         compose.waitForIdle()
         listOf("clear_secondary", "clear_primary").forEachIndexed { index, tag ->
             val light = capture(tag)
             val center = java.awt.Color(light.getRGB(light.width / 2, light.height / 2))
-            assertEquals("Player buttons sample the same glass material as the mini player", dockCenter, center.rgb)
-            assertTrue("The dock glass keeps its background visible", center.red > 120)
+            assertTrue("The glass must not dim the underlying artwork", center.red >= artworkTone.red &&
+                center.green >= artworkTone.green && center.blue >= artworkTone.blue)
+            assertTrue("The glass keeps the artwork color visible", center.red > center.blue && center.blue > center.green)
             val topRim = java.awt.Color(light.getRGB(light.width / 2, 0))
             val bottomRim = java.awt.Color(light.getRGB(light.width / 2, light.height - 1))
             assertTrue("The raised button catches more light on its upper rim", topRim.green > bottomRim.green)
@@ -269,4 +265,7 @@ class PlayerAppearanceUiTest {
 
     @Test @Config(sdk = [31])
     fun clearPlayerControlsAlsoWorkOnAndroid12() = assertClearPlayerControls()
+
+    @Test fun playerControlsStayClearWithoutSamplingInPerformanceMode() =
+        assertClearPlayerControls(LiquidGlassProfile.PERFORMANCE)
 }

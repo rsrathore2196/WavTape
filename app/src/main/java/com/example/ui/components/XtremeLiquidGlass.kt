@@ -115,7 +115,8 @@ fun Modifier.xtremeLiquidGlassBackground(
     onSample: (() -> Unit)? = null,
     floatingDock: Boolean = false,
     headerGlass: Boolean = false,
-    unsampledDockFillAlpha: Float = 0.90f
+    unsampledDockFillAlpha: Float = 0.90f,
+    dockBlurMultiplier: Float = 1f
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
     if (!enabled || !LocalDynamicGlassEnabled.current) return this
@@ -128,7 +129,8 @@ fun Modifier.xtremeLiquidGlassBackground(
             else Modifier.border(borderWidth, appColors.cardBorder, shape))
 
     val density = LocalDensity.current
-    val effectiveBlurRadius = if (floatingDock) profile.chromeBlurRadius(headerGlass) else profile.blurRadius(blurRadius, false)
+    val effectiveBlurRadius = if (floatingDock) profile.chromeBlurRadius(headerGlass) * dockBlurMultiplier
+        else profile.blurRadius(blurRadius, false)
     val radius = with(density) { effectiveBlurRadius.toPx() }
     val processingScale = backdrop?.sampleScale ?: profile.backdropSampleScale
     val useBackdrop = backdrop != null && radius > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -272,7 +274,9 @@ fun Modifier.playerLiquidGlassButton(
     elevation: Dp = 4.dp,
     isActive: Boolean = false,
     translucency: Float = 0.75f,
-    borderWidth: Dp = 0.8.dp
+    borderWidth: Dp = 0.8.dp,
+    miniPlayer: Boolean = false,
+    onSample: (() -> Unit)? = null
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
     val bevel = remember(isActive) {
@@ -288,13 +292,17 @@ fun Modifier.playerLiquidGlassButton(
         floatingDock = true,
         neutralFinish = true,
         elevation = elevation.coerceAtLeast(3.dp),
-        appColors = com.example.ui.util.playerAppearanceColors(colors),
+        appColors = if (miniPlayer && !colors.isDark) colors else com.example.ui.util.playerAppearanceColors(colors),
         enabled = colors.dynamicGlassEnabled,
         tintColor = Color.Transparent,
         surfaceTintAlpha = 0f,
         borderWidth = borderWidth,
-        baseFillAlpha = 0.33f,
-        unsampledDockFillAlpha = 0.55f,
+        baseFillColor = Color.White,
+        // Sampled light controls need the dock's frost as well as their own highlight.
+        baseFillAlpha = if (miniPlayer && !colors.isDark) 0.36f else 0.05f,
+        unsampledDockFillAlpha = 0.08f,
+        dockBlurMultiplier = if (miniPlayer) 1.5f else 1f,
+        onSample = onSample,
         rimBrush = bevel,
         backdrop = LocalLiquidGlassBackdrop.current.takeIf { profile.allowSecondaryBackdropSampling }
     )

@@ -71,7 +71,14 @@ class LyricsControlsUiTest {
     }
 
     private fun checkOrder() {
-        compose.onNodeWithTag("lyrics_provider_pill").assertTextContains("BetterLyrics")
+        val pill = compose.onNodeWithTag("lyrics_provider_pill").assertTextContains("BetterLyrics")
+            .assertTouchHeightIsEqualTo(48.dp).assertHasClickAction()
+        val pillCenter = pill.fetchSemanticsNode().boundsInRoot.center
+        val face = compose.onAllNodesWithTag("lyrics_provider_pill_face", useUnmergedTree = true)
+            .filterToOne(SemanticsMatcher("face at the active provider pill") { it.boundsInRoot.contains(pillCenter) })
+            .getUnclippedBoundsInRoot()
+        val height = face.bottom - face.top
+        assertTrue("The visible provider pill should be compact, measured $height", height in 20.dp..28.dp)
         compose.onNodeWithText("BetterLyrics Portato").assertDoesNotExist()
         val tags = listOf("player_lyrics_text_size_button", "lyrics_romanize_button", "lyrics_provider_pill",
             "lyrics_translate_button", "player_lyrics_expand_button")

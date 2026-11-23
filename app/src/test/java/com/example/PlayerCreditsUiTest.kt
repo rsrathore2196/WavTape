@@ -7,10 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.local.OtherSettingsPreferences
 import com.example.data.model.MusicTrack
 import com.example.playback.PlayerUiState
 import com.example.ui.components.ExpandedPlayerScreen
@@ -24,6 +27,7 @@ import com.example.ui.util.playerPaletteKey
 import com.github.takahirom.roborazzi.*
 import org.junit.Before
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import com.example.playback.AudioSignalPath
 import com.example.playback.NetworkQualityMonitor
 import com.example.playback.PlaybackSource
@@ -68,6 +72,57 @@ class PlayerCreditsUiTest {
 
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeCreditsAlsoAdaptToBrightArtwork() = checkBrightCredits()
+
+    @Test fun flippingFullScreenArtworkKeepsBothReflectionsFixed() = checkFixedReflections(fullScreenArt = true)
+
+    @Test @Config(qualifiers = "w891dp-h411dp-land")
+    fun flippingSquareLandscapeArtworkKeepsBothReflectionsFixed() = checkFixedReflections(fullScreenArt = false)
+
+    private fun checkFixedReflections(fullScreenArt: Boolean) {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        OtherSettingsPreferences.setFullScreenAlbumArt(context, fullScreenArt)
+        try {
+            val song = MusicTrack("mirrored-credits", "Song", "Artist", "Album", 180_000, "", "")
+            val pixels = IntArray(64 * 64) { index ->
+                Color(24 + 2 * (index % 64), 18 + index / 64, 154 - 2 * (index / 64)).toArgb()
+            }
+            val field = com.example.ui.util.artworkColorField(pixels, 64, 64)
+            TrackPaletteCache.put(playerPaletteKey(song, true, Color.White, Color.Black),
+                ExtractedTrackColors(Color.Blue, Color.Blue, Color.Blue, colorField = field))
+            compose.mainClock.autoAdvance = false
+            compose.setContent { MaterialTheme {
+                CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
+                    LocalDynamicGlassEnabled provides true) {
+                    ExpandedPlayerScreen(PlayerUiState(currentTrack = song), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                        onAddToPlaylist = {}, isScreenVisible = false)
+                }
+            } }
+            fun reflectedEdges(): IntArray {
+                val file = java.io.File.createTempFile("player-reflections-", ".png")
+                try {
+                    compose.onNodeWithTag("player_album_glow_backdrop", useUnmergedTree = true)
+                        .captureRoboImage(file.absolutePath,
+                            roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
+                    val image = javax.imageio.ImageIO.read(file)
+                    // Sample clear corners outside any rotating card or shadow.
+                    return listOf(0, image.height - 8).flatMap { y ->
+                        listOf(0, image.width - 8).map { x -> image.getRGB(x, y, 8, 8, null, 0, 8) }
+                    }.reduce { a, b -> a + b }
+                } finally { file.delete() }
+            }
+            compose.mainClock.advanceTimeBy(800)
+            val original = reflectedEdges()
+            repeat(2) { direction ->
+                compose.onNodeWithTag("flip_album_art_card").performClick()
+                for (step in listOf(64L, 48L, 48L, 240L)) {
+                    compose.mainClock.advanceTimeBy(step)
+                    assertArrayEquals("Reflections must stay fixed while flipping the card", original, reflectedEdges())
+                }
+                val credits = compose.onNodeWithText("TRACK CREDITS & DETAILS")
+                if (direction == 0) credits.assertIsDisplayed() else credits.assertDoesNotExist()
+            }
+        } finally { OtherSettingsPreferences.setFullScreenAlbumArt(context, false) }
+    }
 
     private fun checkBrightCredits(dominant: Color = Color.White) {
         val song = MusicTrack("bright-credits", "Bright Song", "Main Artist", "Bright Album", 180_000, "", "",

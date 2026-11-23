@@ -129,10 +129,7 @@ internal fun LyricsTextTransformButton(
     }
 }
 
-/**
- * Compact pill button displaying the current lyrics provider in the bottom center of the lyrics view.
- * Sized 30% larger with a clean integrated background surface and no separate outer frame.
- */
+/** Fit the visible pill to its label inside the Surface's larger touch target. */
 @Composable
 fun LyricsProviderPill(
     providerName: String,
@@ -147,13 +144,15 @@ fun LyricsProviderPill(
         onClick = onClick,
         color = Color.Transparent,
         shape = shape,
-        modifier = modifier.playerLiquidGlassButton(LocalAppColors.current, shape)
-            .testTag("lyrics_provider_pill")
+        modifier = modifier.testTag("lyrics_provider_pill")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
+            modifier = Modifier
+                .playerLiquidGlassButton(LocalAppColors.current, shape)
+                .testTag("lyrics_provider_pill_face")
+                .padding(horizontal = 11.dp, vertical = 4.dp)
         ) {
             Box(
                 modifier = Modifier

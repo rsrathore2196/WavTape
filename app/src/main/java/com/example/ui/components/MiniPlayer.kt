@@ -12,11 +12,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import com.example.ui.theme.contrastingContentColor
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -56,11 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -72,11 +68,11 @@ import com.example.util.AppHaptics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.playback.PlayerUiState
 import com.example.ui.theme.LocalAppColors
-import com.example.ui.theme.liquidGlassButton
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -275,7 +271,6 @@ fun MiniPlayer(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Play / Pause Button - neutral liquid glass and matte finish
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.size(44.dp).playerMorphMiniControls(PlayerMorphPart.PLAY_PAUSE, track.id)
@@ -288,89 +283,6 @@ fun MiniPlayer(
                         )
                     } else {
                         val isPlaying = uiState.isPlaying
-                        val playPauseMatteBorder = if (!appColors.dynamicGlassEnabled) BorderStroke(1.2.dp, appColors.cardBorder) else BorderStroke(
-                            1.2.dp,
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = if (appColors.isDark) 0.50f else 0.60f),
-                                    neutralButtonColor.copy(alpha = if (isPlaying) 0.65f else 0.35f)
-                                )
-                            )
-                        )
-                        val playPauseMatteBg = if (!appColors.dynamicGlassEnabled) Brush.verticalGradient(listOf(appColors.cardBackground, appColors.cardBackground)) else if (isPlaying) {
-                            // Active playing state: neutral matte gradient
-                            if (appColors.isAmoled && neutralButtonColor == Color.White) {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0xFFFFFFFF),
-                                        Color(0xFFE2E8F0)
-                                    )
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        neutralButtonColor.copy(alpha = if (appColors.isDark) 0.95f else 0.92f),
-                                        neutralButtonColor.copy(alpha = if (appColors.isDark) 0.80f else 0.82f)
-                                    )
-                                )
-                            }
-                        } else {
-                            // Paused state: subtle liquid glass container
-                            if (appColors.isDark) {
-                                if (appColors.isAmoled) {
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color(0xFF242424),
-                                            Color(0xFF161616),
-                                            Color(0xFF0C0C0C)
-                                        )
-                                    )
-                                } else {
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            neutralButtonColor.copy(alpha = 0.28f),
-                                            appColors.cardBackgroundElevated.copy(alpha = 0.88f),
-                                            neutralButtonColor.copy(alpha = 0.16f)
-                                        )
-                                    )
-                                }
-                            } else {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        neutralButtonColor.copy(alpha = 0.20f),
-                                        Color.White.copy(alpha = 0.92f),
-                                        neutralButtonColor.copy(alpha = 0.12f)
-                                    )
-                                )
-                            }
-                        }
-
-                        // Icon tint strictly calculated for high dynamic contrast against playPauseMatteBg
-                        val playPauseIconTint = if (!appColors.dynamicGlassEnabled) contrastingContentColor(appColors.cardBackground) else if (isPlaying) {
-                            val accentLum = (0.299 * neutralButtonColor.red + 0.587 * neutralButtonColor.green + 0.114 * neutralButtonColor.blue)
-                            if (appColors.isAmoled && (neutralButtonColor == Color.White || accentLum > 0.70f)) {
-                                Color(0xFF0A0A0A)
-                            } else {
-                                contrastingContentColor(neutralButtonColor)
-                            }
-                        } else {
-                            // When paused on dark/frosted surface:
-                            if (appColors.isDark) {
-                                if (appColors.isAmoled) {
-                                    val lum = (0.299 * neutralButtonColor.red + 0.587 * neutralButtonColor.green + 0.114 * neutralButtonColor.blue)
-                                    if (neutralButtonColor != Color.White && lum > 0.35f) {
-                                        neutralButtonColor
-                                    } else {
-                                        Color.White
-                                    }
-                                } else {
-                                    neutralButtonColor
-                                }
-                            } else {
-                                neutralButtonColor
-                            }
-                        }
-
                         Surface(
                             enabled = interactive,
                             onClick = {
@@ -379,51 +291,22 @@ fun MiniPlayer(
                             },
                             shape = CircleShape,
                             color = Color.Transparent,
-                            border = playPauseMatteBorder,
                             modifier = Modifier
                                 .size(44.dp)
                                 .graphicsLayer {
                                     scaleX = playPauseScale
                                     scaleY = playPauseScale
                                 }
-                                .shadow(
-                                    elevation = if (isPlaying) 8.dp else 4.dp,
-                                    shape = CircleShape,
-                                    spotColor = if (!appColors.dynamicGlassEnabled) Color.Black.copy(alpha = 0.15f) else neutralButtonColor.copy(alpha = if (isPlaying) 0.55f else 0.25f),
-                                    ambientColor = Color.Transparent
-                                )
-                                .clip(CircleShape)
-                                .background(playPauseMatteBg)
+                                .playerLiquidGlassButton(appColors, elevation = if (isPlaying) 8.dp else 4.dp,
+                                    isActive = isPlaying, miniPlayer = true, onSample = sampleMotion)
                                 .testTag("mini_player_play_pause")
                         ) {
-                            // Top specular sheen
-                            val skipSheen = appColors.isAmoled || !appColors.dynamicGlassEnabled
-                            if (!skipSheen) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(
-                                                    Color.White.copy(alpha = if (isPlaying) 0.22f else 0.14f),
-                                                    Color.Transparent
-                                                ),
-                                                startY = 0f,
-                                                endY = 22f
-                                            )
-                                        )
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                MiniPlayerControlIcon(
                                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (isPlaying) "Pause" else "Play",
-                                    tint = playPauseIconTint,
-                                    modifier = Modifier.size(24.dp)
+                                    tint = neutralButtonColor,
+                                    size = 24.dp
                                 )
                             }
                         }
@@ -431,44 +314,6 @@ fun MiniPlayer(
                 }
 
                 Spacer(modifier = Modifier.compactWidth(compactProgress).width(6.dp))
-
-                // Skip Next Button - neutral liquid glass and matte finish
-                val nextMatteBorder = if (!appColors.dynamicGlassEnabled) BorderStroke(1.2.dp, appColors.cardBorder) else BorderStroke(
-                    1.2.dp,
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = if (appColors.isDark) 0.45f else 0.55f),
-                            neutralButtonColor.copy(alpha = 0.35f)
-                        )
-                    )
-                )
-                val nextMatteBg = if (!appColors.dynamicGlassEnabled) Brush.verticalGradient(listOf(appColors.cardBackground, appColors.cardBackground)) else if (appColors.isDark) {
-                    if (appColors.isAmoled) {
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xFF242424),
-                                Color(0xFF161616),
-                                Color(0xFF0E0E0E)
-                            )
-                        )
-                    } else {
-                        Brush.verticalGradient(
-                            listOf(
-                                neutralButtonColor.copy(alpha = 0.28f),
-                                Color(0xFF222B3D).copy(alpha = 0.85f),
-                                neutralButtonColor.copy(alpha = 0.16f)
-                            )
-                        )
-                    }
-                } else {
-                    Brush.verticalGradient(
-                        listOf(
-                            neutralButtonColor.copy(alpha = 0.18f),
-                            Color.White.copy(alpha = 0.90f),
-                            neutralButtonColor.copy(alpha = 0.12f)
-                        )
-                    )
-                }
 
                 Surface(
                     onClick = {
@@ -478,54 +323,41 @@ fun MiniPlayer(
                     enabled = !compact && interactive,
                     shape = CircleShape,
                     color = Color.Transparent,
-                    border = nextMatteBorder,
                     modifier = Modifier
                         .playerMorphMiniControls(PlayerMorphPart.NEXT, track.id)
                         .then(if (compact) Modifier.clearAndSetSemantics { } else Modifier)
                         .compactWidth(compactProgress)
                         .graphicsLayer { alpha = 1f - (compactProgress?.value ?: 0f).coerceIn(0f, 1f) }
                         .size(38.dp)
-                        .shadow(
-                            elevation = 4.dp,
-                            shape = CircleShape,
-                            spotColor = Color.Black.copy(alpha = if (appColors.isDark) 0.35f else 0.15f),
-                            ambientColor = Color.Transparent
-                        )
-                        .clip(CircleShape)
-                        .background(nextMatteBg)
+                        .playerLiquidGlassButton(appColors, miniPlayer = true, onSample = sampleMotion)
                         .testTag("mini_player_next")
                 ) {
-                    // Top specular sheen
-                    if (appColors.dynamicGlassEnabled) Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = if (appColors.isDark) 0.18f else 0.25f),
-                                        Color.Transparent
-                                    ),
-                                    startY = 0f,
-                                    endY = 18f
-                                )
-                            )
-                    )
-
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        MiniPlayerControlIcon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Skip Next",
-                            tint = if (appColors.isDark) appColors.textPrimary else neutralButtonColor,
-                            modifier = Modifier.size(20.dp)
+                            tint = neutralButtonColor,
+                            size = 20.dp
                         )
                     }
                 }
             }
         }
     }
+
+/** Give the glyph a faint contrasting edge for bright or dark imagery beneath the clear glass. */
+@Composable
+private fun MiniPlayerControlIcon(imageVector: ImageVector, contentDescription: String, tint: Color, size: Dp) {
+    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+        Icon(imageVector, contentDescription = null,
+            tint = (if (tint == Color.White) Color.Black else Color.White).copy(alpha = 0.8f),
+            modifier = Modifier.matchParentSize().graphicsLayer {
+                scaleX = 1.13f
+                scaleY = 1.13f
+            })
+        Icon(imageVector, contentDescription, Modifier.matchParentSize(), tint)
+    }
+}
 
 /** Only layout/layers observe the dock spring; artwork requests and text stay composed. */
 private fun Modifier.compactWidth(progress: State<Float>?, retainedFraction: Float = 0f): Modifier =

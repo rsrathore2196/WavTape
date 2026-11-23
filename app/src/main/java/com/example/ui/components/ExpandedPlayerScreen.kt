@@ -63,6 +63,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -87,6 +88,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -807,7 +809,8 @@ fun ExpandedPlayerScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     // Preserve the square card when full-screen artwork is disabled.
-                                    Box(
+                                    PlayerArtworkFlipCard(
+                                        reflectionBounds = artworkBlendBounds,
                                         modifier = Modifier
                                             .then(if (isFullScreenArt) Modifier.fillMaxSize()
                                                 else Modifier.fillMaxHeight(0.92f).aspectRatio(1f))
@@ -817,7 +820,8 @@ fun ExpandedPlayerScreen(
                                             .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.ARTWORK, track.id,
                                                 if (isFullScreenArt) 0.dp else 22.dp, active = isLyricsActive == showLyrics,
                                                 presentation = if (!showArtworkFront) 2 else if (isFullScreenArt) 1 else 0,
-                                                ready = !showArtworkFront || morphArtworkReady)
+                                                ready = !showArtworkFront || morphArtworkReady),
+                                        flipModifier = Modifier
                                             .graphicsLayer {
                                                 rotationY = flipRotation
                                                 cameraDistance = 14f * density
@@ -834,7 +838,6 @@ fun ExpandedPlayerScreen(
                                             // One untinted provider cover; never substitute unrelated artwork or video.
                                             PlayerCoverArtwork(
                                                 request = highResImageRequest,
-                                                onBoundsChanged = { artworkBlendBounds.value = it },
                                                 onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
                                                 onArtworkLoaded = { loadedCoverRequest = it },
                                                 onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
@@ -1748,66 +1751,48 @@ fun ExpandedPlayerScreen(
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                // 3D Flippable Card
-                                Box(
-                                    modifier = if (isFullScreenArt) {
-                                        Modifier
-                                            .fillMaxSize()
-                                            .sharedElement(
-                                                rememberSharedContentState("lyrics_artwork_${track.id}"),
-                                                animatedVisibilityScope = this@AnimatedContent,
-                                                boundsTransform = { _, _ -> tween(lyricsArtworkDurationMs, easing = LyricsSharedEasing) }
-                                            )
-                                            .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.ARTWORK,
-                                                track.id, 0.dp, active = isLyricsActive == showLyrics,
-                                                presentation = if (showArtworkFront) 1 else 2,
-                                                ready = !showArtworkFront || morphArtworkReady)
-                                            .graphicsLayer {
-                                                rotationY = flipRotation
-                                                cameraDistance = 14f * density
-                                            }
-                                            .clickable {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                isFlipped = !isFlipped
-                                            }
-                                            .testTag("flip_album_art_card")
-                                    } else {
-                                        Modifier
-                                            .fillMaxHeight(if (isLandscape) 0.88f else 1f)
-                                            .animatedFillMaxWidth(albumArtScale)
-                                            .sizeIn(
-                                                maxWidth = if (isLandscape) 210.dp else 330.dp,
-                                                maxHeight = if (isLandscape) 210.dp else 330.dp
-                                            )
-                                            .aspectRatio(1f)
-                                            .sharedElement(
-                                                rememberSharedContentState("lyrics_artwork_${track.id}"),
-                                                animatedVisibilityScope = this@AnimatedContent,
-                                                boundsTransform = { _, _ -> tween(lyricsArtworkDurationMs, easing = LyricsSharedEasing) }
-                                            )
-                                            .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.ARTWORK,
-                                                track.id, 24.dp, active = isLyricsActive == showLyrics,
-                                                presentation = if (showArtworkFront) 0 else 2,
-                                                ready = !showArtworkFront || morphArtworkReady)
-                                            .graphicsLayer {
-                                                rotationY = flipRotation
-                                                cameraDistance = 14f * density
-                                            }
-                                            .animatedArtworkShadow(animatedAccentColor, RoundedCornerShape(24.dp), appColors.dynamicAlbumGlow, showArtworkFront)
-                                            .clip(RoundedCornerShape(24.dp))
-                                            .clickable {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                isFlipped = !isFlipped
-                                            }
-                                            .testTag("flip_album_art_card")
-                                    }
+                                val cardShape = RoundedCornerShape(24.dp)
+                                val cardSize = if (isFullScreenArt) Modifier.fillMaxSize() else {
+                                    Modifier
+                                        .fillMaxHeight(if (isLandscape) 0.88f else 1f)
+                                        .animatedFillMaxWidth(albumArtScale)
+                                        .sizeIn(
+                                            maxWidth = if (isLandscape) 210.dp else 330.dp,
+                                            maxHeight = if (isLandscape) 210.dp else 330.dp
+                                        )
+                                        .aspectRatio(1f)
+                                }
+                                PlayerArtworkFlipCard(
+                                    reflectionBounds = artworkBlendBounds,
+                                    modifier = cardSize
+                                        .sharedElement(
+                                            rememberSharedContentState("lyrics_artwork_${track.id}"),
+                                            animatedVisibilityScope = this@AnimatedContent,
+                                            boundsTransform = { _, _ -> tween(lyricsArtworkDurationMs, easing = LyricsSharedEasing) }
+                                        )
+                                        .playerMorphElement(PlayerMorphSide.EXPANDED, PlayerMorphPart.ARTWORK,
+                                            track.id, if (isFullScreenArt) 0.dp else 24.dp, active = isLyricsActive == showLyrics,
+                                            presentation = if (!showArtworkFront) 2 else if (isFullScreenArt) 1 else 0,
+                                            ready = !showArtworkFront || morphArtworkReady),
+                                    flipModifier = Modifier
+                                        .graphicsLayer {
+                                            rotationY = flipRotation
+                                            cameraDistance = 14f * density
+                                        }
+                                        .then(if (isFullScreenArt) Modifier else Modifier
+                                            .animatedArtworkShadow(animatedAccentColor, cardShape, appColors.dynamicAlbumGlow, showArtworkFront)
+                                            .clip(cardShape))
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            isFlipped = !isFlipped
+                                        }
+                                        .testTag("flip_album_art_card")
                                 ) {
                                     if (showArtworkFront) {
                                         // Keep the cover untinted; full-screen edges dissolve into
                                         // the existing album backdrop instead of ending at a hard seam.
                                         PlayerCoverArtwork(
                                             request = highResImageRequest,
-                                            onBoundsChanged = { artworkBlendBounds.value = it },
                                             fullScreen = isFullScreenArt,
                                             onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
                                             onArtworkLoaded = { loadedCoverRequest = it },
@@ -2754,13 +2739,25 @@ private fun Modifier.animatedFillMaxWidth(fraction: State<Float>): Modifier = la
     layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
 }
 
+/** The reflections follow the card's layout even when the front face is rotated or absent. */
+@Composable
+private fun PlayerArtworkFlipCard(
+    reflectionBounds: MutableState<Rect?>,
+    modifier: Modifier,
+    flipModifier: Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(modifier.onGloballyPositioned { reflectionBounds.value = it.boundsInRoot() }) {
+        Box(Modifier.matchParentSize().then(flipModifier), content = content)
+    }
+}
+
 /** The player fills its artwork bounds, including while a square song cover is resolving. */
 @Composable
 internal fun PlayerCoverArtwork(request: ImageRequest, modifier: Modifier = Modifier,
     fullScreen: Boolean = false, fadeRightEdge: Boolean = false, onReady: () -> Unit = {},
     onArtworkLoaded: (ImageRequest) -> Unit = {},
-    onError: () -> Unit = {},
-    onBoundsChanged: (Rect) -> Unit = {}) {
+    onError: () -> Unit = {}) {
     AsyncImage(model = request, contentDescription = "Cover Art - Tap to flip",
         contentScale = ContentScale.Crop,
         onSuccess = { state ->
@@ -2768,8 +2765,7 @@ internal fun PlayerCoverArtwork(request: ImageRequest, modifier: Modifier = Modi
             onArtworkLoaded(state.result.request)
         },
         onError = { onError() },
-        modifier = modifier.onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
-            .playerArtworkEdgeBlend(fullScreen, fadeRightEdge = fadeRightEdge))
+        modifier = modifier.playerArtworkEdgeBlend(fullScreen, fadeRightEdge = fadeRightEdge))
 }
 
 internal fun Modifier.playerArtworkEdgeBlend(enabled: Boolean, imageAspectRatio: Float? = null, fadeRightEdge: Boolean = false): Modifier = if (!enabled) this else

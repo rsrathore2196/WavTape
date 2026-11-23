@@ -77,8 +77,9 @@ class PlayerRectangleArtworkUiTest {
             compose.setContent {
                 Box(Modifier.size(200.dp, if (fullScreen) 320.dp else 200.dp).background(backdrop)
                     .onGloballyPositioned { containerBounds = it.boundsInRoot() }.testTag("rectangle_player")) {
-                    PlayerCoverArtwork(request, Modifier.fillMaxSize(), fullScreen,
-                        onReady = { shown = true }, onBoundsChanged = { imageBounds = it })
+                    PlayerCoverArtwork(request, Modifier.fillMaxSize()
+                        .onGloballyPositioned { imageBounds = it.boundsInRoot() }, fullScreen,
+                        onReady = { shown = true })
                 }
             }
             compose.waitUntil(5_000) {
