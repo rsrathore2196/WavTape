@@ -59,7 +59,7 @@ internal object LosslessStreamPrebuffer {
     }
 
     /** Only properties reported by the actual container qualify for a hi-res badge. */
-    fun audioInfo(format: Format, fallbackBitrateKbps: Int = 0): AudioInfo? {
+    fun audioInfo(format: Format, fallbackBitrateKbps: Int = 0, allowDrm: Boolean = false): AudioInfo? {
         val codec = when (format.sampleMimeType) {
             MimeTypes.AUDIO_FLAC -> "FLAC"
             MimeTypes.AUDIO_ALAC -> "ALAC"
@@ -73,7 +73,7 @@ internal object LosslessStreamPrebuffer {
             C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN -> 32
             else -> 0
         }
-        if (format.sampleRate <= 0 || format.channelCount <= 0 || format.drmInitData != null) return null
+        if (format.sampleRate <= 0 || format.channelCount <= 0 || format.drmInitData != null && !allowDrm) return null
         val bitrate = format.averageBitrate.takeIf { it > 0 }?.div(1000) ?: fallbackBitrateKbps
         return AudioInfo(codec, bitrate.coerceAtLeast(0), format.sampleRate, bits)
     }
@@ -111,6 +111,16 @@ internal object LosslessStreamPrebuffer {
     internal fun isAdaptiveSource(item: MediaItem): Boolean =
         item.localConfiguration?.mimeType in setOf(MimeTypes.APPLICATION_MPD, MimeTypes.APPLICATION_M3U8)
 
+    // A DASH manifest can omit the sample rate and channel count. The active
+    // decoder verifies those after Media3 reads the selected representation.
+    private fun supportsAdaptiveAudio(format: Format, requireLossless: Boolean, allowDrm: Boolean): Boolean {
+        val mime = format.sampleMimeType ?: return false
+        if (!mime.startsWith("audio/") || format.drmInitData != null && !allowDrm ||
+            requireLossless && !StreamQualityBadge.from(format).lossless) return false
+        return mime == MimeTypes.AUDIO_RAW || MediaCodecUtil.getDecoderInfos(mime, false, false)
+            .any { it.isFormatSupported(format) }
+    }
+
     /** Let Media3 prepare adaptive manifests/init segments; progressive extractors cannot sniff an MPD.
      * No second player, audio sink or audio focus. Decoder input is still verified at activation.
      */
@@ -126,6 +136,8 @@ internal object LosslessStreamPrebuffer {
         return withContext(com.example.performance.AppDispatchers.Io) {
             worker.withLock {
                 val uri = item.localConfiguration?.uri ?: return@withLock false
+                val configured = com.example.data.remote.StreamingAddons.prepareMediaItem(item)
+                val allowDrm = configured.localConfiguration?.drmConfiguration != null
                 fun allowed(): Boolean {
                     val policy = NetworkQualityMonitor.getInstance(context).sourcePolicySnapshot()
                     return policy.online && com.example.data.remote.StreamingAddons.isVerified(uri.toString(), policy)
@@ -145,9 +157,24 @@ internal object LosslessStreamPrebuffer {
                     }
                 }
                 try {
-                    val metadata = withContext(Dispatchers.Main.immediate) {
+                    if (!withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock false
+                    val metadata = if (configured.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD) {
+                        // DASH already describes the representations and their time ranges.
+                        // Read it with the same parser Media3 uses for playback, without
+                        // waiting for a separate MediaPeriod to report decoder properties.
+                        val manifest = androidx.media3.exoplayer.upstream.ParsingLoadable.load(
+                            factory.createDataSource(), androidx.media3.exoplayer.dash.manifest.DashManifestParser(),
+                            uri, C.DATA_TYPE_MANIFEST)
+                        if (manifest.dynamic || manifest.periodCount !in 1..8) return@withLock false
+                        val groups = (0 until manifest.periodCount).flatMap { period ->
+                            manifest.getPeriod(period).adaptationSets.also { sets ->
+                                if (sets.size > 8 || sets.any { it.representations.size > 16 }) return@withLock false
+                            }
+                        }
+                        Metadata(groups.flatMap { group -> group.representations.map { it.format } }, manifest.durationMs, manifest)
+                    } else withContext(Dispatchers.Main.immediate) {
                         if (!stillCurrent()) return@withContext null
-                        val helper = androidx.media3.exoplayer.offline.DownloadHelper.forMediaItem(item,
+                        val helper = androidx.media3.exoplayer.offline.DownloadHelper.forMediaItem(configured,
                             androidx.media3.common.TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT, null, factory)
                         try {
                             withTimeoutOrNull(12_000L) { suspendCancellableCoroutine<Metadata> { continuation ->
@@ -167,7 +194,6 @@ internal object LosslessStreamPrebuffer {
                                             }
                                         }
                                         val duration = when (val manifest = value.manifest) {
-                                            is androidx.media3.exoplayer.dash.manifest.DashManifest -> manifest.durationMs
                                             is androidx.media3.exoplayer.hls.HlsManifest -> manifest.mediaPlaylist.durationUs / 1000
                                             else -> C.TIME_UNSET
                                         }
@@ -185,10 +211,8 @@ internal object LosslessStreamPrebuffer {
                     }
                     val supported = withContext(com.example.performance.AppDispatchers.CpuBounded) {
                         val audio = metadata.formats.filter { it.sampleMimeType?.startsWith("audio/") == true }
-                        audio.isNotEmpty() && metadata.formats.none { it.sampleMimeType?.startsWith("video/") == true } &&
-                            audio.any { format -> preparationAudioInfo(format, requireLossless) != null &&
-                                (format.sampleMimeType == MimeTypes.AUDIO_RAW ||
-                                    MediaCodecUtil.getDecoderInfos(format.sampleMimeType!!, false, false).any { it.isFormatSupported(format) }) }
+                        metadata.formats.none { it.sampleMimeType?.startsWith("video/") == true } &&
+                            audio.any { supportsAdaptiveAudio(it, requireLossless, allowDrm) }
                     }
                     if (!supported || metadata.durationMs <= 0L || expectedDurationMs > 0L &&
                         abs(metadata.durationMs - expectedDurationMs) > durationToleranceMs) return@withLock false
@@ -201,7 +225,7 @@ internal object LosslessStreamPrebuffer {
                             val periodIndex = (0 until dash.periodCount).lastOrNull { dash.getPeriod(it).startMs <= position } ?: 0
                             val period = dash.getPeriod(periodIndex)
                             val representation = period.adaptationSets.filter { it.type == C.TRACK_TYPE_AUDIO }
-                                .flatMap { it.representations }.filter { preparationAudioInfo(it.format, requireLossless) != null }
+                                .flatMap { it.representations }.filter { supportsAdaptiveAudio(it.format, requireLossless, allowDrm) }
                                 .maxByOrNull { it.format.bitrate }
                             val base = representation?.baseUrls?.firstOrNull()?.url
                             if (representation == null || base == null) emptyList() else buildList {

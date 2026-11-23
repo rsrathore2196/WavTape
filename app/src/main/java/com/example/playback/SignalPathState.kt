@@ -93,6 +93,7 @@ data class SignalPathState(
     val playbackStatus: String = "Idle", val sourceId: String = "", val enhancerOriginalSourceId: String = "",
     val enhancerOriginalUri: String = "", val sourceTransitionInProgress: Boolean = false,
     internal val sourceTransitionOwner: String = "",
+    internal val sourceUpgradeInProgress: Boolean = false,
     val streamUri: String = "", val sourceChannels: Int = 0,
     val decoderName: String = "", val decoderEncoding: Int = C.ENCODING_INVALID,
     val dspEncoding: Int = C.ENCODING_INVALID, val dspRateHz: Int = 0,
@@ -156,6 +157,7 @@ object AudioSignalPath {
                 enhancerOriginalUri = originalUri, enhancerPolicyKey = originalPolicyKey)
         } else old.copy(trackId = id, source = provider, sourceId = sourceId, enhancerOriginalSourceId = originalSourceId,
             enhancerOriginalUri = originalUri, sourceTransitionInProgress = old.trackId == id && old.sourceTransitionInProgress,
+            sourceUpgradeInProgress = old.trackId == id && old.sourceUpgradeInProgress,
             sourceTransitionOwner = old.sourceTransitionOwner.takeIf { old.trackId == id }.orEmpty(),
             streamUri = uri, quality = StreamQualityBadge(), glitches = 0, enhancerPolicyKey = originalPolicyKey,
             sourceChannels = 0, decoderName = "")
@@ -169,14 +171,16 @@ object AudioSignalPath {
     internal fun verifiedSource(id: String, provider: String, value: Format, bitrate: Int, sourceId: String = "", originalSourceId: String = "", uri: String = "", decoderNameOverride: String? = null, originalUri: String = "", originalPolicyKey: String = "") = update { old ->
         old.copy(trackId = id, source = provider, sourceId = sourceId, enhancerOriginalSourceId = originalSourceId, quality = StreamQualityBadge.from(value, bitrate), streamUri = uri,
             enhancerOriginalUri = originalUri, enhancerPolicyKey = originalPolicyKey, sourceTransitionInProgress = old.trackId == id && old.sourceTransitionInProgress,
+            sourceUpgradeInProgress = old.trackId == id && old.sourceUpgradeInProgress,
             sourceTransitionOwner = old.sourceTransitionOwner.takeIf { old.trackId == id }.orEmpty(),
             sourceChannels = value.channelCount.coerceAtLeast(0),
             decoderName = decoderNameOverride ?: old.decoderName.takeIf { old.trackId == id && old.streamUri == uri }.orEmpty(),
             glitches = if (old.trackId == id) old.glitches else 0)
     }
-    internal fun sourceRequest(id: String, pending: Boolean, owner: String = "") = update { old ->
+    internal fun sourceRequest(id: String, pending: Boolean, owner: String = "", upgrading: Boolean = false) = update { old ->
         if (old.trackId == id && (pending || owner.isBlank() || old.sourceTransitionOwner == owner))
-            old.copy(sourceTransitionInProgress = pending, sourceTransitionOwner = owner.takeIf { pending }.orEmpty()) else old
+            old.copy(sourceTransitionInProgress = pending, sourceUpgradeInProgress = pending && upgrading,
+                sourceTransitionOwner = owner.takeIf { pending }.orEmpty()) else old
     }
     internal fun sourceBookmark(id: String, uri: String, origin: SourceTransitionOrigin?) = update { old ->
         if (old.trackId == id && old.streamUri == uri) old.copy(

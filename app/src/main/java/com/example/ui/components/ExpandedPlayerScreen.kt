@@ -476,6 +476,7 @@ fun ExpandedPlayerScreen(
     val expandedLyricsVisible by remember { derivedStateOf { lyricsExpansion.value > 0f } }
     val lyricsViewportAnimating = rememberLyricsViewportActivity(lyricsExpansion, lyricsExpanded, isScreenVisible)
     val lyricsPresentationAnimating = lyricsViewportAnimating || lyricsContentAnimating || morphAnimating
+    val keepArtworkReflection = showLyrics || lyricsContentAnimating || expandedLyricsVisible
     LaunchedEffect(showLyrics) { if (!showLyrics) maximizeLyrics = false }
     BackHandler(enabled = lyricsExpanded && isScreenVisible) { maximizeLyrics = false }
     val lyricsLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -586,8 +587,8 @@ fun ExpandedPlayerScreen(
         }
     }
 
-    LaunchedEffect(loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, lyricsPresentationAnimating) {
-        if (!isScreenVisible || !appColors.dynamicAlbumGlow || lyricsPresentationAnimating) return@LaunchedEffect
+    LaunchedEffect(loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating) {
+        if (!isScreenVisible || !appColors.dynamicAlbumGlow || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
         val cover = loadedCoverRequest ?: return@LaunchedEffect
         val resolvedKey = com.example.ui.util.playerPaletteKey(track, isDark,
@@ -810,7 +811,7 @@ fun ExpandedPlayerScreen(
                                 ) {
                                     // Preserve the square card when full-screen artwork is disabled.
                                     PlayerArtworkFlipCard(
-                                        reflectionBounds = artworkBlendBounds,
+                                        reflectionBounds = artworkBlendBounds.takeUnless { keepArtworkReflection },
                                         modifier = Modifier
                                             .then(if (isFullScreenArt) Modifier.fillMaxSize()
                                                 else Modifier.fillMaxHeight(0.92f).aspectRatio(1f))
@@ -839,7 +840,7 @@ fun ExpandedPlayerScreen(
                                             PlayerCoverArtwork(
                                                 request = highResImageRequest,
                                                 onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
-                                                onArtworkLoaded = { loadedCoverRequest = it },
+                                                onArtworkLoaded = { if (loadedCoverRequest?.data != it.data) loadedCoverRequest = it },
                                                 onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                                 fullScreen = isFullScreenArt,
                                                 fadeRightEdge = isFullScreenArt,
@@ -1763,7 +1764,7 @@ fun ExpandedPlayerScreen(
                                         .aspectRatio(1f)
                                 }
                                 PlayerArtworkFlipCard(
-                                    reflectionBounds = artworkBlendBounds,
+                                    reflectionBounds = artworkBlendBounds.takeUnless { keepArtworkReflection },
                                     modifier = cardSize
                                         .sharedElement(
                                             rememberSharedContentState("lyrics_artwork_${track.id}"),
@@ -1795,7 +1796,7 @@ fun ExpandedPlayerScreen(
                                             request = highResImageRequest,
                                             fullScreen = isFullScreenArt,
                                             onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
-                                            onArtworkLoaded = { loadedCoverRequest = it },
+                                            onArtworkLoaded = { if (loadedCoverRequest?.data != it.data) loadedCoverRequest = it },
                                             onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                             modifier = Modifier.fillMaxSize()
                                                 .clip(if (isFullScreenArt) RoundedCornerShape(0.dp) else RoundedCornerShape(24.dp))
@@ -2739,15 +2740,17 @@ private fun Modifier.animatedFillMaxWidth(fraction: State<Float>): Modifier = la
     layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
 }
 
-/** The reflections follow the card's layout even when the front face is rotated or absent. */
+/** Keep the cover's resting bounds while its front face rotates or moves into the lyrics header. */
 @Composable
 private fun PlayerArtworkFlipCard(
-    reflectionBounds: MutableState<Rect?>,
+    reflectionBounds: MutableState<Rect?>?,
     modifier: Modifier,
     flipModifier: Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    Box(modifier.onGloballyPositioned { reflectionBounds.value = it.boundsInRoot() }) {
+    Box(modifier.then(if (reflectionBounds == null) Modifier else Modifier.onGloballyPositioned {
+        reflectionBounds.value = it.boundsInRoot()
+    })) {
         Box(Modifier.matchParentSize().then(flipModifier), content = content)
     }
 }
@@ -3326,12 +3329,19 @@ internal fun SourceUpgradeMenuItem(trackId: String, onDismiss: () -> Unit,
     val path by com.example.playback.AudioSignalPath.state.collectAsStateWithLifecycle()
     val current = path.trackId == trackId && path.quality.verified && path.sourceId.isNotBlank()
     val upgraded = current && policy.hasVerifiedUpgrade(path)
+    val upgrading = path.trackId == trackId && path.sourceUpgradeInProgress
     DropdownMenuItem(
-        text = { Text(if (upgraded) "Revert to Original" else "Upgrade Audio",
+        text = { Text(when {
+            upgrading -> "Upgrading"
+            upgraded -> "Revert to Original"
+            else -> "Upgrade Audio"
+        },
             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary) },
         leadingIcon = {
             Box(Modifier.size(34.dp).clip(CircleShape).background(iconBackground), contentAlignment = Alignment.Center) {
-                Icon(if (upgraded) Icons.AutoMirrored.Filled.Undo else Icons.Default.AutoAwesome, contentDescription = null,
+                if (upgrading) VisibleCircularProgressIndicator(Modifier.size(18.dp).testTag("player_audio_upgrading"),
+                    color = colors.primaryAccent, strokeWidth = 2.dp)
+                else Icon(if (upgraded) Icons.AutoMirrored.Filled.Undo else Icons.Default.AutoAwesome, contentDescription = null,
                     tint = colors.primaryAccent, modifier = Modifier.size(18.dp))
             }
         },

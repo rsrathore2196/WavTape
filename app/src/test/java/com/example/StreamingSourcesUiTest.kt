@@ -198,8 +198,9 @@ class StreamingSourcesUiTest {
         compose.onNodeWithText("Upgrade Audio").assertIsEnabled().performClick()
         compose.waitUntil(5000) { shadowOf(Looper.getMainLooper()).idle(); monitor.sourcePolicy.value.enhancer }
         compose.onNodeWithText("Upgrade Audio").assertExists()
-        AudioSignalPath.sourceRequest("playing", true)
-        compose.onNodeWithText("Upgrade Audio").assertIsNotEnabled()
+        AudioSignalPath.sourceRequest("playing", true, upgrading = true)
+        compose.onNodeWithText("Upgrading").assertIsNotEnabled()
+        compose.onNodeWithTag("player_audio_upgrading", useUnmergedTree = true).assertExists()
         AudioSignalPath.sourceRequest("playing", false)
         val revision = monitor.sourcePolicy.value.requestRevision
         compose.onNodeWithText("Upgrade Audio").performClick()

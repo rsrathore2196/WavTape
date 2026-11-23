@@ -321,6 +321,7 @@ class MusicServiceQueueOwnershipTest {
             assertEquals(starting.mediaId, item.mediaId)
             assertEquals(PlaybackMode.FAST_START, item.playbackMode)
             assertEquals(PlaybackSource.jio.id, item.localConfiguration!!.uri.getQueryParameter("provider"))
+            assertEquals(PlaybackSource.youtube.id, SourceTransitionOrigin.read(item, selected)?.sourceId)
         } finally { cache.removeResource(key) }
     }
 

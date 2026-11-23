@@ -157,6 +157,44 @@ class LosslessPrebufferRegressionTest {
         assertFalse(prepareFastStartReplacement(app, item, current, replacement,
             position = { 6_000L }, stillCurrent = { false }, automatic = false))
     }
+
+    @Test fun fastStartPreparesADashAddonWhenAudioPropertiesAreOnlyInTheSegments() = runBlocking {
+        val manifest = """
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT24S">
+              <Period duration="PT24S">
+                <AdaptationSet mimeType="audio/mp4" codecs="fLaC">
+                  <Representation id="hires" bandwidth="1500000">
+                    <SegmentTemplate timescale="1" duration="4" startNumber="1" initialization="init.mp4" media="segment-${'$'}Number${'$'}.m4s"/>
+                  </Representation>
+                </AdaptationSet>
+              </Period>
+            </MPD>
+        """.trimIndent().toByteArray()
+        val requests = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        server.createContext("/adaptive/") { exchange ->
+            val resource = exchange.requestURI.path.substringAfterLast('/')
+            requests.add(resource)
+            // The preparation reads manifest metadata and warms the byte ranges. The active
+            // player, rather than this probe, is responsible for consuming the sample data.
+            val content = if (resource == "audio.mpd") manifest else byteArrayOf(1, 2, 3, 4)
+            exchange.sendResponseHeaders(200, content.size.toLong())
+            exchange.responseBody.use { it.write(content) }
+            exchange.close()
+        }
+        val current = MusicTrack("adaptive-fast-start", "Song", "Artist", "Album", 24_000L, "",
+            "xtreme-youtube://audio/abcdefghijk/stream.audio")
+        val url = "${source.baseUrl}/adaptive/audio.mpd"
+        val replacement = checkNotNull(StreamingAddons.parseStream(
+            JSONObject().put("url", url).put("codec", "flac").put("format", "dash").toString(),
+            source.baseUrl, current, current, PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(source))))
+        val media = MediaItem.Builder().setMediaId(current.id).setUri(url).setMimeType(MimeTypes.APPLICATION_MPD).build()
+        val ready = withTimeout(10_000L) {
+            prepareFastStartReplacement(app, media, current, replacement,
+                position = { 6_000L }, stillCurrent = { true }, automatic = true)
+        }
+        assertTrue("${LosslessDiagnostics.last(current.id)}, requested $requests", ready)
+        assertTrue(requests.contains("segment-2.m4s"))
+    }
     @Test fun nonMaximumProfileRejectsPreparationBeforeItTouchesPlayerOrNetwork() = runBlocking {
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.HIGH)
         assertNull(LosslessStreamPrebuffer.prepare(app, item("song.flac"), 20_000,

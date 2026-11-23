@@ -121,6 +121,13 @@ class PlayerCreditsUiTest {
                 val credits = compose.onNodeWithText("TRACK CREDITS & DETAILS")
                 if (direction == 0) credits.assertIsDisplayed() else credits.assertDoesNotExist()
             }
+            for (control in listOf("player_lyrics_button", "player_lyrics_expand_button", "player_lyrics_expand_button", "player_lyrics_button")) {
+                compose.onNodeWithTag(control).performClick()
+                for (step in listOf(48L, 96L, 128L, 600L)) {
+                    compose.mainClock.advanceTimeBy(step)
+                    assertArrayEquals("Reflections must stay fixed after using $control", original, reflectedEdges())
+                }
+            }
         } finally { OtherSettingsPreferences.setFullScreenAlbumArt(context, false) }
     }
 

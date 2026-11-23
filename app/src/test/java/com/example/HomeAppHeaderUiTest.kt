@@ -194,7 +194,7 @@ class HomeAppHeaderUiTest {
             assertEquals("The glass surface stays neutral", actual.red, actual.green, .03f)
             assertEquals(actual.green, actual.blue, .03f)
             if (renderedPalette.isDark) assertTrue("Dark glass remains subtle", actual.red < .25f)
-            else assertTrue("Light glass must not become a heavy gray slab", actual.red > .75f)
+            else assertTrue("The light header has a soft glass tone", actual.red in .75f.. .94f)
             compose.onNodeWithTag("home_header_wordmark").assertIsDisplayed()
         }
     }

@@ -255,8 +255,8 @@ class LightThemeSurfacesUiTest {
                             minOf(sample.red, sample.green, sample.blue) > 195)
                         canvas == Color.Black -> assertTrue("Clear glass must not add an opaque white wash",
                             maxOf(sample.red, sample.green, sample.blue) < 110)
-                        canvas == Color.White -> assertTrue("Clear glass must still reveal a bright canvas",
-                            minOf(sample.red, sample.green, sample.blue) > 140)
+                        canvas == Color.White -> assertTrue("Clear glass softens white while keeping the canvas visible",
+                            minOf(sample.red, sample.green, sample.blue) > 140 && maxOf(sample.red, sample.green, sample.blue) < 250)
                         else -> assertTrue("Artwork color must show through both floating surfaces",
                             sample.red - sample.green > 30)
                     }

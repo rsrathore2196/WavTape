@@ -503,7 +503,7 @@ class MusicRepository private constructor(
     internal suspend fun resolveFastStartUpgrade(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
         stillCurrent: () -> Boolean = { true }, prepare: suspend (MusicTrack) -> Boolean = { true }
-    ): MusicTrack? = kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+    ): MusicTrack? = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
         for (source in policy.fastStartUpgradeSources(track, manual)) {
             if (!stillCurrent()) return@withTimeoutOrNull null
             val candidate = kotlinx.coroutines.withTimeoutOrNull(16_000L) {
@@ -519,7 +519,10 @@ class MusicRepository private constructor(
                 !policy.acceptsRemoteTrack(candidate) || SourceTransitionOrigin.sourceId(
                     candidate.id, android.net.Uri.parse(candidate.audioUrl), policy) != source.id) continue
             // A matched URL that cannot resume the song is not an available upgrade.
-            if (kotlinx.coroutines.withTimeoutOrNull(10_000L) { prepare(candidate) } == true) {
+            // Allow an add-on to finish its adaptive metadata probe and warm its
+            // init/seek ranges while the original stream continues to play.
+            val preparationBudget = if (source.kind == PlaybackSourceKind.ADDON) 24_000L else 10_000L
+            if (kotlinx.coroutines.withTimeoutOrNull(preparationBudget) { prepare(candidate) } == true) {
                 return@withTimeoutOrNull candidate
             }
         }

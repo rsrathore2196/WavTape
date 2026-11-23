@@ -492,6 +492,7 @@ object StreamingAddons {
         return transportFor(url)?.headers.orEmpty()
     }
     fun mime(url: String): String? = transports[url]?.mime
+    internal fun hasLicensedDrm(url: String): Boolean = transports[url]?.drm != null
     /** Apply only the exact registered addon transport, including licensed Widevine.
      * Segment URLs must not inherit a separate root's DRM configuration. */
     fun prepareMediaItem(item: androidx.media3.common.MediaItem): androidx.media3.common.MediaItem {

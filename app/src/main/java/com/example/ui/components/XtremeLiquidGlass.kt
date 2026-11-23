@@ -136,7 +136,7 @@ fun Modifier.xtremeLiquidGlassBackground(
     val pressDepth = with(density) { 2.dp.toPx() } * processingScale
     val chromeTone = remember(useBackdrop, floatingDock, headerGlass, appColors.isDark, profile.enableLens) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && useBackdrop && floatingDock && profile.enableLens) {
-            val brightness = if (!headerGlass) .05f else if (appColors.isDark) 0f else .04f
+            val brightness = if (appColors.isDark && !headerGlass) .05f else 0f
             val matrix = ColorMatrix().apply {
                 setToSaturation(if (headerGlass) 1.6f else 1.1f)
                 for (channel in 0..2) this[channel, 4] = brightness * 255f
@@ -214,12 +214,16 @@ fun Modifier.xtremeLiquidGlassBackground(
         )
         .drawWithCache {
             val lightDockFill = floatingDock && !appColors.isDark
-            val base = baseFillColor ?: if (dark && !lightDockFill) Color(0xFF101013) else Color(0xFFF8FAFD)
+            val base = baseFillColor ?: when {
+                lightDockFill -> Color(0xFFD7DADE)
+                dark -> Color(0xFF101013)
+                else -> Color(0xFFF8FAFD)
+            }
             val tint = tintColor.copy(alpha = surfaceTintAlpha.coerceIn(0f, 0.65f) * tintColor.alpha)
             val colorWash = Brush.linearGradient(listOf(tint, Color.Transparent, tint.copy(alpha = tint.alpha * 0.45f)),
                 Offset.Zero, Offset(size.width, size.height))
             val sheen = if (floatingDock) {
-                Brush.verticalGradient(0f to Color.White.copy(alpha = if (appColors.isDark) .07f else .16f),
+                Brush.verticalGradient(0f to Color.White.copy(alpha = if (appColors.isDark) .07f else .08f),
                     .55f to Color.Transparent)
             } else Brush.verticalGradient(0f to Color.White.copy(alpha = if (dark) 0.10f else 0.36f),
                 0.32f to Color.White.copy(alpha = 0.015f), 0.65f to Color.Transparent,

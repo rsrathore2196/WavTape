@@ -522,7 +522,8 @@ class PlaybackManager(
             ?: SourceTransitionOrigin.read(player.currentMediaItem, original)
         val origin = remembered ?: if (enhancerTurnedOn) SourceTransitionOrigin.capture(original, policy) else null
         val returnToYouTube = policy.shouldReturnToYouTube(original, origin?.sourceId)
-        val restoring = !policy.enhancer && (returnToYouTube || !onlyAtmosChanged && origin != null)
+        val restoring = !policy.enhancer && (returnToYouTube ||
+            startMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin != null)
         val sameSource = if (onlyAtmosChanged && !returnToYouTube)
             SourceTransitionOrigin.sourceId(original.id, Uri.parse(original.audioUrl), policy)
                 ?.takeIf { id -> policy.playbackSources.any { it.id == id } } else null
@@ -554,7 +555,8 @@ class PlaybackManager(
             player.canSwitchStartupStream(automaticFastStart)
         youtubeQualityJob = scope.launch {
             var fastStartInstalled = false
-            if (!automaticFastStart) AudioSignalPath.sourceRequest(original.id, true, "controller:$epoch")
+            AudioSignalPath.sourceRequest(original.id, true, "controller:$epoch",
+                upgrading = !restoring && (fastSwitch || enhancerTurnedOn || preparedSource != null))
             try {
                 if (!automatic) delay(180L) // Coalesce settings changes, never player/touch commands.
                 if (!owns()) return@launch
@@ -630,7 +632,8 @@ class PlaybackManager(
                 val resume = player.playWhenReady
                 val replacement = original.copy(audioUrl = media.localConfiguration!!.uri.toString(), source = resolved.source,
                     qualityBadge = resolved.qualityBadge, bitrateKbps = resolved.bitrateKbps, isLossless = resolved.isLossless)
-                val targetOrigin = origin.takeUnless { restoring || isYoutubeSource(replacement) }?.copy(policyKey = policy.upgradePolicyKey)
+                val targetOrigin = (origin ?: if (automaticFastStart) SourceTransitionOrigin.capture(original, policy) else null)
+                    .takeUnless { restoring || isYoutubeSource(replacement) }?.copy(policyKey = policy.upgradePolicyKey)
                 losslessFallback = LosslessFallback(generation, original, replacement, position, epoch,
                     expectedLossless = resolved.isLossless, expectedOpus = isYoutubeSource(replacement) && resolved.qualityBadge.contains("Opus", true),
                     policyKey = policy.key, originalUsable = failedUrl == null,
@@ -645,7 +648,6 @@ class PlaybackManager(
                     SourceTransitionOrigin.write(this, targetOrigin)
                 }
                 fastStartInstalled = fastSwitch
-                if (automaticFastStart) AudioSignalPath.sourceRequest(original.id, true, "controller:$epoch")
                 player.replaceMediaItem(index, media.buildUpon().setMediaMetadata(
                     media.mediaMetadata.buildUpon().setExtras(extras).build()).build())
                 player.seekTo(index, position)

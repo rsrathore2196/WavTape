@@ -215,7 +215,8 @@ class MusicService : MediaLibraryService() {
 
     /** Confirm the chosen representation, not a codec inferred from its provider. */
     private fun resolvedFormatMatches(track: MusicTrack, format: Format): Boolean {
-        if (track.isLossless) return com.example.playback.LosslessStreamPrebuffer.audioInfo(format) != null
+        if (track.isLossless) return com.example.playback.LosslessStreamPrebuffer.audioInfo(format,
+            allowDrm = com.example.data.remote.StreamingAddons.hasLicensedDrm(track.audioUrl)) != null
         val codec = YouTubeAudioStreamService.displayCodec(format.sampleMimeType, format.codecs)
         if (com.example.data.remote.StreamingAddons.hasRegisteredTransport(track.audioUrl))
             return if (com.example.playback.StreamQualityBadge.from(format).lossless)
@@ -515,7 +516,8 @@ class MusicService : MediaLibraryService() {
             (policy.requestTrackId.isBlank() || policy.requestTrackId == track.id)
         val origin = savedOrigin ?: if (manualUpgrade) com.example.playback.SourceTransitionOrigin.capture(track, policy) else null
         val returnToYouTube = policy.shouldReturnToYouTube(track, origin?.sourceId)
-        val restoring = !policy.enhancer && (returnToYouTube || !onlyAtmosChanged && origin != null)
+        val restoring = !policy.enhancer && (returnToYouTube ||
+            item.playbackMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin != null)
         val automaticFastStart = automatic && preparedSource == null && item.playbackMode == PlaybackMode.FAST_START
         val fastSwitch = item.playbackMode == PlaybackMode.FAST_START && !restoring && !returnToYouTube &&
             failedUrl == null && (automaticFastStart || manualUpgrade)
@@ -538,7 +540,8 @@ class MusicService : MediaLibraryService() {
         fun ownsFastStart() = owns() && player.canSwitchStartupStream(automaticFastStart)
         sourceRecoveryJob = serviceScope.launch {
             var fastStartInstalled = false
-            if (!automaticFastStart) com.example.playback.AudioSignalPath.sourceRequest(track.id, true, "service:$revision")
+            com.example.playback.AudioSignalPath.sourceRequest(track.id, true, "service:$revision",
+                upgrading = !restoring && (fastSwitch || manualUpgrade || preparedSource != null))
             var activatedUri: Uri? = null
             fun restorePreviousSource() {
                 val target = activatedUri ?: return
@@ -565,7 +568,8 @@ class MusicService : MediaLibraryService() {
             }
             try {
                 if (!automatic) delay(180L)
-                fun targetOrigin(candidate: MusicTrack) = origin.takeUnless { restoring ||
+                fun targetOrigin(candidate: MusicTrack) = (origin ?: if (automaticFastStart)
+                    com.example.playback.SourceTransitionOrigin.capture(track, policy) else null).takeUnless { restoring ||
                     YouTubeAudioStreamService.isYouTubeAudio(candidate.id, candidate.audioUrl) }?.copy(policyKey = policy.upgradePolicyKey)
                 fun transitionMedia(candidate: MusicTrack): MediaItem {
                     val replacementExtras = Bundle(extras ?: Bundle()).apply {
@@ -641,7 +645,6 @@ class MusicService : MediaLibraryService() {
                 activatedUri = targetUri
                 headlessTransition = resolved.audioUrl to position
                 fastStartInstalled = fastSwitch
-                if (automaticFastStart) com.example.playback.AudioSignalPath.sourceRequest(track.id, true, "service:$revision")
                 player.replaceMediaItem(index, replacement); player.seekTo(index, position)
                 player.prepare(); player.playWhenReady = resume
                 val ready = withTimeoutOrNull(8_000L) {
