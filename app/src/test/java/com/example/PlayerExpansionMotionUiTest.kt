@@ -27,6 +27,9 @@ import com.example.playback.PlayerUiState
 import com.example.ui.components.*
 import com.example.ui.theme.*
 import com.example.ui.util.LocalArtworkRequestsActive
+import com.example.ui.util.TrackPaletteCache
+import com.example.ui.util.extractPlayerArtworkColors
+import com.example.ui.util.playerPaletteKey
 import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -50,15 +53,15 @@ class PlayerExpansionMotionUiTest {
     private var playerDisposals = 0
     private var playTaps = 0
     private var nextTaps = 0
+    private val motionTrack = MusicTrack("motion", "Song", "Artist", "Album", 180_000, "", "")
 
     private fun show(light: Boolean = false, markTransition: Boolean = false, compact: Boolean = false,
-        artwork: Boolean = false) {
+        artwork: Boolean = false, albumGlow: Boolean = false) {
         compose.mainClock.autoAdvance = false
-        val song = MusicTrack("motion", "Song", "Artist", "Album", 180_000,
-            if (artwork) "https://lh3.googleusercontent.com/morph-cover=w800-h800" else "", "")
+        val song = if (artwork) motionTrack.copy(coverUrl = "https://lh3.googleusercontent.com/morph-cover=w800-h800") else motionTrack
         compose.setContent { MaterialTheme {
-            val colors = (if (light) LightAppColors else DarkAppColors).copy(dynamicGlassEnabled = false, dynamicAlbumGlow = false)
-            CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides false,
+            val colors = (if (light) LightAppColors else DarkAppColors).copy(dynamicGlassEnabled = albumGlow, dynamicAlbumGlow = albumGlow)
+            CompositionLocalProvider(LocalAppColors provides colors, LocalDynamicGlassEnabled provides albumGlow,
                 LocalArtworkRequestsActive provides artwork, LocalVisualEffectsActive provides false) {
                 visible = remember { MutableTransitionState(false) }
                 motion = remember { PlayerExpansionMotion() }
@@ -115,6 +118,38 @@ class PlayerExpansionMotionUiTest {
     @Test fun compactDockReturnsToItsActualSmallerSurfaceAndArtwork() = checkRoundTrip(compact = true)
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeTargetsTheActualNarrowMiniPlayer() = checkRoundTrip()
+
+    @Test fun retainedPlayerUsesThePrefetchedReflectionDuringReopening() {
+        TrackPaletteCache.clear()
+        try {
+            show(albumGlow = true)
+            compose.onNodeWithTag("mini_player_container").performClick()
+            advanceUntil { visible.isIdle }
+            compose.onNodeWithContentDescription("Minimize Player").performClick()
+            advanceUntil { visible.isIdle }
+            compose.runOnIdle {
+                val palette = checkNotNull(extractPlayerArtworkColors(IntArray(16) { 0xff962d34.toInt() }, 4, 4))
+                TrackPaletteCache.put(playerPaletteKey(motionTrack, true, Color.White, Color.Black), palette)
+            }
+            frame()
+
+            compose.onNodeWithTag("mini_player_container").performClick()
+            advanceUntil { motion.expandedFraction >= .55f }
+            assertFalse("The reflection must already be visible during expansion", visible.isIdle)
+            val stage = compose.onNodeWithTag("motion_stage")
+            val bounds = stage.fetchSemanticsNode().boundsInRoot
+            val window = checkNotNull(motion.containerBounds())
+            val file = java.io.File.createTempFile("player-prefetched-reflection-", ".png")
+            try {
+                stage.captureRoboImage(file.absolutePath, RoborazziOptions(taskType = RoborazziTaskType.Record))
+                val image = javax.imageio.ImageIO.read(file)
+                val x = ((window.left + 10f - bounds.left) * image.width / bounds.width).toInt()
+                val y = ((window.center.y - bounds.top) * image.height / bounds.height).toInt()
+                val pixel = java.awt.Color(image.getRGB(x, y))
+                assertTrue("The cached cover should color the opening backdrop, got $pixel", pixel.red > pixel.blue + 60)
+            } finally { file.delete() }
+        } finally { TrackPaletteCache.clear() }
+    }
 
     private fun checkRoundTrip(light: Boolean = false, compact: Boolean = false) {
         show(light, compact = compact)

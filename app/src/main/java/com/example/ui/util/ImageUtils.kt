@@ -20,6 +20,9 @@ import coil.size.Scale
 import coil.size.Precision
 import com.example.data.model.MusicTrack
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Hidden tabs retain cached painters; unfinished requests follow actual visibility. */
@@ -114,6 +117,7 @@ data class ExtractedTrackColors(
 
 object TrackPaletteCache {
     private val memoryCache = android.util.LruCache<String, ExtractedTrackColors>(128)
+    private val revision = MutableStateFlow(0L)
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private val pending = kotlinx.coroutines.channels.Channel<Map<String, ExtractedTrackColors>>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private var clearGeneration = 0L
@@ -161,10 +165,23 @@ object TrackPaletteCache {
 
     fun get(trackId: String): ExtractedTrackColors? = memoryCache.get(trackId)
 
+    internal fun colorsForArtwork(vararg keys: String): ExtractedTrackColors? = synchronized(memoryCache) {
+        var first: ExtractedTrackColors? = null
+        for (key in keys) {
+            val colors = memoryCache.get(key) ?: continue
+            if (colors.colorField != null) return@synchronized colors
+            if (first == null) first = colors
+        }
+        first
+    }
+
+    internal fun observeArtwork(vararg keys: String) = revision.map { colorsForArtwork(*keys) }.distinctUntilChanged()
+
     fun put(trackId: String, colors: ExtractedTrackColors) {
         if (trackId.isNotBlank()) {
             synchronized(memoryCache) {
                 memoryCache.put(trackId, colors)
+                revision.value++
                 pending.trySend(memoryCache.snapshot())
             }
         }
@@ -174,6 +191,7 @@ object TrackPaletteCache {
         synchronized(memoryCache) {
             ++clearGeneration
             memoryCache.evictAll()
+            revision.value++
             pending.trySend(emptyMap())
         }
     }

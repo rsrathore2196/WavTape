@@ -15,6 +15,7 @@ import com.example.performance.BackgroundWorkCoordinator
 import com.example.ui.util.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.resetMain
@@ -84,7 +85,10 @@ class PlayerArtworkPrefetchTest {
             prepareCurrentPlayerArtwork(context, MutableStateFlow(track), MutableStateFlow(true), scope,
                 fullPlayerVisible = demand, resolveCover = { lookups.incrementAndGet(); null }, loaderFor = { loader })
             withTimeout(5_000) { mini.await() }
+            val rawKey = playerPaletteKey(track, true, Color.White, Color.Black)
+            withTimeout(5_000) { TrackPaletteCache.observeArtwork(rawKey).first { it?.colorField != null } }
             assertFalse("Core startup must not trigger a full-player decode", full.isCompleted)
+            assertFalse("The reflection must already be prepared while the player is closed", demand.value)
             demand.value = true
             BackgroundWorkCoordinator.admissionChanged()
             withTimeout(5_000) { full.await() }

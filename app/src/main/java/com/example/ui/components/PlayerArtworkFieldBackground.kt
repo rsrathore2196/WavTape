@@ -32,13 +32,18 @@ import kotlin.math.roundToInt
 /** Only the cover's small blurred texture is tiled. The foreground keeps its original pixels. */
 @Composable
 internal fun PlayerArtworkFieldBackground(field: ArtworkColorField, artworkBounds: State<Rect?>?,
-    modifier: Modifier = Modifier) {
+    modifier: Modifier = Modifier, animateChanges: Boolean = true) {
     val cover = remember(field) { ReflectedArtwork(field) }
     var shown by remember { mutableStateOf(cover) }
     var incoming by remember { mutableStateOf<ReflectedArtwork?>(null) }
     val opacity = remember { Animatable(0f) }
     val origin = remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(cover) {
+    LaunchedEffect(cover, animateChanges) {
+        if (!animateChanges) {
+            shown = cover
+            incoming = null
+            return@LaunchedEffect
+        }
         incoming?.let { shown = it }
         if (shown !== cover) {
             incoming = cover

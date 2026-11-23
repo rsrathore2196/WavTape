@@ -126,6 +126,8 @@ import com.example.playback.AudioDeviceManager
 import com.example.playback.AudioQuality
 import com.example.playback.SoundOutputDevice
 import com.example.ui.util.TrackPaletteCache
+import com.example.ui.util.ARTWORK_METADATA_PARAMETER
+import com.example.ui.util.ArtworkRequestMetadata
 import com.example.util.AppHaptics
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -139,6 +141,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
@@ -554,77 +557,61 @@ fun ExpandedPlayerScreen(
         com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
             appColors.cardBackgroundElevated, highResCoverUrl)
     }
-    val rawCoverPaletteKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl,
-        isDark, appColors.primaryAccent, appColors.cardBackgroundElevated) {
+    val selectedArtworkUrl = resolvedArtworkRequest.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)
+        ?.providerUrl ?: track.coverUrl
+    val rawCoverPaletteKey = remember(paletteKey, selectedArtworkUrl) {
         com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
-            appColors.cardBackgroundElevated, track.coverUrl)
+            appColors.cardBackgroundElevated, selectedArtworkUrl)
     }
-    val cachedColors = remember(paletteKey, rawCoverPaletteKey) {
-        TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
-    }
-    var dominantColor by remember(paletteKey) { mutableStateOf(cachedColors?.dominantColor ?: appColors.cardBackgroundElevated) }
-    var accentColor by remember(paletteKey) { mutableStateOf(cachedColors?.accentColor ?: appColors.primaryAccent) }
-    var topEdgeColor by remember(paletteKey) { mutableStateOf(cachedColors?.topEdgeColor ?: appColors.cardBackgroundElevated) }
-    var bottomEdgeColor by remember(paletteKey) { mutableStateOf(cachedColors?.bottomEdgeColor ?: appColors.cardBackgroundElevated) }
-    val artworkColorField = remember(paletteKey) { mutableStateOf(cachedColors?.colorField) }
     var loadedCoverRequest by remember(paletteKey) { mutableStateOf<ImageRequest?>(null) }
+    val renderedPaletteKey = remember(paletteKey, loadedCoverRequest) {
+        loadedCoverRequest?.let { com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
+            appColors.cardBackgroundElevated, it.data.toString()) }
+    }
+    // The retained player can take new cached reflections while its scene is hidden.
+    // A cold scene reads the same cache before drawing its first frame.
+    val cachedColors by key(paletteKey, rawCoverPaletteKey, renderedPaletteKey) {
+        val keys = remember { listOfNotNull(renderedPaletteKey, paletteKey, rawCoverPaletteKey).distinct().toTypedArray() }
+        val initial = remember { TrackPaletteCache.colorsForArtwork(*keys) }
+        remember { TrackPaletteCache.observeArtwork(*keys) }.collectAsState(initial)
+    }
+    val artworkColorField = rememberUpdatedState(cachedColors?.colorField)
     // Only the backdrop's draw scope observes geometry; layout changes do not
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
-
-    // Apply any already-prefetched RAM palette immediately without waiting for open/morph transitions.
-    LaunchedEffect(paletteKey, rawCoverPaletteKey, appColors.dynamicAlbumGlow) {
-        if (!appColors.dynamicAlbumGlow) return@LaunchedEffect
-        val inMem = TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
-        if (inMem != null) {
-            dominantColor = inMem.dominantColor
-            accentColor = inMem.accentColor
-            topEdgeColor = inMem.topEdgeColor
-            bottomEdgeColor = inMem.bottomEdgeColor
-            if (inMem.colorField != null) {
-                artworkColorField.value = inMem.colorField
-            }
-        }
-    }
 
     LaunchedEffect(loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating) {
         if (!isScreenVisible || !appColors.dynamicAlbumGlow || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
         val cover = loadedCoverRequest ?: return@LaunchedEffect
-        val resolvedKey = com.example.ui.util.playerPaletteKey(track, isDark,
-            appColors.primaryAccent, appColors.cardBackgroundElevated, cover.data.toString())
+        val resolvedKey = renderedPaletteKey ?: return@LaunchedEffect
         try {
-            val extracted = withContext(AppDispatchers.Io) {
+            withContext(AppDispatchers.Io) {
                 com.example.ui.util.preparePlayerArtworkColors(resolvedKey, urgent = { isScreenVisible }) {
                     val request = com.example.ui.util.playerPaletteRequest(cover)
                     val result = context.imageLoader.execute(request) as? SuccessResult ?: return@preparePlayerArtworkColors null
                     val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
                     withContext(AppDispatchers.CpuBounded) { com.example.ui.util.extractPlayerArtworkColors(bitmap, isDark) }
                 }
-            } ?: return@LaunchedEffect
-            dominantColor = extracted.dominantColor
-            accentColor = extracted.accentColor
-            topEdgeColor = extracted.topEdgeColor
-            bottomEdgeColor = extracted.bottomEdgeColor
-            artworkColorField.value = extracted.colorField
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) { /* A failed backdrop sample leaves the foreground cover intact. */ }
     }
 
     val animatedDominantColor = animateColorAsState(
-        targetValue = dominantColor,
+        targetValue = cachedColors?.dominantColor ?: appColors.cardBackgroundElevated,
         animationSpec = tween(650, easing = LinearOutSlowInEasing),
         label = "dominant_color"
     )
     val animatedAccentColor = animateColorAsState(
-        targetValue = accentColor,
+        targetValue = cachedColors?.accentColor ?: appColors.primaryAccent,
         animationSpec = tween(650, easing = LinearOutSlowInEasing),
         label = "accent_color"
     )
-    val animatedTopEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(topEdgeColor),
+    val animatedTopEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(cachedColors?.topEdgeColor ?: appColors.cardBackgroundElevated),
         animationSpec = tween(650, easing = LinearOutSlowInEasing), label = "artwork_top_color")
-    val animatedBottomEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(bottomEdgeColor),
+    val animatedBottomEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(cachedColors?.bottomEdgeColor ?: appColors.cardBackgroundElevated),
         animationSpec = tween(650, easing = LinearOutSlowInEasing), label = "artwork_bottom_color")
 
     val creditsFieldSamples = remember(artworkColorField.value) {
@@ -731,7 +718,8 @@ fun ExpandedPlayerScreen(
         ) {
             PlayerGlassBackground(
                 artworkBounds = artworkBlendBounds,
-                colorField = artworkColorField
+                colorField = artworkColorField,
+                animateArtworkChanges = isScreenVisible || morphAnimating
             )
 
             val configuration = LocalConfiguration.current
@@ -2875,7 +2863,8 @@ internal fun Modifier.headerArtworkEdgeBlend(
 internal fun PlayerGlassBackground(
     artworkBounds: State<Rect?>? = null,
     modifier: Modifier = Modifier,
-    colorField: State<com.example.ui.util.ArtworkColorField?>? = null
+    colorField: State<com.example.ui.util.ArtworkColorField?>? = null,
+    animateArtworkChanges: Boolean = true
 ) {
     val dynamicGlass = LocalDynamicGlassEnabled.current
     val showArtwork = dynamicGlass && LocalAppColors.current.dynamicAlbumGlow
@@ -2886,7 +2875,7 @@ internal fun PlayerGlassBackground(
     if (field == null) {
         Box(backdrop.background(Color(0xff101010)))
     } else {
-        PlayerArtworkFieldBackground(field, artworkBounds, backdrop)
+        PlayerArtworkFieldBackground(field, artworkBounds, backdrop, animateArtworkChanges)
     }
 }
 

@@ -142,32 +142,19 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
                 } else if (result == null) {
                     return@collectLatest
                 }
-                // Defer full-size decode only while core startup tabs are preparing (unless player opens).
-                // During normal playback, eagerly prefetch full quality and palette immediately.
+                val fullRequest = request(artworkTrack, true, strictSquare = usingResolvedCover)
+                // The mini player already loaded the provider artwork. Prepare the small
+                // reflection from that source before admitting a full-size decode.
+                cachePlayerBackdrop(context, loader, artworkTrack, result.request,
+                    fullRequest.takeIf { fullInitially }, urgent = { true })
+                if (fullInitially) return@collectLatest
+
                 BackgroundWorkCoordinator.awaitCoreTabsOrUrgent { fullPlayerVisible.value }
                 currentCoroutineContext().ensureActive()
-                val fullRequest = request(artworkTrack, true, strictSquare = usingResolvedCover)
-                val fullResult = if (fullInitially) result else BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
+                val fullResult = BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
                     loader.execute(fullRequest) as? SuccessResult
                 } ?: return@collectLatest
-                if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
-                    !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@collectLatest
-                val primaryKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
-                val requestKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullRequest.data.toString())
-                val rawKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, artworkTrack.coverUrl)
-                preparePlayerArtworkColors(primaryKey, urgent = { fullPlayerVisible.value }) {
-                    // Network and decoding started at selection; color analysis reuses the cached full cover.
-                    val sample = loader.execute(playerPaletteRequest(fullResult.request)) as? SuccessResult
-                        ?: return@preparePlayerArtworkColors null
-                    val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-                    val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
-                        ?: return@preparePlayerArtworkColors null
-                    val resolvedKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, sample.request.data.toString())
-                    for (alias in setOf(requestKey, rawKey, resolvedKey)) {
-                        if (alias != primaryKey) TrackPaletteCache.put(alias, colors)
-                    }
-                    colors
-                }
+                cachePlayerBackdrop(context, loader, artworkTrack, fullResult.request, fullRequest, urgent = { true })
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A failed prefetch never prevents normal on-demand image loading. */ }
         }
@@ -201,26 +188,38 @@ internal fun prepareUpcomingPlayerArtwork(
                     )
                     val loader = loaderFor(context)
                     val fullResult = loader.execute(fullRequest) as? SuccessResult ?: return@optionalProcessing
-                    if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
-                        !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return@optionalProcessing
-                    val primaryKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullResult.request.data.toString())
-                    val requestKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, fullRequest.data.toString())
-                    val rawKey = playerPaletteKey(artworkTrack, true, Color.White, Color.Black, artworkTrack.coverUrl)
-                    preparePlayerArtworkColors(primaryKey) {
-                        val sample = loader.execute(playerPaletteRequest(fullResult.request)) as? SuccessResult
-                            ?: return@preparePlayerArtworkColors null
-                        val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-                        val colors = withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
-                            ?: return@preparePlayerArtworkColors null
-                        for (alias in setOf(requestKey, rawKey)) {
-                            if (alias != primaryKey) TrackPaletteCache.put(alias, colors)
-                        }
-                        colors
-                    }
+                    cachePlayerBackdrop(context, loader, artworkTrack, fullResult.request, fullRequest)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* Optional upcoming prefetch never interrupts playback. */ }
         }
+}
+
+private suspend fun cachePlayerBackdrop(context: Context, loader: ImageLoader, track: MusicTrack,
+    selectedArtwork: ImageRequest, fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
+    if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
+        !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return
+    fun key(url: String) = playerPaletteKey(track, true, Color.White, Color.Black, url)
+    try {
+        val selectedKey = key(selectedArtwork.data.toString())
+        val colors = preparePlayerArtworkColors(selectedKey, urgent) {
+            val request = playerPaletteRequest(selectedArtwork).let {
+                // A preview only uses the mini player's cached source bytes. If they
+                // have gone away, the normal full-size request can recover them.
+                if (fullRequest == null) it.newBuilder().networkCachePolicy(CachePolicy.DISABLED).build() else it
+            }
+            val sample = loader.execute(request) as? SuccessResult
+                ?: return@preparePlayerArtworkColors null
+            val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
+            withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
+        } ?: return
+        currentCoroutineContext().ensureActive()
+        // An early sample supplies a fallback until the actual full-size source is known.
+        for (alias in setOfNotNull(key(track.coverUrl), fullRequest?.let { key(it.data.toString()) })) {
+            if (alias != selectedKey && TrackPaletteCache.get(alias) !== colors) TrackPaletteCache.put(alias, colors)
+        }
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { /* Reflection preparation must not delay the cover load after a failure. */ }
 }
 
 /** Keep the neutral player canvas and typography while retaining the selected accent pair. */
@@ -251,9 +250,8 @@ internal suspend fun preparePlayerArtworkColors(
 ): ExtractedTrackColors? {
     fun prepared() = TrackPaletteCache.get(key)?.takeIf { it.colorField != null }
     prepared()?.let { return it }
+    BackgroundWorkCoordinator.awaitNavigationIdle(requireForeground = true, bypass = urgent)
     return playerPaletteLocks[(key.hashCode() and Int.MAX_VALUE) % playerPaletteLocks.size].withLock {
-        prepared()?.let { return@withLock it }
-        BackgroundWorkCoordinator.awaitNavigationIdle(requireForeground = true, bypass = urgent)
         prepared() ?: prepare()?.also {
             currentCoroutineContext().ensureActive()
             TrackPaletteCache.put(key, it)
