@@ -44,6 +44,7 @@ class LosslessPrebufferRegressionTest {
 
     @Before fun prepare() = runBlocking {
         Dispatchers.setMain(UnconfinedTestDispatcher())
+        com.example.performance.BackgroundWorkCoordinator.resetForTesting()
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
         val manager = shadowOf(app.getSystemService(ConnectivityManager::class.java))
         manager.clearAllNetworks()
@@ -108,6 +109,7 @@ class LosslessPrebufferRegressionTest {
             scope.coroutineContext[Job]?.cancelAndJoin()
             instance.set(null, null)
         }
+        com.example.performance.BackgroundWorkCoordinator.resetForTesting()
         Dispatchers.resetMain()
     }
     private fun item(path: String): MediaItem {
