@@ -57,7 +57,7 @@ class MiniPlayerPresentationUiTest {
 
     private fun pixels(image: BufferedImage) = image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
 
-    @Test fun playbackButtonsDoNotChangeWithTheAccentAndKeepTheirOwnClickActions() {
+    @Test fun playbackButtonsMatchTheSelectedDockPillAndKeepTheirClickActions() {
         var colors by mutableStateOf(DarkAppColors)
         var playing by mutableStateOf(false)
         var playTaps = 0
@@ -68,73 +68,50 @@ class MiniPlayerPresentationUiTest {
             CompositionLocalProvider(LocalAppColors provides colors,
                 LocalDynamicGlassEnabled provides colors.dynamicGlassEnabled,
                 LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
-                Box(Modifier.fillMaxSize().background(colors.scaffoldBackground).padding(16.dp)) {
+                Column(Modifier.fillMaxSize().background(colors.scaffoldBackground).padding(16.dp)) {
                     MiniPlayer(PlayerUiState(currentTrack = song, isPlaying = playing),
                         { playTaps++; playing = !playing }, { skips++ }, {}, { opens++ })
+                    FloatingPillBottomBar(0, {})
                 }
             }
         } }
-        for (base in listOf(DarkAppColors, LightAppColors)) for (active in listOf(false, true)) {
-            compose.runOnIdle { colors = base.copy(primaryAccent = Color.Magenta, secondaryAccent = Color.Magenta); playing = active }
-            settle()
-            val before = listOf("mini_player_play_pause", "mini_player_next").associateWith { pixels(capture(it)) }
-            compose.runOnIdle { colors = colors.copy(primaryAccent = Color.Green, secondaryAccent = Color.Green) }
-            settle()
-            before.forEach { (tag, image) ->
-                val after = capture(tag)
-                val result = pixels(after)
-                assertEquals(image.size, result.size)
-                for (y in 0 until after.height) for (x in 0 until after.width) {
-                    val dx = x - after.width / 2f
-                    val dy = y - after.height / 2f
-                    if (dx * dx + dy * dy >= (after.width / 2f - 3f) * (after.width / 2f - 3f)) continue
-                    val index = y * after.width + x
-                    for (shift in listOf(16, 8, 0)) {
-                        // Clear glass still transmits the unchanged dock's very faint ambient tint.
-                        assertTrue("$tag cannot acquire an accent fill or icon tint",
-                            kotlin.math.abs(((image[index] shr shift) and 255) - ((result[index] shr shift) and 255)) <= 6)
+
+        fun near(first: Color, second: Color, tolerance: Float = .025f): Boolean =
+            first.alpha > .95f && second.alpha > .95f &&
+                kotlin.math.abs(first.red - second.red) <= tolerance &&
+                kotlin.math.abs(first.green - second.green) <= tolerance &&
+                kotlin.math.abs(first.blue - second.blue) <= tolerance
+
+        val palettes = listOf(Color(0xff9ce4ff) to Color(0xffc1ef8f), Color(0xff293d68) to Color(0xff5c245d))
+        for (base in listOf(DarkAppColors, LightAppColors)) for (glass in listOf(true, false)) {
+            for ((index, palette) in palettes.withIndex()) {
+                compose.runOnIdle {
+                    colors = base.copy(primaryAccent = palette.first, secondaryAccent = palette.second,
+                        dynamicGlassEnabled = glass)
+                    playing = index != 0
+                }
+                settle()
+                val dockPill = capture("nav_tab_home_active")
+                val foreground = colors.onAccentGradient
+                for (tag in listOf("mini_player_play_pause", "mini_player_next")) {
+                    val button = capture(tag)
+                    for (fraction in listOf(.3f, .7f)) {
+                        val fill = Color(button.getRGB((button.width * fraction).toInt(), button.height * 4 / 5))
+                        val dockFill = Color(dockPill.getRGB((dockPill.width * fraction).toInt(), dockPill.height * 4 / 5))
+                        assertTrue("$tag fill at $fraction should match the navigation pill, got $fill vs $dockFill",
+                            near(fill, dockFill))
                     }
+                    val sheen = Color(button.getRGB(button.width / 2, 7))
+                    val dockSheen = Color(dockPill.getRGB(dockPill.width / 2, 7))
+                    assertTrue("$tag sheen should match the navigation pill, got $sheen vs $dockSheen", near(sheen, dockSheen))
+                    assertTrue("$tag uses the accent's contrasting foreground",
+                        pixels(button).count { near(Color(it), foreground, .012f) } > 12)
                 }
             }
         }
         compose.onNodeWithTag("mini_player_play_pause").performClick()
         compose.onNodeWithTag("mini_player_next").performClick()
         compose.runOnIdle { assertEquals(1, playTaps); assertEquals(1, skips); assertEquals(0, opens) }
-    }
-
-    @Test fun sampledPlaybackButtonsRevealTheBackdropWithoutADarkOrColoredFill() {
-        var colors by mutableStateOf(DarkAppColors)
-        var backdropColor by mutableStateOf(Color.Black)
-        compose.mainClock.autoAdvance = false
-        compose.setContent { MaterialTheme {
-            val backdrop = rememberLiquidGlassBackdrop()
-            CompositionLocalProvider(LocalAppColors provides colors,
-                LocalDynamicGlassEnabled provides true, LocalLiquidGlassBackdrop provides backdrop,
-                LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
-                Box(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxSize().xtremeSharedBackdropSource().background(backdropColor))
-                    MiniPlayer(PlayerUiState(currentTrack = song), {}, {}, {}, {}, modifier = Modifier.padding(16.dp))
-                }
-            }
-        } }
-        for (theme in listOf(DarkAppColors, LightAppColors)) for (shade in listOf(55, 185)) {
-            compose.runOnIdle {
-                colors = theme.copy(dynamicGlassEnabled = true, primaryAccent = Color.Magenta)
-                backdropColor = Color(shade, shade, shade)
-            }
-            settle()
-            val mini = capture("mini_player_container")
-            val surface = java.awt.Color(mini.getRGB(mini.width * 3 / 5, mini.height * 7 / 10))
-            for (tag in listOf("mini_player_play_pause", "mini_player_next")) {
-                val image = capture(tag)
-                val sample = java.awt.Color(image.getRGB(image.width / 2, image.height * 4 / 5))
-                val maxFrost = if (theme.isDark) 40 else 85
-                assertTrue("$tag should stay clear over shade $shade", sample.red in (shade - 2)..(shade + maxFrost))
-                assertTrue("$tag must not darken the mini player surface", sample.red >= surface.red - 2)
-                assertEquals("$tag should stay neutral", sample.red, sample.green)
-                assertEquals("$tag should stay neutral", sample.red, sample.blue)
-            }
-        }
     }
 
     @Test fun bothMiniPlayerLabelsUseHighContrastBoldTextWithoutBlackOutlineGlyphs() {

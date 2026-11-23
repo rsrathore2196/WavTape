@@ -56,7 +56,6 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -68,11 +67,11 @@ import com.example.util.AppHaptics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.playback.PlayerUiState
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -120,6 +119,8 @@ fun MiniPlayer(
     val labelColor = if (lightTheme) Color.Black else Color.White
     val artistColor = if (lightTheme) Color(0xFF111827) else Color(0xFFF3F4F6)
     val neutralButtonColor = if (appColors.isDark) Color.White else Color.Black
+    val buttonPill = rememberDockSelectionPill(appColors)
+    val buttonContentColor = appColors.onAccentGradient
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
 
     Box(
@@ -283,31 +284,30 @@ fun MiniPlayer(
                         )
                     } else {
                         val isPlaying = uiState.isPlaying
-                        Surface(
-                            enabled = interactive,
-                            onClick = {
-                                AppHaptics.performTap(context)
-                                onPlayPauseClick()
-                            },
-                            shape = CircleShape,
-                            color = Color.Transparent,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .graphicsLayer {
-                                    scaleX = playPauseScale
-                                    scaleY = playPauseScale
+                        Box(Modifier.matchParentSize()
+                            .graphicsLayer {
+                                scaleX = playPauseScale
+                                scaleY = playPauseScale
+                            }
+                            .dockSelectionPill(buttonPill)) {
+                            Surface(
+                                enabled = interactive,
+                                onClick = {
+                                    AppHaptics.performTap(context)
+                                    onPlayPauseClick()
+                                },
+                                shape = CircleShape,
+                                color = Color.Transparent,
+                                contentColor = buttonContentColor,
+                                modifier = Modifier.fillMaxSize().testTag("mini_player_play_pause")
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlaying) "Pause" else "Play",
+                                        modifier = Modifier.size(24.dp)
+                                    )
                                 }
-                                .playerLiquidGlassButton(appColors, elevation = if (isPlaying) 8.dp else 4.dp,
-                                    isActive = isPlaying, miniPlayer = true, onSample = sampleMotion)
-                                .testTag("mini_player_play_pause")
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                MiniPlayerControlIcon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pause" else "Play",
-                                    tint = neutralButtonColor,
-                                    size = 24.dp
-                                )
                             }
                         }
                     }
@@ -315,49 +315,38 @@ fun MiniPlayer(
 
                 Spacer(modifier = Modifier.compactWidth(compactProgress).width(6.dp))
 
-                Surface(
-                    onClick = {
-                        AppHaptics.performTap(context)
-                        onSkipNext()
-                    },
-                    enabled = !compact && interactive,
-                    shape = CircleShape,
-                    color = Color.Transparent,
-                    modifier = Modifier
+                Box(
+                    Modifier
                         .playerMorphMiniControls(PlayerMorphPart.NEXT, track.id)
                         .then(if (compact) Modifier.clearAndSetSemantics { } else Modifier)
                         .compactWidth(compactProgress)
                         .graphicsLayer { alpha = 1f - (compactProgress?.value ?: 0f).coerceIn(0f, 1f) }
                         .size(38.dp)
-                        .playerLiquidGlassButton(appColors, miniPlayer = true, onSample = sampleMotion)
-                        .testTag("mini_player_next")
+                        .dockSelectionPill(buttonPill)
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MiniPlayerControlIcon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Skip Next",
-                            tint = neutralButtonColor,
-                            size = 20.dp
-                        )
+                    Surface(
+                        onClick = {
+                            AppHaptics.performTap(context)
+                            onSkipNext()
+                        },
+                        enabled = !compact && interactive,
+                        shape = CircleShape,
+                        color = Color.Transparent,
+                        contentColor = buttonContentColor,
+                        modifier = Modifier.fillMaxSize().testTag("mini_player_next")
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Skip Next",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
         }
     }
-
-/** Give the glyph a faint contrasting edge for bright or dark imagery beneath the clear glass. */
-@Composable
-private fun MiniPlayerControlIcon(imageVector: ImageVector, contentDescription: String, tint: Color, size: Dp) {
-    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        Icon(imageVector, contentDescription = null,
-            tint = (if (tint == Color.White) Color.Black else Color.White).copy(alpha = 0.8f),
-            modifier = Modifier.matchParentSize().graphicsLayer {
-                scaleX = 1.13f
-                scaleY = 1.13f
-            })
-        Icon(imageVector, contentDescription, Modifier.matchParentSize(), tint)
-    }
-}
 
 /** Only layout/layers observe the dock spring; artwork requests and text stay composed. */
 private fun Modifier.compactWidth(progress: State<Float>?, retainedFraction: Float = 0f): Modifier =

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +37,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.graphicsLayer
@@ -179,15 +181,7 @@ fun AnimatedBottomBar(
         val work = if (selectionTransition.isRunning) BackgroundWorkCoordinator.navigationBusy() else null
         onDispose { work?.close() }
     }
-    val activePillBrush = remember(appColors.primaryAccent, appColors.secondaryAccent) {
-        appColors.accentBrush()
-    }
-    val activeBorder = if (!appColors.dynamicGlassEnabled) appColors.cardBorder
-        else Color.White.copy(alpha = if (appColors.isDark) 0.10f else 0.40f)
-    val specularSheen = remember(appColors.isDark) {
-        Brush.verticalGradient(listOf(Color.White.copy(alpha = if (appColors.isDark) 0.10f else 0.26f), Color.Transparent),
-            startY = 0f, endY = 22f)
-    }
+    val activePill = rememberDockSelectionPill(appColors)
     val origin = if (direction == LayoutDirection.Ltr) TransformOrigin(0f, 0.5f) else TransformOrigin(1f, 0.5f)
 
     Box(
@@ -269,12 +263,10 @@ fun AnimatedBottomBar(
                                 shape = DockPillShape(width, direction == LayoutDirection.Rtl, geometry.pillHeight(size.height))
                                 clip = true
                                 shadowElevation = 6.dp.toPx()
-                                spotShadowColor = if (!appColors.dynamicGlassEnabled) Color.Black.copy(alpha = 0.15f)
-                                    else appColors.primaryAccent.copy(alpha = if (appColors.isDark) 0.50f else 0.30f)
+                                spotShadowColor = activePill.shadow
                                 ambientShadowColor = Color.Transparent
                             }.drawWithCache {
-                                val stroke = 0.6.dp.toPx()
-                                val borderStyle = Stroke(stroke)
+                                val borderStyle = Stroke(0.6.dp.toPx())
                                 onDrawBehind {
                                     val width = geometry.tabWidth(position)
                                     val pillHeight = geometry.pillHeight(size.height)
@@ -282,11 +274,7 @@ fun AnimatedBottomBar(
                                     val left = if (direction == LayoutDirection.Ltr) 0f else size.width - width
                                     // Paint the live spring bounds, including its small
                                     // overshoot beyond the fixed measurement endpoint.
-                                    drawRect(activePillBrush, Offset(left, top), Size(width, pillHeight))
-                                    if (appColors.dynamicGlassEnabled) drawRect(specularSheen, Offset(left, top), Size(width, pillHeight))
-                                    drawRoundRect(activeBorder, Offset(left + stroke / 2f, top + stroke / 2f),
-                                        Size((width - stroke).coerceAtLeast(0f), (pillHeight - stroke).coerceAtLeast(0f)),
-                                        CornerRadius((pillHeight - stroke).coerceAtLeast(0f) / 2f), style = borderStyle)
+                                    activePill.draw(this, Offset(left, top), Size(width, pillHeight), borderStyle)
                                 }
                             })
                             BottomBarTabContent(expansion, labelAlpha, selectionEffect, item, selected, motion.foreground,
@@ -487,6 +475,50 @@ private fun BottomBarTabContent(
 @Composable
 private fun DockTabIcon(item: AnimatedBottomBarItem, selected: Boolean, color: State<Color>, modifier: Modifier) {
     Icon(if (selected) item.selectedIcon else item.unselectedIcon, item.title, modifier, tint = color.value)
+}
+
+@Immutable
+internal class DockSelectionPill(
+    private val fill: Brush,
+    private val sheen: Brush?,
+    private val border: Color,
+    val shadow: Color
+) {
+    fun draw(scope: DrawScope, topLeft: Offset, bounds: Size, borderStyle: Stroke) = with(scope) {
+        drawRect(fill, topLeft, bounds)
+        if (sheen != null) drawRect(sheen, topLeft, bounds)
+        val stroke = borderStyle.width
+        val innerHeight = (bounds.height - stroke).coerceAtLeast(0f)
+        drawRoundRect(border, topLeft + Offset(stroke / 2f, stroke / 2f),
+            Size((bounds.width - stroke).coerceAtLeast(0f), innerHeight),
+            CornerRadius(innerHeight / 2f), style = borderStyle)
+    }
+}
+
+@Composable
+internal fun rememberDockSelectionPill(colors: AppThemeColors): DockSelectionPill =
+    remember(colors.primaryAccent, colors.secondaryAccent, colors.isDark, colors.dynamicGlassEnabled, colors.cardBorder) {
+        val glass = colors.dynamicGlassEnabled
+        DockSelectionPill(
+            fill = colors.accentBrush(),
+            sheen = if (glass) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.26f), Color.Transparent),
+                startY = 0f, endY = 22f) else null,
+            border = if (glass) Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.40f) else colors.cardBorder,
+            shadow = if (glass) colors.primaryAccent.copy(alpha = if (colors.isDark) 0.50f else 0.30f)
+                else Color.Black.copy(alpha = 0.15f)
+        )
+    }
+
+internal fun Modifier.dockSelectionPill(pill: DockSelectionPill): Modifier = graphicsLayer {
+    shape = CircleShape
+    clip = true
+    shadowElevation = 6.dp.toPx()
+    spotShadowColor = pill.shadow
+    ambientShadowColor = Color.Transparent
+}.drawWithCache {
+    val borderStyle = Stroke(0.6.dp.toPx())
+    onDrawBehind { pill.draw(this, Offset.Zero, size, borderStyle) }
 }
 
 @Composable
