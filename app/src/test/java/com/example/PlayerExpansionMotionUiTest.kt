@@ -30,6 +30,7 @@ import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.util.TrackPaletteCache
 import com.example.ui.util.extractPlayerArtworkColors
 import com.example.ui.util.playerPaletteKey
+import com.example.ui.util.playerPreviewPaletteKey
 import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -118,6 +119,37 @@ class PlayerExpansionMotionUiTest {
     @Test fun compactDockReturnsToItsActualSmallerSurfaceAndArtwork() = checkRoundTrip(compact = true)
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeTargetsTheActualNarrowMiniPlayer() = checkRoundTrip()
+
+    @Test fun miniCoverPreparesTheOpeningReflectionWithoutLoadingAnotherImage() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val previous = coil.Coil.imageLoader(context)
+        val cover = android.graphics.Bitmap.createBitmap(80, 80, android.graphics.Bitmap.Config.ARGB_8888)
+            .apply { eraseColor(0xff962d34.toInt()) }
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val loader = coil.ImageLoader.Builder(context).components {
+            add(coil.intercept.Interceptor { chain ->
+                requests.incrementAndGet()
+                coil.request.SuccessResult(android.graphics.drawable.BitmapDrawable(context.resources, cover),
+                    chain.request, coil.decode.DataSource.MEMORY_CACHE)
+            })
+        }.build()
+        TrackPaletteCache.clear()
+        coil.Coil.setImageLoader(loader)
+        try {
+            show(artwork = true, albumGlow = true)
+            val track = motionTrack.copy(coverUrl = "https://lh3.googleusercontent.com/morph-cover=w800-h800")
+            compose.waitUntil(5_000) {
+                frame()
+                TrackPaletteCache.get(playerPreviewPaletteKey(track))?.colorField != null
+            }
+            assertFalse(visible.targetState)
+            assertEquals("The existing mini-player request supplies the backdrop", 1, requests.get())
+        } finally {
+            coil.Coil.setImageLoader(previous)
+            loader.shutdown()
+            TrackPaletteCache.clear()
+        }
+    }
 
     @Test fun retainedPlayerUsesThePrefetchedReflectionDuringReopening() {
         TrackPaletteCache.clear()

@@ -80,7 +80,11 @@ internal object StreamedAudioRepresentations {
         val declaredMime = StreamingAddons.mime(track.audioUrl)?.substringBefore(';')?.lowercase(Locale.ROOT)
         val mime = declaredMime ?: progressive[extension] ?: return
         if (mime !in progressive.values || extension in setOf("m3u8", "mpd")) return
-        val codec = when {
+        // A relay may have no extension, and ALAC can be delivered in .m4a.
+        // The exact registered add-on format is stronger than the path.
+        val registeredCodec = if (provider.kind == PlaybackSourceKind.ADDON && track.isLossless)
+            StreamingAddons.cacheableLosslessCodec(track.audioUrl) else null
+        val codec = registeredCodec ?: when {
             track.isLossless -> if (extension == "flac") "FLAC" else extension.uppercase(Locale.ROOT).ifBlank { "Lossless" }
             extension in setOf("opus", "ogg", "webm") -> "Opus"
             extension == "mp3" -> "MP3"

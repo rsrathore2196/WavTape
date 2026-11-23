@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -80,6 +82,10 @@ import com.example.ui.theme.XtremeGradients
 import com.example.ui.theme.XtremeGreen
 import com.example.ui.theme.XtremeLightBlue
 import com.example.ui.util.ImageConfig
+import com.example.ui.util.TrackPaletteCache
+import com.example.ui.util.playerPaletteKey
+import com.example.ui.util.playerPreviewPaletteKey
+import com.example.ui.util.prepareDecodedPlayerArtworkColors
 import com.example.ui.util.rememberOptimizedImageRequest
 import androidx.compose.ui.graphics.graphicsLayer
 
@@ -122,6 +128,21 @@ fun MiniPlayer(
     val buttonPill = rememberDockSelectionPill(appColors)
     val buttonContentColor = appColors.onAccentGradient
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
+    val prepareReflection = LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
+    val previewKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl) {
+        playerPreviewPaletteKey(track)
+    }
+    LaunchedEffect(previewKey, morphArtwork, prepareReflection) {
+        val bitmap = morphArtwork?.asAndroidBitmap() ?: return@LaunchedEffect
+        if (!prepareReflection || TrackPaletteCache.get(playerPaletteKey(track, true, Color.White, Color.Black))?.colorField != null)
+            return@LaunchedEffect
+        try {
+            // The dock already has a bitmap, even if finding verified album art is still in progress.
+            prepareDecodedPlayerArtworkColors(previewKey, bitmap, urgent = { true })
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { /* The native artwork remains visible if reflection preparation fails. */ }
+    }
 
     Box(
         modifier = modifier

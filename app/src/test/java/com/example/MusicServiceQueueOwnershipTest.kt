@@ -254,6 +254,31 @@ class MusicServiceQueueOwnershipTest {
         assertEquals("Archive ranks below the verified add-on", 0, requests.get())
     }
 
+    @Test fun fastStartCanReachTheBestQualityAddonAfterSwitchingToJioSaavn() = runBlocking {
+        val base = "https://addons.example/after-jiosaavn"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
+        val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        youtubeAvailable = true
+        val best = repository.resolvePlaybackStart(selected)
+        assertEquals(PlaybackMode.BEST_QUALITY, best.mode)
+        assertEquals(addonAddress, best.track.audioUrl)
+
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        val initial = repository.resolvePlaybackStart(selected)
+        assertEquals(PlaybackMode.FAST_START, initial.mode)
+        val policy = monitor.sourcePolicy.value
+        val jio = checkNotNull(repository.resolveFastStartUpgrade(initial.track, policy) { !it.isLossless })
+        assertEquals(selected.audioUrl, jio.audioUrl)
+
+        val upgraded = checkNotNull(repository.resolveFastStartUpgrade(jio, policy))
+        assertEquals(jio.id, upgraded.id)
+        assertEquals(best.track.audioUrl, upgraded.audioUrl)
+        assertTrue(upgraded.isLossless)
+        assertNull(repository.resolveFastStartUpgrade(upgraded, policy))
+    }
+
     @Test fun fastStartServiceSwitchesAnUnseekableYoutubeItemAtTheLivePosition() = runBlocking {
         val sources = listOf(PlaybackSource.jio, PlaybackSource.youtube)
         PlaybackSourcesPreferences.save(app, sources)

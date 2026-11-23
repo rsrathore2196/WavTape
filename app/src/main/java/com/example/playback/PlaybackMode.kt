@@ -29,11 +29,11 @@ internal val MediaItem.playbackMode: PlaybackMode?
 internal fun PlaybackSourcePolicy.startupSourcesFor(trackId: String): List<PlaybackSource> =
     if (returnsToYouTube(trackId)) resolutionSourcesFor(trackId) else upgradeSources
 
-internal fun PlaybackSourcePolicy.fastStartUpgradeSources(track: MusicTrack, manual: Boolean = false): List<PlaybackSource> {
+internal fun PlaybackSourcePolicy.fastStartUpgradeSources(track: MusicTrack): List<PlaybackSource> {
     if (!ready || !online || returnsToYouTube(track.id)) return emptyList()
-    val current = SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), this)
-    if (current == null || !manual && current != PlaybackSource.youtube.id)
-        return emptyList()
+    val current = SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), this) ?: return emptyList()
+    // A lower-priority provider can become audible while a better source is unavailable.
+    // Recheck only the providers ranked above the actual playing source.
     val ordered = upgradeSources
     if (ordered.none { it.id == current }) return emptyList()
     return ordered.takeWhile { it.id != current }

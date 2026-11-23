@@ -7,8 +7,10 @@ import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.MusicTrack
+import com.example.data.remote.StreamingAddons
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.PlaybackSource
+import com.example.playback.PlaybackSourceKind
 import com.example.playback.PlaybackSourcePolicy
 import com.example.service.MusicCache
 import com.example.service.StreamedAudioRepresentations
@@ -19,6 +21,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -44,8 +47,9 @@ class StreamedAudioRepresentationsTest {
     }
     @After fun cleanup() = runBlocking(Dispatchers.IO) { closeCache() }
 
-    private fun save(selected: MusicTrack = track, bytes: Int = 128, contentLength: Long? = 128L): String {
-        StreamedAudioRepresentations.remember(selected, policy.copy(online = true))
+    private fun save(selected: MusicTrack = track, bytes: Int = 128, contentLength: Long? = 128L,
+        sourcePolicy: PlaybackSourcePolicy = policy): String {
+        StreamedAudioRepresentations.remember(selected, sourcePolicy.copy(online = true))
         val key = StreamedAudioRepresentations.keyFor(Uri.parse(selected.audioUrl))!!
         val cache = MusicCache.getSimpleCache(context)
         StreamedAudioRepresentations.persistBinding(cache, key)
@@ -162,6 +166,26 @@ class StreamedAudioRepresentationsTest {
         for (uri in listOf("file:///music/song.flac", "content://music/item/1", "https://aac.saavncdn.com/manifest.m3u8")) {
             StreamedAudioRepresentations.remember(track.copy(audioUrl = uri), policy.copy(online = true))
             assertNull(StreamedAudioRepresentations.keyFor(Uri.parse(uri)))
+        }
+    }
+
+    @Test fun completeAddonRelaysRetainTheirCodecForOfflineReplay() = runBlocking(Dispatchers.IO) {
+        val base = "https://addons.example/lossless"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Lossless relay", baseUrl = base)
+        val maximum = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(addon, PlaybackSource.youtube))
+        for ((codec, path) in listOf("flac" to "_playback/123", "alac" to "recording.m4a", "aac" to "compatible.m4a")) {
+            val catalog = track.copy(id = "cached_$codec", audioUrl = "")
+            val response = JSONObject().put("url", "$base/$path?length=128").put("codec", codec).put("bitrate", 1411200)
+            if (codec == "flac") response.put("mimeType", "audio/flac")
+            val resolved = checkNotNull(StreamingAddons.parseStream(response.toString(), base, catalog, catalog, maximum))
+            save(resolved, sourcePolicy = maximum)
+            val offline = maximum.copy(online = false)
+            val cached = checkNotNull(StreamedAudioRepresentations.lookup(context, catalog, offline))
+            val uri = Uri.parse(cached.audioUrl)
+            assertEquals(codec.uppercase(java.util.Locale.ROOT), uri.getQueryParameter("codec"))
+            assertEquals(codec != "aac", cached.isLossless)
+            assertTrue(StreamedAudioRepresentations.validateCached(context, uri, offline))
+            assertNull(StreamedAudioRepresentations.lookup(context, catalog, offline.copy(ceiling = AudioQualityCeiling.HIGH)))
         }
     }
 }

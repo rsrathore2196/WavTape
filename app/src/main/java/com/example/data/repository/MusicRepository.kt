@@ -504,7 +504,7 @@ class MusicRepository private constructor(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
         stillCurrent: () -> Boolean = { true }, prepare: suspend (MusicTrack) -> Boolean = { true }
     ): MusicTrack? = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
-        for (source in policy.fastStartUpgradeSources(track, manual)) {
+        for (source in policy.fastStartUpgradeSources(track)) {
             if (!stillCurrent()) return@withTimeoutOrNull null
             val candidate = kotlinx.coroutines.withTimeoutOrNull(16_000L) {
                 if (!manual && source.kind == PlaybackSourceKind.INTERNET_ARCHIVE) {

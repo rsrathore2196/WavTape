@@ -53,6 +53,34 @@ class StreamingAddonIntegrationTest {
         assertTrue(drm.forceDefaultLicenseUri)
     }
 
+    @Test fun addonManifestsWithoutAMimeTypeKeepScopedSegmentHeadersAndLicensedDash() = runBlocking {
+        enable()
+        val license = "https://backend.example/_playback/test/license"
+        for ((extension, mime) in listOf("mpd" to MimeTypes.APPLICATION_MPD, "m3u8" to MimeTypes.APPLICATION_M3U8)) {
+            val manifestFolder = "$base/$extension"
+            val manifestUrl = "$manifestFolder/index.$extension?token=signed"
+            val transport = JSONObject().put("version", 1).put("uri", manifestUrl)
+                .put("headers", JSONObject().put("Authorization", "Bearer addon-$extension"))
+            if (extension == "mpd") {
+                transport.put("requiresLicense", true)
+                    .put("drm", JSONObject().put("scheme", "widevine").put("licenseUrl", license))
+            }
+            val result = checkNotNull(StreamingAddons.parseStream(JSONObject().put("codec", "flac")
+                .put("bitrate", 2_000_000).put("playback", transport).toString(), base, song, song, maximum))
+            val item = StreamingAddons.prepareMediaItem(androidx.media3.common.MediaItem.fromUri(result.audioUrl))
+            assertEquals(mime, item.localConfiguration!!.mimeType)
+            assertEquals(license.takeIf { extension == "mpd" }, item.localConfiguration!!.drmConfiguration?.licenseUri?.toString())
+
+            val segment = "$manifestFolder/segment-1.m4s"
+            assertEquals("Bearer addon-$extension", StreamingAddons.headers(segment)["Authorization"])
+            assertTrue(StreamingAddons.allowsRegisteredTransport(segment, maximum))
+            assertTrue(StreamingAddons.headers("$base/unrelated/segment-1.m4s").isEmpty())
+            assertTrue(StreamingAddons.headers("https://another.example/$extension/segment-1.m4s").isEmpty())
+            assertEquals("A manifest is not evidence of its currently decoded bitrate", 0,
+                StreamingAddons.bitrateForStream(result.audioUrl, "FLAC"))
+        }
+    }
+
     @Test fun rawEncryptedDeezerAndUnlicensedDrmAreNotAcceptedAsPlainFlac() {
         val candidate = song.copy(id = StreamingAddons.catalogTrackId(base, "123"))
         assertNull(StreamingAddons.parseStream("""{"url":"https://cdn.example/raw","codec":"flac","cipher":"BF_CBC_STRIPE"}""", base, song, candidate, maximum))

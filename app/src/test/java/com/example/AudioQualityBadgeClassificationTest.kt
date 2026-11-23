@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import com.example.playback.*
+import java.nio.ByteBuffer
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -38,6 +39,39 @@ class AudioQualityBadgeClassificationTest {
         assertEquals(0, unknown.bitDepth)
         assertFalse(unknown.badgeLabel.contains("Lossless"))
         assertFalse(lossless(24, 96000).copy(verified = false).badgeLabel.contains("Lossless"))
+    }
+
+    @Test fun adaptiveFlacAndAlacReadSourceDepthFromCodecInitialization() {
+        val sampleRate = 96_000
+        val channels = 2
+        val depth = 24
+        // The dfLa initialization bytes Media3 emits start with the FLAC marker and STREAMINFO.
+        val flac = ByteBuffer.allocate(42).apply {
+            put("fLaC".toByteArray(Charsets.US_ASCII)).putInt(0x80000022.toInt())
+            putShort(4096).putShort(4096)
+            position(18)
+            putLong((sampleRate.toLong() shl 44) or ((channels - 1L) shl 41) or ((depth - 1L) shl 36))
+        }.array()
+        val alac = ByteBuffer.allocate(24).apply {
+            putInt(4096)
+            put(5, depth.toByte())
+            put(9, channels.toByte())
+            putInt(20, sampleRate)
+        }.array()
+        for ((mime, initialization) in listOf(MimeTypes.AUDIO_FLAC to flac, MimeTypes.AUDIO_ALAC to alac)) {
+            val format = Format.Builder().setSampleMimeType(mime).setSampleRate(sampleRate).setChannelCount(channels)
+                .setInitializationData(listOf(initialization)).build()
+            assertEquals(Format.NO_VALUE, format.pcmEncoding)
+            val badge = StreamQualityBadge.from(format)
+            assertEquals(depth, badge.bitDepth)
+            assertEquals("Hi-Res Lossless", badge.badgeLabel)
+            assertEquals(depth, LosslessStreamPrebuffer.audioInfo(format)?.bitDepth)
+
+            val truncated = format.buildUpon().setInitializationData(listOf(initialization.copyOf(8))).build()
+            assertEquals(0, StreamQualityBadge.from(truncated).bitDepth)
+            val exactPcm = format.buildUpon().setPcmEncoding(C.ENCODING_PCM_16BIT).build()
+            assertEquals(16, StreamQualityBadge.from(exactPcm).bitDepth)
+        }
     }
 
     @Test fun popupKeepsCompressedBitrateSeparateFromUncompressedPcmDataRate() {

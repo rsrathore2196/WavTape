@@ -63,16 +63,11 @@ data class StreamQualityBadge(
                 else -> ""
             }
             val lossless = mime in setOf(MimeTypes.AUDIO_FLAC, MimeTypes.AUDIO_ALAC, MimeTypes.AUDIO_RAW)
-            val bits = when (format.pcmEncoding) {
-                C.ENCODING_PCM_8BIT -> 8; C.ENCODING_PCM_16BIT, C.ENCODING_PCM_16BIT_BIG_ENDIAN -> 16
-                C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT_BIG_ENDIAN -> 24
-                C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN -> 32
-                else -> 0 // Decoder float precision is not evidence of the source's bit depth.
-            }
+            val bits = if (lossless) format.sourceBitDepth() else 0
             val actualBitrate = format.averageBitrate.takeIf { it > 0 }?.div(1000)
                 ?: format.peakBitrate.takeIf { it > 0 }?.div(1000) ?: fallbackBitrate.takeIf { it > 0 } ?: 0
             return StreamQualityBadge(codec, actualBitrate,
-                format.sampleRate.coerceAtLeast(0), if (lossless) bits else 0, lossless, true)
+                format.sampleRate.coerceAtLeast(0), bits, lossless, true)
         }
     }
 }

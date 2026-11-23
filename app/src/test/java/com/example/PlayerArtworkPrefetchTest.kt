@@ -103,6 +103,7 @@ class PlayerArtworkPrefetchTest {
     private fun preparedCover(videoThumbnail: Boolean) = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val calls = AtomicInteger()
+        val paletteRequests = AtomicInteger()
         val events = java.util.concurrent.CopyOnWriteArrayList<String>()
         val png = ByteArrayOutputStream().use { out ->
             Bitmap.createBitmap(1200, 1200, Bitmap.Config.ARGB_8888).apply {
@@ -119,7 +120,10 @@ class PlayerArtworkPrefetchTest {
         }.build()
         val directory = File(context.cacheDir, "selected-provider-art").apply { deleteRecursively(); mkdirs() }
         val loader = ImageLoader.Builder(context).components {
-            add(coil.intercept.Interceptor { chain -> chain.proceed(chain.request).also { result ->
+            add(coil.intercept.Interceptor { chain ->
+                if (chain.request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)
+                        ?.targetSize == ImageConfig.PALETTE_THUMBNAIL_SIZE) paletteRequests.incrementAndGet()
+                chain.proceed(chain.request).also { result ->
                 events.add("result=${result.javaClass.simpleName} " + when (result) {
                     is SuccessResult -> "${result.request.data} sampled=${result.isSampled} drawable=${result.drawable.intrinsicWidth}x${result.drawable.intrinsicHeight}"
                     is coil.request.ErrorResult -> result.throwable.toString()
@@ -159,6 +163,7 @@ class PlayerArtworkPrefetchTest {
             val visible = loader.execute(request) as SuccessResult
             assertTrue(visible.dataSource == DataSource.MEMORY_CACHE || visible.dataSource == DataSource.DISK)
             assertEquals("The high-resolution cover, palette and visible target share one source download: $events", 1, calls.get())
+            assertEquals("Reflections use the decoded cover without issuing another Coil request", 0, paletteRequests.get())
             tracks.value = track.copy(audioUrl = "new-provider", source = "JioSaavn", bitrateKbps = 320)
             delay(100)
             assertEquals("Audio-source changes must not repeat image downloads", 1, calls.get())

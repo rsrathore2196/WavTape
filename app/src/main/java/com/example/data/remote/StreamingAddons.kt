@@ -3,6 +3,9 @@ package com.example.data.remote
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.Util
 import com.example.data.local.OtherSettingsPreferences
 import com.example.data.model.MusicTrack
 import com.example.data.repository.RecordingIdentity
@@ -355,6 +358,7 @@ object StreamingAddons {
             null
         }
     }
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     internal fun parseStream(body: String, base: String, requested: MusicTrack, candidate: MusicTrack,
         policy: PlaybackSourcePolicy, sourceId: String = PlaybackSource.addonId(base)): MusicTrack? {
         if (!policy.maximum) return null
@@ -426,15 +430,20 @@ object StreamingAddons {
         }
         val transport = value.optString("manifest").ifBlank { value.optString("mediaType") }.lowercase(Locale.ROOT)
         val declaredMime = value.optString("mimeType").lowercase(Locale.ROOT)
+        // Use the same URL inference as Media3. Register the transport before
+        // playback so its segments also receive the scoped add-on headers.
+        val inferredTransport = Util.inferContentType(Uri.parse(stream))
         val mime = when {
             manifest.isNotBlank() || stream.startsWith("data:application/dash+xml") || format in setOf("dash", "mpd") ||
-                transport in setOf("dash", "mpd") || declaredMime == androidx.media3.common.MimeTypes.APPLICATION_MPD -> androidx.media3.common.MimeTypes.APPLICATION_MPD
-            format in setOf("hls", "m3u8") || transport in setOf("hls", "m3u8") || declaredMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl") -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
-            atmos -> androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC
-            declaredMime in setOf("audio/flac", "audio/x-flac") || (codec == "flac" && format == "flac") -> androidx.media3.common.MimeTypes.AUDIO_FLAC
+                transport in setOf("dash", "mpd") || declaredMime == MimeTypes.APPLICATION_MPD -> MimeTypes.APPLICATION_MPD
+            format in setOf("hls", "m3u8") || transport in setOf("hls", "m3u8") || declaredMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl") -> MimeTypes.APPLICATION_M3U8
+            declaredMime in setOf("audio/flac", "audio/x-flac") || (codec == "flac" && format == "flac") -> MimeTypes.AUDIO_FLAC
+            inferredTransport == C.CONTENT_TYPE_DASH -> MimeTypes.APPLICATION_MPD
+            inferredTransport == C.CONTENT_TYPE_HLS -> MimeTypes.APPLICATION_M3U8
+            atmos -> MimeTypes.AUDIO_E_AC3_JOC
             else -> null
         }
-        if (drm != null && mime != androidx.media3.common.MimeTypes.APPLICATION_MPD) return null
+        if (drm != null && mime != MimeTypes.APPLICATION_MPD) return null
         val headers = value.optJSONObject("headers")?.let { obj -> obj.keys().asSequence().take(32).mapNotNull { key ->
             val v = obj.optString(key)
             (key to v).takeIf { key.lowercase() !in setOf("host", "content-length", "connection", "transfer-encoding") &&
@@ -501,6 +510,18 @@ object StreamingAddons {
         return item.buildUpon().setMimeType(transport.mime).setDrmConfiguration(transport.drm).build()
     }
     fun providerName(url: String): String? = transports[url]?.provider
+    /** Only exact, unencrypted progressive recordings can be reused as complete cached files. */
+    internal fun cacheableLosslessCodec(url: String): String? = transports[url]?.let { transport ->
+        if (transport.drm != null || transport.mime == MimeTypes.APPLICATION_MPD ||
+            transport.mime == MimeTypes.APPLICATION_M3U8) return@let null
+        when (transport.codec) {
+            "flac" -> "FLAC"
+            "alac" -> "ALAC"
+            "pcm", "wav" -> "PCM"
+            else -> null
+        }
+    }
+
     /** Exact resolved representation only; segment URLs/catalog estimates are not bitrate evidence. */
     internal fun bitrateForStream(url: String, decodedCodec: String): Int = transports[url]?.let { transport ->
         // An adaptive manifest can contain several rates; only Media3's selected

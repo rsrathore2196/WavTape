@@ -145,7 +145,7 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
                 val fullRequest = request(artworkTrack, true, strictSquare = usingResolvedCover)
                 // The mini player already loaded the provider artwork. Prepare the small
                 // reflection from that source before admitting a full-size decode.
-                cachePlayerBackdrop(context, loader, artworkTrack, result.request,
+                cachePlayerBackdrop(context, artworkTrack, result,
                     fullRequest.takeIf { fullInitially }, urgent = { true })
                 if (fullInitially) return@collectLatest
 
@@ -154,7 +154,7 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
                 val fullResult = BackgroundWorkCoordinator.traceWork("Player artwork FULL") {
                     loader.execute(fullRequest) as? SuccessResult
                 } ?: return@collectLatest
-                cachePlayerBackdrop(context, loader, artworkTrack, fullResult.request, fullRequest, urgent = { true })
+                cachePlayerBackdrop(context, artworkTrack, fullResult, fullRequest, urgent = { true })
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A failed prefetch never prevents normal on-demand image loading. */ }
         }
@@ -188,31 +188,22 @@ internal fun prepareUpcomingPlayerArtwork(
                     )
                     val loader = loaderFor(context)
                     val fullResult = loader.execute(fullRequest) as? SuccessResult ?: return@optionalProcessing
-                    cachePlayerBackdrop(context, loader, artworkTrack, fullResult.request, fullRequest)
+                    cachePlayerBackdrop(context, artworkTrack, fullResult, fullRequest)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* Optional upcoming prefetch never interrupts playback. */ }
         }
 }
 
-private suspend fun cachePlayerBackdrop(context: Context, loader: ImageLoader, track: MusicTrack,
-    selectedArtwork: ImageRequest, fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
+private suspend fun cachePlayerBackdrop(context: Context, track: MusicTrack, artwork: SuccessResult,
+    fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
     if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
         !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return
     fun key(url: String) = playerPaletteKey(track, true, Color.White, Color.Black, url)
     try {
-        val selectedKey = key(selectedArtwork.data.toString())
-        val colors = preparePlayerArtworkColors(selectedKey, urgent) {
-            val request = playerPaletteRequest(selectedArtwork).let {
-                // A preview only uses the mini player's cached source bytes. If they
-                // have gone away, the normal full-size request can recover them.
-                if (fullRequest == null) it.newBuilder().networkCachePolicy(CachePolicy.DISABLED).build() else it
-            }
-            val sample = loader.execute(request) as? SuccessResult
-                ?: return@preparePlayerArtworkColors null
-            val bitmap = (sample.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-            withContext(AppDispatchers.CpuBounded) { extractPlayerArtworkColors(bitmap, true) }
-        } ?: return
+        val selectedKey = key(artwork.request.data.toString())
+        val bitmap = (artwork.drawable as? BitmapDrawable)?.bitmap ?: return
+        val colors = prepareDecodedPlayerArtworkColors(selectedKey, bitmap, urgent) ?: return
         currentCoroutineContext().ensureActive()
         // An early sample supplies a fallback until the actual full-size source is known.
         for (alias in setOfNotNull(key(track.coverUrl), fullRequest?.let { key(it.data.toString()) })) {
@@ -240,6 +231,10 @@ fun playerPaletteKey(track: MusicTrack, dark: Boolean, accent: Color, base: Colo
     artworkIdentity: String = track.coverUrl): String =
     "album-bg-colors-v10|${track.id}|${track.title}|${track.artist}|${track.album}|$artworkIdentity"
 
+/** The dock's artwork can supply a reflection while the player verifies the definitive cover. */
+internal fun playerPreviewPaletteKey(track: MusicTrack): String =
+    playerPaletteKey(track, true, Color.White, Color.Black) + "|dock-preview"
+
 private val playerPaletteLocks = Array(8) { Mutex() }
 
 /** Prefetch and the visible player share one decode/analysis, including after navigation waits. */
@@ -256,6 +251,27 @@ internal suspend fun preparePlayerArtworkColors(
             currentCoroutineContext().ensureActive()
             TrackPaletteCache.put(key, it)
         }
+    }
+}
+
+/** Analyze a bounded sample of the decoded cover without another Coil request. */
+internal suspend fun prepareDecodedPlayerArtworkColors(key: String, bitmap: Bitmap,
+    urgent: () -> Boolean = { false }): ExtractedTrackColors? = preparePlayerArtworkColors(key, urgent) {
+    withContext(AppDispatchers.CpuBounded) {
+        val width = bitmap.width
+        val height = bitmap.height
+        val side = maxOf(width, height)
+        if (width <= 0 || height <= 0) return@withContext null
+        val limit = ImageConfig.PALETTE_THUMBNAIL_SIZE
+        val scaled = if (side > limit) Bitmap.createScaledBitmap(bitmap,
+            (width * limit / side).coerceAtLeast(1), (height * limit / side).coerceAtLeast(1), true) else bitmap
+        try {
+            // getPixels needs readable software pixels even when Coil drew a hardware bitmap.
+            val sample = if (android.os.Build.VERSION.SDK_INT >= 26 && scaled.config == Bitmap.Config.HARDWARE)
+                scaled.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null else scaled
+            try { extractPlayerArtworkColors(sample, true) }
+            finally { if (sample !== scaled) sample.recycle() }
+        } finally { if (scaled !== bitmap) scaled.recycle() }
     }
 }
 

@@ -160,7 +160,7 @@ class LosslessPrebufferRegressionTest {
             position = { 6_000L }, stillCurrent = { false }, automatic = false))
     }
 
-    @Test fun fastStartPreparesADashAddonWhenAudioPropertiesAreOnlyInTheSegments() = runBlocking {
+    @Test fun fastStartPreparesADashAddonWithoutAnExplicitMimeType() = runBlocking {
         val manifest = """
             <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT24S">
               <Period duration="PT24S">
@@ -187,9 +187,10 @@ class LosslessPrebufferRegressionTest {
             "xtreme-youtube://audio/abcdefghijk/stream.audio")
         val url = "${source.baseUrl}/adaptive/audio.mpd"
         val replacement = checkNotNull(StreamingAddons.parseStream(
-            JSONObject().put("url", url).put("codec", "flac").put("format", "dash").toString(),
+            JSONObject().put("url", url).put("codec", "flac").toString(),
             source.baseUrl, current, current, PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(source))))
-        val media = MediaItem.Builder().setMediaId(current.id).setUri(url).setMimeType(MimeTypes.APPLICATION_MPD).build()
+        assertEquals(MimeTypes.APPLICATION_MPD, StreamingAddons.mime(url))
+        val media = MediaItem.Builder().setMediaId(current.id).setUri(url).build()
         val ready = withTimeout(10_000L) {
             prepareFastStartReplacement(app, media, current, replacement,
                 position = { 6_000L }, stillCurrent = { true }, automatic = true)

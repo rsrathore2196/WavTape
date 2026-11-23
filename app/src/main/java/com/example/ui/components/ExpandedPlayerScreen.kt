@@ -195,7 +195,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
-import coil.imageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -563,15 +562,16 @@ fun ExpandedPlayerScreen(
         com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
             appColors.cardBackgroundElevated, selectedArtworkUrl)
     }
-    var loadedCoverRequest by remember(paletteKey) { mutableStateOf<ImageRequest?>(null) }
-    val renderedPaletteKey = remember(paletteKey, loadedCoverRequest) {
-        loadedCoverRequest?.let { com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
-            appColors.cardBackgroundElevated, it.data.toString()) }
+    var loadedCover by remember(paletteKey) { mutableStateOf<SuccessResult?>(null) }
+    val renderedPaletteKey = remember(paletteKey, loadedCover) {
+        loadedCover?.let { com.example.ui.util.playerPaletteKey(track, isDark, appColors.primaryAccent,
+            appColors.cardBackgroundElevated, it.request.data.toString()) }
     }
+    val previewPaletteKey = remember(rawCoverPaletteKey, track.coverUrl) { com.example.ui.util.playerPreviewPaletteKey(track) }
     // The retained player can take new cached reflections while its scene is hidden.
     // A cold scene reads the same cache before drawing its first frame.
-    val cachedColors by key(paletteKey, rawCoverPaletteKey, renderedPaletteKey) {
-        val keys = remember { listOfNotNull(renderedPaletteKey, paletteKey, rawCoverPaletteKey).distinct().toTypedArray() }
+    val cachedColors by key(paletteKey, rawCoverPaletteKey, renderedPaletteKey, previewPaletteKey) {
+        val keys = remember { listOfNotNull(renderedPaletteKey, paletteKey, rawCoverPaletteKey, previewPaletteKey).distinct().toTypedArray() }
         val initial = remember { TrackPaletteCache.colorsForArtwork(*keys) }
         remember { TrackPaletteCache.observeArtwork(*keys) }.collectAsState(initial)
     }
@@ -580,20 +580,13 @@ fun ExpandedPlayerScreen(
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
 
-    LaunchedEffect(loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating) {
+    LaunchedEffect(loadedCover, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating) {
         if (!isScreenVisible || !appColors.dynamicAlbumGlow || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
-        val cover = loadedCoverRequest ?: return@LaunchedEffect
+        val bitmap = (loadedCover?.drawable as? BitmapDrawable)?.bitmap ?: return@LaunchedEffect
         val resolvedKey = renderedPaletteKey ?: return@LaunchedEffect
         try {
-            withContext(AppDispatchers.Io) {
-                com.example.ui.util.preparePlayerArtworkColors(resolvedKey, urgent = { isScreenVisible }) {
-                    val request = com.example.ui.util.playerPaletteRequest(cover)
-                    val result = context.imageLoader.execute(request) as? SuccessResult ?: return@preparePlayerArtworkColors null
-                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-                    withContext(AppDispatchers.CpuBounded) { com.example.ui.util.extractPlayerArtworkColors(bitmap, isDark) }
-                }
-            }
+            com.example.ui.util.prepareDecodedPlayerArtworkColors(resolvedKey, bitmap, urgent = { isScreenVisible })
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) { /* A failed backdrop sample leaves the foreground cover intact. */ }
@@ -828,7 +821,7 @@ fun ExpandedPlayerScreen(
                                             PlayerCoverArtwork(
                                                 request = highResImageRequest,
                                                 onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
-                                                onArtworkLoaded = { if (loadedCoverRequest?.data != it.data) loadedCoverRequest = it },
+                                                onArtworkLoaded = { if (loadedCover?.request?.data != it.request.data) loadedCover = it },
                                                 onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                                 fullScreen = isFullScreenArt,
                                                 fadeRightEdge = isFullScreenArt,
@@ -1784,7 +1777,7 @@ fun ExpandedPlayerScreen(
                                             request = highResImageRequest,
                                             fullScreen = isFullScreenArt,
                                             onReady = { morphArtworkReady = true; pendingArtworkRetry = false },
-                                            onArtworkLoaded = { if (loadedCoverRequest?.data != it.data) loadedCoverRequest = it },
+                                            onArtworkLoaded = { if (loadedCover?.request?.data != it.request.data) loadedCover = it },
                                             onError = { if (artworkRetryAttempt < 2) pendingArtworkRetry = true },
                                             modifier = Modifier.fillMaxSize()
                                                 .clip(if (isFullScreenArt) RoundedCornerShape(0.dp) else RoundedCornerShape(24.dp))
@@ -2747,13 +2740,13 @@ private fun PlayerArtworkFlipCard(
 @Composable
 internal fun PlayerCoverArtwork(request: ImageRequest, modifier: Modifier = Modifier,
     fullScreen: Boolean = false, fadeRightEdge: Boolean = false, onReady: () -> Unit = {},
-    onArtworkLoaded: (ImageRequest) -> Unit = {},
+    onArtworkLoaded: (SuccessResult) -> Unit = {},
     onError: () -> Unit = {}) {
     AsyncImage(model = request, contentDescription = "Cover Art - Tap to flip",
         contentScale = ContentScale.Crop,
         onSuccess = { state ->
             onReady()
-            onArtworkLoaded(state.result.request)
+            onArtworkLoaded(state.result)
         },
         onError = { onError() },
         modifier = modifier.playerArtworkEdgeBlend(fullScreen, fadeRightEdge = fadeRightEdge))

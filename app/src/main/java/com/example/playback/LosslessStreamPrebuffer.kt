@@ -8,6 +8,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.extractor.DefaultExtractorInput
@@ -66,16 +67,9 @@ internal object LosslessStreamPrebuffer {
             MimeTypes.AUDIO_RAW -> "PCM"
             else -> return null
         }
-        val bits = when (format.pcmEncoding) {
-            C.ENCODING_PCM_8BIT -> 8
-            C.ENCODING_PCM_16BIT, C.ENCODING_PCM_16BIT_BIG_ENDIAN -> 16
-            C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT_BIG_ENDIAN -> 24
-            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN -> 32
-            else -> 0
-        }
         if (format.sampleRate <= 0 || format.channelCount <= 0 || format.drmInitData != null && !allowDrm) return null
         val bitrate = format.averageBitrate.takeIf { it > 0 }?.div(1000) ?: fallbackBitrateKbps
-        return AudioInfo(codec, bitrate.coerceAtLeast(0), format.sampleRate, bits)
+        return AudioInfo(codec, bitrate.coerceAtLeast(0), format.sampleRate, format.sourceBitDepth())
     }
 
     private fun preparationAudioInfo(format: Format, requireLossless: Boolean): AudioInfo? {
@@ -108,8 +102,16 @@ internal object LosslessStreamPrebuffer {
         finally { source.close() }
     }
 
-    internal fun isAdaptiveSource(item: MediaItem): Boolean =
-        item.localConfiguration?.mimeType in setOf(MimeTypes.APPLICATION_MPD, MimeTypes.APPLICATION_M3U8)
+    // Match DefaultMediaSourceFactory's classification when an add-on supplies
+    // a manifest URL without declaring its MIME type.
+    private fun contentType(item: MediaItem): Int = item.localConfiguration?.let {
+        Util.inferContentTypeForUriAndMimeType(it.uri, it.mimeType)
+    } ?: C.CONTENT_TYPE_OTHER
+
+    internal fun isAdaptiveSource(item: MediaItem): Boolean = when (contentType(item)) {
+        C.CONTENT_TYPE_DASH, C.CONTENT_TYPE_HLS -> true
+        else -> false
+    }
 
     // A DASH manifest can omit the sample rate and channel count. The active
     // decoder verifies those after Media3 reads the selected representation.
@@ -158,7 +160,7 @@ internal object LosslessStreamPrebuffer {
                 }
                 try {
                     if (!withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock false
-                    val metadata = if (configured.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD) {
+                    val metadata = if (contentType(configured) == C.CONTENT_TYPE_DASH) {
                         // DASH already describes the representations and their time ranges.
                         // Read it with the same parser Media3 uses for playback, without
                         // waiting for a separate MediaPeriod to report decoder properties.
