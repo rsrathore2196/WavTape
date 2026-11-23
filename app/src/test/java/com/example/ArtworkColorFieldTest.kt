@@ -7,6 +7,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ArtworkColorFieldTest {
+    @Test fun bothReflectionsKeepTheOriginalShadowAndMidtoneColors() {
+        val warmShadow = 0xff402028.toInt()
+        val blueMidtone = 0xff426192.toInt()
+        val pixels = IntArray(64 * 64) { if (it / 64 < 32) warmShadow else blueMidtone }
+        val field = extractPlayerArtworkColors(pixels, 64, 64)!!.colorField!!
+
+        for (texture in listOf(field.pixels, field.lowerReflection(field.height))) {
+            assertEquals(warmShadow, texture[field.width * 16])
+            assertEquals(blueMidtone, texture[field.width * 48])
+        }
+    }
+
     @Test fun horizontalArtworkColorsRemainVisibleEvenWhenTheEdgeAveragesAreIdentical() {
         val pixels = IntArray(120 * 120) { if (it % 120 < 60) 0xffd02030.toInt() else 0xff2040c0.toInt() }
         val field = extractPlayerArtworkColors(pixels, 120, 120)!!.colorField!!
@@ -20,11 +32,13 @@ class ArtworkColorFieldTest {
         val pixels = IntArray(120 * 120) { -1 }
         for (y in 40 until 80) for (x in 40 until 80) pixels[y * 120 + x] = 0xff1838bc.toInt()
         val field = extractPlayerArtworkColors(pixels, 120, 120)!!.colorField!!
-        val corner = Color(field.pixels.first())
-        val subject = Color(field.pixels[field.width * (field.height / 2) + field.width / 2])
-        assertEquals(corner.red, corner.blue, 0f)
-        assertTrue(corner.luminance() < .18f)
-        assertTrue(subject.blue > subject.red * 2)
+        for (texture in listOf(field.pixels, field.lowerReflection(field.height))) {
+            val corner = Color(texture.first())
+            val subject = Color(texture[field.width * (field.height / 2) + field.width / 2])
+            assertEquals(corner.red, corner.blue, 0f)
+            assertTrue(1.05f / (corner.luminance() + .05f) >= 4.5f)
+            assertTrue(subject.blue > subject.red * 2)
+        }
     }
 
     @Test fun darkArtworkStaysDarkWhileItsInteriorColorIsPreserved() {

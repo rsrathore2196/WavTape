@@ -2,7 +2,9 @@ package com.example.ui.util
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -79,8 +81,7 @@ internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): Artwo
             blue += ((pixel and 255) * alpha + matte) / 255
         }
         val count = (endX - startX) * (endY - startY)
-        // A neutral scrim keeps white controls legible on bright or white covers.
-        image[y * outWidth + x] = opaqueRgb(red * 45 / count / 100, green * 45 / count / 100, blue * 45 / count / 100)
+        image[y * outWidth + x] = opaqueRgb(red / count, green / count, blue / count)
     }
     val scratch = IntArray(image.size)
     val radius = (maxOf(outWidth, outHeight) * 0.05f).roundToInt().coerceAtLeast(1)
@@ -91,7 +92,25 @@ internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): Artwo
     smooth()
     val lighter = image.copyOf()
     repeat(2) { smooth() }
+    for (index in image.indices) {
+        image[index] = softenReflectionHighlights(image[index])
+        lighter[index] = softenReflectionHighlights(lighter[index])
+    }
     return ArtworkColorField(image, outWidth, outHeight, lighter)
+}
+
+private fun softenReflectionHighlights(pixel: Int): Int {
+    val color = Color(pixel)
+    val luminance = color.luminance()
+    val excess = luminance - .12f
+    if (excess <= 0f) return pixel
+
+    // Ease into a luminance ceiling to preserve detail and white control contrast on bright covers.
+    val headroom = .06f
+    val scale = (.12f + headroom * excess / (headroom + excess)) / luminance
+    val linear = color.convert(ColorSpaces.LinearSrgb)
+    return Color(linear.red * scale, linear.green * scale, linear.blue * scale,
+        colorSpace = ColorSpaces.LinearSrgb).toArgb()
 }
 
 private fun blurPass(source: IntArray, target: IntArray, width: Int, height: Int, radius: Int, horizontal: Boolean) {
