@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -144,7 +145,12 @@ fun LyricsProviderPill(
         onClick = onClick,
         color = Color.Transparent,
         shape = shape,
-        modifier = modifier.testTag("lyrics_provider_pill")
+        modifier = modifier
+            .padding(horizontal = 6.dp)
+            .wrapContentWidth()
+            .widthIn(max = 160.dp)
+            .fillMaxWidth()
+            .testTag("lyrics_provider_pill")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -152,7 +158,7 @@ fun LyricsProviderPill(
             modifier = Modifier
                 .playerLiquidGlassButton(LocalAppColors.current, shape)
                 .testTag("lyrics_provider_pill_face")
-                .padding(horizontal = 11.dp, vertical = 4.dp)
+                .padding(horizontal = 5.dp, vertical = 6.dp)
         ) {
             Box(
                 modifier = Modifier

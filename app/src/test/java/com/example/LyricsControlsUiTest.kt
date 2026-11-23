@@ -55,6 +55,7 @@ class LyricsControlsUiTest {
             }
         } }
         compose.mainClock.advanceTimeBy(800)
+        checkOutputPillSpacing()
         compose.onNodeWithTag("lyrics_romanize_button").assertDoesNotExist()
         compose.onNodeWithTag("player_lyrics_button").performClick()
         compose.mainClock.advanceTimeBy(1000)
@@ -70,6 +71,18 @@ class LyricsControlsUiTest {
         compose.onNodeWithText("Dil mera").assertDoesNotExist()
     }
 
+    private fun checkOutputPillSpacing() {
+        val output = compose.onNodeWithTag("sound_output_device_button").assertIsDisplayed().assertHasClickAction()
+            .fetchSemanticsNode().boundsInRoot
+        val lyrics = compose.onNodeWithTag("player_lyrics_button").fetchSemanticsNode().boundsInRoot
+        val queue = compose.onNodeWithTag("player_queue_button").fetchSemanticsNode().boundsInRoot
+        val leftGap = output.left - lyrics.right
+        val rightGap = queue.left - output.right
+        val minimumGap = with(compose.density) { 16.dp.toPx() } - 1f
+        assertTrue("Output pill needs room on both sides", leftGap >= minimumGap && rightGap >= minimumGap)
+        assertEquals("Output pill is centered between lyrics and queue", leftGap, rightGap, 1f)
+    }
+
     private fun checkOrder() {
         val pill = compose.onNodeWithTag("lyrics_provider_pill").assertTextContains("BetterLyrics")
             .assertTouchHeightIsEqualTo(48.dp).assertHasClickAction()
@@ -78,13 +91,19 @@ class LyricsControlsUiTest {
             .filterToOne(SemanticsMatcher("face at the active provider pill") { it.boundsInRoot.contains(pillCenter) })
             .getUnclippedBoundsInRoot()
         val height = face.bottom - face.top
-        assertTrue("The visible provider pill should be compact, measured $height", height in 20.dp..28.dp)
+        assertTrue("The provider pill should have a slightly taller face, measured $height", height in 27.dp..30.dp)
+        assertTrue("The provider pill should stay narrow", face.right - face.left <= 160.dp)
         compose.onNodeWithText("BetterLyrics Portato").assertDoesNotExist()
         val tags = listOf("player_lyrics_text_size_button", "lyrics_romanize_button", "lyrics_provider_pill",
             "lyrics_translate_button", "player_lyrics_expand_button")
         val bounds = tags.map { tag -> compose.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled()
             .fetchSemanticsNode().boundsInRoot }
         bounds.zipWithNext().forEach { (left, right) -> assertTrue("Controls must not overlap", left.right <= right.left + 1f) }
+        val minimumGap = with(compose.density) { 6.dp.toPx() } - 1f
+        val leftGap = bounds[2].left - bounds[1].right
+        val rightGap = bounds[3].left - bounds[2].right
+        assertTrue("The provider pill needs room on both sides", leftGap >= minimumGap && rightGap >= minimumGap)
+        assertEquals("The provider pill is centered between its neighbors", leftGap, rightGap, 1f)
         compose.onNodeWithTag("lyrics_romanize_button").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
         compose.onNodeWithTag("lyrics_translate_button").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
     }

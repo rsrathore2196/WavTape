@@ -1425,7 +1425,7 @@ fun ExpandedPlayerScreen(
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.Center,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
                                     ) {
                                         Icon(
                                             imageVector = when {
@@ -2330,7 +2330,7 @@ fun ExpandedPlayerScreen(
                     modifier = Modifier
                         .height(44.dp)
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 16.dp)
                         .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = isOutputActive)
                         .graphicsLayer {
                             scaleX = outputButtonScale
@@ -2343,7 +2343,7 @@ fun ExpandedPlayerScreen(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = when {
