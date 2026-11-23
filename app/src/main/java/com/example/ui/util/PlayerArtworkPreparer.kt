@@ -14,6 +14,7 @@ import coil.request.SuccessResult
 import coil.ImageLoader
 import coil.imageLoader
 import coil.size.Precision
+import coil.size.Scale
 import com.example.data.model.MusicTrack
 import com.example.data.remote.resolveYouTubePlayerCover
 import com.example.data.remote.playerCoverIdentity
@@ -75,10 +76,10 @@ internal fun playerCoverState(state: PlayerUiState, cover: ResolvedPlayerCover?)
     return state.copy(currentTrack = track.copy(coverUrl = selected.url))
 }
 
-/** Use the original provider's highest suitable cover, including full-screen art. */
-private fun playerArtworkDecodeSize(context: Context): IntSize {
+/** Keep full-player detail independent of which layout or transition starts the image request. */
+internal fun playerArtworkDecodeSize(context: Context): IntSize {
     val pixels = minOf(context.resources.displayMetrics.widthPixels, context.resources.displayMetrics.heightPixels)
-        .coerceIn(1, 3000)
+        .coerceIn(1200, 3000)
     return IntSize(pixels, pixels)
 }
 private val neutralPlayerBackground = Brush.verticalGradient(listOf(Color(0xff101010), Color(0xff101010)))
@@ -300,10 +301,8 @@ internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
     val visibility = remember(context, track.id, coverUrl) { ArtworkVisibility(active) }
     SideEffect { visibility.active.value = active }
     return remember(context, track.id, coverUrl, visibility, sourceSize, retryAttempt) {
-        // AsyncImage resolves the actual rendered bounds. Prefetch still has an
-        // explicit window-sized target; both use the same provider source file.
         val base = buildOptimizedImageRequest(context, coverUrl, ImageConfig.PLAYER_SCREEN_SIZE, track,
-            visibility = visibility, currentTrack = true, sourceSize = sourceSize,
+            visibility = visibility, currentTrack = true, decodeSize = sourceSize,
             requireSquareSongArtwork = activeResolved != null)
         if (activeResolved != null && track.coverUrl.isNotBlank() && activeResolved != track.coverUrl) {
             base.newBuilder().listener(onError = { _, _ -> resolvedFailed = true }).build()
@@ -322,25 +321,35 @@ internal fun playerHeaderArtworkRequest(artwork: ImageRequest, targetPixels: Int
     .build()
 
 /** Sample the exact selected provider URL without another metadata lookup or provider fallback. */
-internal fun playerPaletteRequest(artwork: ImageRequest): ImageRequest = playerArtworkDerivative(artwork, ImageConfig.PALETTE_THUMBNAIL_SIZE)
-    .size(ImageConfig.PALETTE_THUMBNAIL_SIZE)
-    .precision(Precision.EXACT)
-    .allowHardware(false)
-    .bitmapConfig(Bitmap.Config.ARGB_8888)
-    // A small software derivative must not replace the player's full-size decoded cover.
-    .memoryCachePolicy(CachePolicy.READ_ONLY)
-    .decoderDispatcher(AppDispatchers.Artwork)
-    .transformationDispatcher(AppDispatchers.Artwork)
-    .crossfade(false)
-    .build()
+internal fun playerPaletteRequest(artwork: ImageRequest): ImageRequest =
+    playerArtworkDerivative(artwork, ImageConfig.PALETTE_THUMBNAIL_SIZE, useSelectedUrl = true)
+        .size(ImageConfig.PALETTE_THUMBNAIL_SIZE)
+        .scale(Scale.FIT)
+        .precision(Precision.EXACT)
+        .allowHardware(false)
+        .bitmapConfig(Bitmap.Config.ARGB_8888)
+        // A small software derivative must not replace the player's full-size decoded cover.
+        .memoryCachePolicy(CachePolicy.READ_ONLY)
+        .decoderDispatcher(AppDispatchers.Artwork)
+        .transformationDispatcher(AppDispatchers.Artwork)
+        .crossfade(false)
+        .build()
 
-private fun playerArtworkDerivative(artwork: ImageRequest, targetPixels: Int): ImageRequest.Builder = artwork.newBuilder().apply {
+private fun playerArtworkDerivative(artwork: ImageRequest, targetPixels: Int,
+    useSelectedUrl: Boolean = false): ImageRequest.Builder = artwork.newBuilder().apply {
+    target(null)
+    listener(null)
     val metadata = artwork.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)
     val source = artwork.data as? String
     if (metadata != null && !source.isNullOrBlank()) {
         // A successful request may have selected a sharper same-recording fallback.
         // Derivatives must reuse that source instead of resolving the original again.
-        setParameter(ARTWORK_METADATA_PARAMETER, metadata.copy(providerUrl = source, targetSize = targetPixels), null)
+        setParameter(ARTWORK_METADATA_PARAMETER, metadata.copy(
+            providerUrl = source,
+            targetSize = targetPixels,
+            preserveAspectRatio = useSelectedUrl || metadata.preserveAspectRatio,
+            allowVideoFallback = !useSelectedUrl && metadata.allowVideoFallback
+        ), null)
     }
 }
 

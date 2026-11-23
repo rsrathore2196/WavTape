@@ -75,6 +75,10 @@ class LandscapeScreensUiTest {
         compose.onNodeWithText("Pick up where you left off").assertIsDisplayed()
         compose.onNodeWithTag("home_screen").performScrollToNode(hasTestTag("habit_pill_recent-4"))
         compose.onNodeWithTag("habit_pill_recent-4").assertIsDisplayed()
+        val frame = rect("home_recently_played_frame")
+        val cell = rect("habit_pill_recent-4")
+        assertTrue(cell.left > frame.left && cell.right < frame.right)
+        assertTrue(cell.top > frame.top && cell.bottom < frame.bottom)
         compose.onNodeWithTag("habit_pill_recent-5").assertDoesNotExist()
     }
 

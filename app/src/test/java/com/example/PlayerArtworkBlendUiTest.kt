@@ -43,56 +43,69 @@ class PlayerArtworkBlendUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test @Config(sdk = [28, 36])
-    fun headerAndControlsMatchTheirOwnArtworkEdgeAsCoverBoundsAndColorsChange() {
-        var top by mutableStateOf(Color(0xff6a1b9a))
-        var bottom by mutableStateOf(Color(0xffef6c00))
-        var inset by mutableStateOf(40.dp)
+    fun blurredCoverReflectsAtBothEdgesAndTracksTheActualCoverBounds() {
+        var inset by mutableStateOf(70.dp)
         var coverHeight by mutableStateOf(160.dp)
         val bounds = mutableStateOf<Rect?>(null)
+        val pixels = IntArray(96 * 96) { index ->
+            val row = index / 96
+            val column = index % 96
+            when {
+                row < 24 -> if (column < 48) Color.Red else Color.Yellow
+                row > 71 -> if (column < 48) Color.Blue else Color.Cyan
+                else -> Color.Green
+            }.toArgb()
+        }
+        val field = com.example.ui.util.artworkColorField(pixels, 96, 96)
         compose.setContent {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
                 LocalDynamicGlassEnabled provides true) {
-                // Offset the entire player to catch root/local coordinate mix-ups.
+                // Offset the player and cover independently to check root-to-local alignment.
                 Box(Modifier.size(240.dp, 360.dp)) {
-                    Box(Modifier.offset(y = 15.dp).size(200.dp, 320.dp).testTag("edge_color_player")) {
-                        PlayerGlassBackground(rememberUpdatedState(top), rememberUpdatedState(bottom), bounds)
-                        Canvas(Modifier.offset(y = inset).size(200.dp, coverHeight)
-                            .onGloballyPositioned { bounds.value = it.boundsInRoot() }
-                            .playerArtworkEdgeBlend(true)) {
-                            drawRect(top)
-                            drawRect(bottom, Offset(0f, size.height / 2), Size(size.width, size.height / 2))
-                        }
+                    Box(Modifier.offset(x = 9.dp, y = 15.dp).size(200.dp, 320.dp).testTag("mirrored_cover_player")) {
+                        PlayerGlassBackground(bounds, colorField = rememberUpdatedState(field))
+                        Box(Modifier.offset(x = 20.dp, y = inset).size(160.dp, coverHeight)
+                            .onGloballyPositioned { bounds.value = it.boundsInRoot() })
                     }
                 }
             }
         }
         fun verify() {
-            val file = java.io.File.createTempFile("player-edge-colors-", ".png")
+            val file = java.io.File.createTempFile("mirrored-player-", ".png")
             val image = try {
-                compose.onNodeWithTag("edge_color_player").captureRoboImage(file.absolutePath,
+                compose.onNodeWithTag("mirrored_cover_player").captureRoboImage(file.absolutePath,
                     roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record))
                 javax.imageio.ImageIO.read(file)
             } finally { file.delete() }
             val start = (image.height * inset.value / 320f).toInt()
             val end = (image.height * (inset.value + coverHeight.value) / 320f).toInt()
-            fun assertColor(expected: Color, y: Int, message: String) {
-                val actual = java.awt.Color(image.getRGB(image.width / 2, y))
-                val target = java.awt.Color(expected.toArgb())
-                // Native premultiplied alpha can round one channel by 1/255.
-                assertTrue("$message at y=$y: $actual", maxOf(kotlin.math.abs(target.red - actual.red),
-                    kotlin.math.abs(target.green - actual.green), kotlin.math.abs(target.blue - actual.blue)) <= 1)
+            fun assertReflected(x: Int, inside: Int, outside: Int) {
+                val original = java.awt.Color(image.getRGB(x, inside))
+                val reflected = java.awt.Color(image.getRGB(x, outside))
+                // Bilinear filtering can round channels differently under a flipped transform.
+                assertEquals(original.red.toDouble(), reflected.red.toDouble(), 2.0)
+                assertEquals(original.green.toDouble(), reflected.green.toDouble(), 2.0)
+                assertEquals(original.blue.toDouble(), reflected.blue.toDouble(), 2.0)
             }
-            for (y in listOf(1, start - 1, start + 2, start + (end - start) / 10)) {
-                assertColor(top, y, "The header and upper fade must retain the cover's top hue")
+            for (x in listOf(image.width / 4, image.width * 3 / 4)) {
+                for (offset in listOf(5, 15, 23)) {
+                    assertReflected(x, start + offset, start - offset - 1)
+                    assertReflected(x, end - offset - 1, end + offset)
+                }
             }
-            for (y in listOf(end - (end - start) / 10, end - 2, end + 1, image.height - 2)) {
-                assertColor(bottom, y, "The lower fade and controls must retain the cover's bottom hue")
-            }
+            val left = image.width / 4
+            val right = image.width * 3 / 4
+            val upperLeft = java.awt.Color(image.getRGB(left, start - 7))
+            val lowerLeft = java.awt.Color(image.getRGB(left, end + 7))
+            assertTrue(upperLeft.red > upperLeft.blue)
+            assertTrue(lowerLeft.blue > lowerLeft.red)
+            assertNotEquals(image.getRGB(left, start - 7), image.getRGB(right, start - 7))
+            assertNotEquals(image.getRGB(left, end + 7), image.getRGB(right, end + 7))
         }
         verify()
         compose.runOnIdle {
-            top = Color.Black; bottom = Color.White
-            inset = 100.dp; coverHeight = 100.dp
+            inset = 100.dp
+            coverHeight = 100.dp
         }
         compose.waitForIdle()
         verify()

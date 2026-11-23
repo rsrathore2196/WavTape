@@ -88,7 +88,7 @@ class PlayerArtworkColorsTest {
             .setParameter(ARTWORK_METADATA_PARAMETER, metadata, null).size(1080).allowHardware(true).build()
         val sample = playerPaletteRequest(cover)
         assertEquals(cover.data, sample.data)
-        assertEquals(metadata.copy(providerUrl = cover.data.toString(), targetSize = 120),
+        assertEquals(metadata.copy(providerUrl = cover.data.toString(), targetSize = 120, preserveAspectRatio = true, allowVideoFallback = false),
             sample.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER))
         assertEquals(Size(120, 120), sample.sizeResolver.size())
         assertFalse(sample.allowHardware)

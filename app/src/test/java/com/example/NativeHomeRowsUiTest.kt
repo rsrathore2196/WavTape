@@ -70,11 +70,11 @@ class NativeHomeRowsUiTest {
     }
 
     @OptIn(ExperimentalRoborazziApi::class)
-    @Test fun quickPicksFrameShowsTheHomeBackgroundThroughItsInterior() {
-        content(NativeShelfKind.QUICK_PICKS)
-        val screenshot = File.createTempFile("quick-picks-outline-", ".png")
+    @Test fun standardShelfFrameShowsTheHomeBackgroundThroughItsInterior() {
+        content(NativeShelfKind.STANDARD)
+        val screenshot = File.createTempFile("home-shelf-outline-", ".png")
         try {
-            compose.onNodeWithTag("native_quick_picks_frame").captureRoboImage(screenshot.absolutePath,
+            compose.onNodeWithTag("home_shelf_frame").captureRoboImage(screenshot.absolutePath,
                 RoborazziOptions(taskType = RoborazziTaskType.Record))
             val image = ImageIO.read(screenshot)
             assertEquals(homeBackground.toArgb(), image.getRGB(4, image.height / 2))
@@ -108,8 +108,12 @@ class NativeHomeRowsUiTest {
         var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.MUSIC_VIDEOS) { _, list -> queue = list }
         compose.onNodeWithText("Music videos to watch").assertIsDisplayed()
-        compose.onNodeWithTag("native_video_art_yt_native1", useUnmergedTree = true)
+        val video = compose.onNodeWithTag("native_video_art_yt_native1", useUnmergedTree = true)
             .assertWidthIsEqualTo(224.dp).assertHeightIsEqualTo(126.dp)
+        val bounds = video.fetchSemanticsNode().boundsInRoot
+        val frame = compose.onNodeWithTag("home_shelf_frame").fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds.left > frame.left && bounds.right < frame.right)
+        assertTrue(bounds.top > frame.top && bounds.bottom < frame.bottom)
         compose.onNodeWithText(fullTitle).performClick()
         compose.runOnIdle { assertEquals(tracks, queue) }
     }

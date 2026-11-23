@@ -87,21 +87,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.LinearGradientShader
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -460,7 +465,10 @@ fun HomeScreenContent(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp, start = 20.dp, end = 20.dp, bottom = 10.dp)
+                            .padding(horizontal = HomeShelfMargin, vertical = 10.dp)
+                            .homeShelfOutline(cardBorderColor)
+                            .testTag("home_recently_played_frame")
+                            .padding(horizontal = HomeShelfInset, vertical = 12.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.recently_played),
@@ -547,8 +555,9 @@ fun HomeScreenContent(
                     }
                     val artistListState = rememberLazyListState()
                     ObserveHomeScroll(artistListState)
-                    Column(Modifier.padding(top = 22.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(start = HomeShelfMargin, end = HomeShelfMargin, top = 22.dp)
+                        .homeShelfOutline(cardBorderColor).testTag("home_artist_frame").padding(vertical = 12.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = HomeShelfInset)) {
                             Text(
                                 stringResource(R.string.most_listened_artists),
                                 style = MaterialTheme.typography.titleMedium,
@@ -559,11 +568,11 @@ fun HomeScreenContent(
                         }
                         Spacer(Modifier.height(12.dp))
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val cardWidth = (maxWidth - 56.dp).coerceIn(0.dp, 400.dp)
+                            val cardWidth = (maxWidth + HomeShelfMargin * 2 - 56.dp).coerceIn(0.dp, 400.dp)
                             LazyRow(
                                 modifier = Modifier.testTag("most_listened_artist_row"),
                                 state = artistListState,
-                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                contentPadding = PaddingValues(horizontal = HomeShelfInset),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 items(visibleArtists, key = { it.name }, contentType = { "artist_card" }) { artist ->
@@ -753,7 +762,8 @@ private fun LandscapeHomeOverview(seed: MusicTrack?, currentPlayingId: String?, 
         if (recentTracks.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) { radio() }
         else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             radio()
-            Column(Modifier.weight(1f).heightIn(min = 240.dp).testTag("landscape_recent_grid"),
+            Column(Modifier.weight(1f).heightIn(min = 240.dp).testTag("landscape_recent_grid")
+                .homeShelfOutline(colors.cardBorder).padding(horizontal = HomeShelfInset, vertical = 12.dp),
                 verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.recently_played), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold,
                     fontSize = 18.sp, color = colors.textPrimary))
@@ -815,6 +825,35 @@ private fun HomeShelfSubtitle(text: String, color: Color) {
         color = color, maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
+private val HomeShelfMargin = 12.dp
+private val HomeShelfInset = 8.dp
+
+@Composable
+private fun Modifier.homeShelfOutline(edge: Color): Modifier {
+    val corner = 18.dp
+    val ink = LocalAppColors.current.textPrimary
+    return clip(RoundedCornerShape(corner)).drawWithCache {
+        val rim = Brush.linearGradient(listOf(
+            lerp(edge, ink, 0.30f), edge, lerp(edge, ink, 0.18f)
+        ))
+        val bevel = Brush.linearGradient(listOf(
+            ink.copy(alpha = 0.06f), ink.copy(alpha = 0.03f), ink.copy(alpha = 0.14f)
+        ))
+        val rimWidth = 1.25.dp.toPx()
+        val innerInset = 1.8.dp.toPx()
+        fun insetSize(inset: Float) = Size((size.width - 2 * inset).coerceAtLeast(0f),
+            (size.height - 2 * inset).coerceAtLeast(0f))
+        onDrawWithContent {
+            drawContent()
+            val halfRim = rimWidth / 2
+            drawRoundRect(rim, topLeft = Offset(halfRim, halfRim), size = insetSize(halfRim),
+                cornerRadius = CornerRadius(corner.toPx() - halfRim), style = Stroke(rimWidth))
+            drawRoundRect(bevel, topLeft = Offset(innerInset, innerInset), size = insetSize(innerInset),
+                cornerRadius = CornerRadius(corner.toPx() - innerInset), style = Stroke(0.65.dp.toPx()))
+        }
+    }
+}
+
 private fun homeShelfSubtitleResource(title: String, kind: NativeShelfKind, items: List<ServerHomeItem>): Int {
     val heading = HomeShelfIdentity.title(title)
     return when {
@@ -861,16 +900,11 @@ fun SectionCardLayout(
     ObserveHomeScroll(shelfListState)
     val quickPicks = nativeKind == NativeShelfKind.QUICK_PICKS
     val showShuffle = quickPicks && safeTracks.isNotEmpty()
-    val frameMargin = if (quickPicks) 12.dp else 0.dp
-    val contentInset = 20.dp - frameMargin
-    val frame = if (quickPicks) {
-        val shape = RoundedCornerShape(18.dp)
-        Modifier.fillMaxWidth().padding(horizontal = frameMargin).clip(shape)
-            .border(BorderStroke(1.dp, cardBorderColor), shape)
-            .testTag("native_quick_picks_frame")
-            .padding(vertical = 12.dp)
-    } else Modifier
-    Column(modifier = Modifier.padding(top = 22.dp).then(frame)) {
+    val contentInset = HomeShelfInset
+    Column(modifier = Modifier.fillMaxWidth().padding(start = HomeShelfMargin, end = HomeShelfMargin, top = 22.dp)
+        .homeShelfOutline(cardBorderColor)
+        .testTag(if (quickPicks) "native_quick_picks_frame" else "home_shelf_frame")
+        .padding(vertical = 12.dp)) {
         Row(
             modifier = Modifier.padding(horizontal = contentInset),
             verticalAlignment = Alignment.CenterVertically
@@ -917,17 +951,17 @@ fun SectionCardLayout(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (state.isLoading && state.tracks.isEmpty() && shelfItems.isEmpty()) {
-            SectionShimmerRow()
+            SectionShimmerRow(contentInset = contentInset)
         } else if (quickPicks) {
             QuickPicksGrid(safeTracks, shelfListState, currentPlayingId, cardBg, cardBorderColor,
                 textPrimaryColor, textMutedColor, contentInset, onTrackClick)
         } else if (nativeKind == NativeShelfKind.MUSIC_VIDEOS) {
             NativeMusicVideoRow(remember(shelfItems) { shelfItems.filterIsInstance<ServerHomeItem.Song>() }, safeTracks, shelfListState, currentPlayingId,
-                cardBg, cardBorderColor, textPrimaryColor, textMutedColor, onTrackClick)
+                cardBg, cardBorderColor, textPrimaryColor, textMutedColor, contentInset, onTrackClick)
         } else if (state.tracks.isNotEmpty() || shelfItems.isNotEmpty()) {
             LazyRow(
                 state = shelfListState,
-                contentPadding = PaddingValues(horizontal = 20.dp),
+                contentPadding = PaddingValues(horizontal = contentInset),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 if (shelfItems.isNotEmpty()) items(shelfItems, key = { it.key }, contentType = { "home_item" }) { item ->
@@ -1067,10 +1101,10 @@ fun HabitPillItem(
 }
 
 @Composable
-fun SectionShimmerRow(shimmerBrush: Brush? = null) {
+fun SectionShimmerRow(shimmerBrush: Brush? = null, contentInset: Dp = HomeShelfInset) {
     val background = if (shimmerBrush != null) Modifier.background(shimmerBrush) else rememberShimmerBackground()
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 20.dp),
+        contentPadding = PaddingValues(horizontal = contentInset),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         userScrollEnabled = false
     ) {

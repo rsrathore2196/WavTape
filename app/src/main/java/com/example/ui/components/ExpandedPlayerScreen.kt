@@ -84,7 +84,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.CompositionLocalProvider
@@ -177,7 +176,6 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -586,56 +584,29 @@ fun ExpandedPlayerScreen(
         }
     }
 
-    LaunchedEffect(paletteKey, rawCoverPaletteKey, resolvedArtworkRequest, loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, lyricsPresentationAnimating) {
+    LaunchedEffect(loadedCoverRequest, isScreenVisible, appColors.dynamicAlbumGlow, lyricsPresentationAnimating) {
         if (!isScreenVisible || !appColors.dynamicAlbumGlow || lyricsPresentationAnimating) return@LaunchedEffect
-        // Fast-path: If already in memory cache with full colorField, avoid all processing
-        val inMem = TrackPaletteCache.get(paletteKey) ?: TrackPaletteCache.get(rawCoverPaletteKey)
-        if (inMem != null) {
-            dominantColor = inMem.dominantColor
-            accentColor = inMem.accentColor
-            topEdgeColor = inMem.topEdgeColor
-            bottomEdgeColor = inMem.bottomEdgeColor
-            if (inMem.colorField != null) {
-                artworkColorField.value = inMem.colorField
-                return@LaunchedEffect
-            }
-        }
-
-        val paletteSource = loadedCoverRequest ?: resolvedArtworkRequest
-        val sourceUrl = paletteSource.data as? String ?: highResCoverUrl
-        if (sourceUrl.isNotBlank()) {
-            withContext(AppDispatchers.Io) {
-                try {
-                    val extracted = com.example.ui.util.preparePlayerArtworkColors(
-                        key = paletteKey,
-                        urgent = { isScreenVisible && !lyricsPresentationAnimating }
-                    ) {
-                        val loader = context.imageLoader
-                        val request = com.example.ui.util.playerPaletteRequest(paletteSource)
-                        val result = loader.execute(request) as? SuccessResult ?: return@preparePlayerArtworkColors null
-                        val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
-                        val colors = withContext(AppDispatchers.CpuBounded) {
-                            com.example.ui.util.extractPlayerArtworkColors(bitmap, isDark)
-                        } ?: return@preparePlayerArtworkColors null
-                        val resolvedKey = com.example.ui.util.playerPaletteKey(track, isDark,
-                            appColors.primaryAccent, appColors.cardBackgroundElevated, result.request.data.toString())
-                        for (alias in setOf(resolvedKey, rawCoverPaletteKey)) {
-                            if (alias != paletteKey) TrackPaletteCache.put(alias, colors)
-                        }
-                        colors
-                    } ?: return@withContext
-                    withContext(Dispatchers.Main) {
-                        dominantColor = extracted.dominantColor
-                        accentColor = extracted.accentColor
-                        topEdgeColor = extracted.topEdgeColor
-                        bottomEdgeColor = extracted.bottomEdgeColor
-                        artworkColorField.value = extracted.colorField
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {}
-            }
-        }
+        // Reflect the exact URL that rendered, including any same-track fallback.
+        val cover = loadedCoverRequest ?: return@LaunchedEffect
+        val resolvedKey = com.example.ui.util.playerPaletteKey(track, isDark,
+            appColors.primaryAccent, appColors.cardBackgroundElevated, cover.data.toString())
+        try {
+            val extracted = withContext(AppDispatchers.Io) {
+                com.example.ui.util.preparePlayerArtworkColors(resolvedKey, urgent = { isScreenVisible }) {
+                    val request = com.example.ui.util.playerPaletteRequest(cover)
+                    val result = context.imageLoader.execute(request) as? SuccessResult ?: return@preparePlayerArtworkColors null
+                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@preparePlayerArtworkColors null
+                    withContext(AppDispatchers.CpuBounded) { com.example.ui.util.extractPlayerArtworkColors(bitmap, isDark) }
+                }
+            } ?: return@LaunchedEffect
+            dominantColor = extracted.dominantColor
+            accentColor = extracted.accentColor
+            topEdgeColor = extracted.topEdgeColor
+            bottomEdgeColor = extracted.bottomEdgeColor
+            artworkColorField.value = extracted.colorField
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { /* A failed backdrop sample leaves the foreground cover intact. */ }
     }
 
     val animatedDominantColor = animateColorAsState(
@@ -648,9 +619,9 @@ fun ExpandedPlayerScreen(
         animationSpec = tween(650, easing = LinearOutSlowInEasing),
         label = "accent_color"
     )
-    val animatedTopEdgeColor = animateColorAsState(topEdgeColor,
+    val animatedTopEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(topEdgeColor),
         animationSpec = tween(650, easing = LinearOutSlowInEasing), label = "artwork_top_color")
-    val animatedBottomEdgeColor = animateColorAsState(bottomEdgeColor,
+    val animatedBottomEdgeColor = animateColorAsState(com.example.ui.util.playerBackdropTone(bottomEdgeColor),
         animationSpec = tween(650, easing = LinearOutSlowInEasing), label = "artwork_bottom_color")
 
     val creditsFieldSamples = remember(artworkColorField.value) {
@@ -755,10 +726,7 @@ fun ExpandedPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter
         ) {
-            // Match the actual upper and lower cover edges behind the sharp artwork.
             PlayerGlassBackground(
-                topEdgeColor = animatedTopEdgeColor,
-                bottomEdgeColor = animatedBottomEdgeColor,
                 artworkBounds = artworkBlendBounds,
                 colorField = artworkColorField
             )
@@ -2908,45 +2876,21 @@ internal fun Modifier.headerArtworkEdgeBlend(
 
 @Composable
 internal fun PlayerGlassBackground(
-    topEdgeColor: State<Color>,
-    bottomEdgeColor: State<Color>,
     artworkBounds: State<Rect?>? = null,
     modifier: Modifier = Modifier,
     colorField: State<com.example.ui.util.ArtworkColorField?>? = null
 ) {
-    val appColors = LocalAppColors.current
     val dynamicGlass = LocalDynamicGlassEnabled.current
-    if (!dynamicGlass || !appColors.dynamicAlbumGlow) {
-        Box(modifier.fillMaxSize().testTag("player_neutral_backdrop").xtremeSharedBackdropSource(enabled = dynamicGlass)
-            .background(Color(0xff101010)))
-        return
-    }
-    colorField?.value?.let { field ->
-        PlayerArtworkFieldBackground(field, artworkBounds,
-            modifier.fillMaxSize().testTag("player_album_glow_backdrop").xtremeSharedBackdropSource(enabled = dynamicGlass))
-        return
-    }
-    val origin = remember { mutableStateOf(Offset.Zero) }
-    Box(modifier.fillMaxSize().testTag("player_album_glow_backdrop")
+    val showArtwork = dynamicGlass && LocalAppColors.current.dynamicAlbumGlow
+    val backdrop = modifier.fillMaxSize()
+        .testTag(if (showArtwork) "player_album_glow_backdrop" else "player_neutral_backdrop")
         .xtremeSharedBackdropSource(enabled = dynamicGlass)
-        .onGloballyPositioned { origin.value = it.positionInRoot() }
-        .drawWithCache {
-            val bounds = artworkBounds?.value
-            val top = bounds?.top?.minus(origin.value.y) ?: 0f
-            val bottom = bounds?.bottom?.minus(origin.value.y) ?: size.height
-            val start = topEdgeColor.value
-            val end = bottomEdgeColor.value
-            // Hold the sampled colors through the artwork's alpha fades, then
-            // smoothly connect them behind its opaque center. Clamp beyond the
-            // actual image bounds so the header and controls retain their own edge.
-            val stops = (0..24).map { index ->
-                val t = index / 24f
-                val smooth = t * t * (3f - 2f * t)
-                (0.24f + t * 0.52f) to androidx.compose.ui.graphics.lerp(start, end, smooth)
-            }.toTypedArray()
-            val field = Brush.verticalGradient(*stops, startY = top, endY = maxOf(top + 1f, bottom))
-            onDrawBehind { drawRect(field) }
-        })
+    val field = if (showArtwork) colorField?.value else null
+    if (field == null) {
+        Box(backdrop.background(Color(0xff101010)))
+    } else {
+        PlayerArtworkFieldBackground(field, artworkBounds, backdrop)
+    }
 }
 
 @Composable

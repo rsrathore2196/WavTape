@@ -193,7 +193,7 @@ internal fun extractPlayerArtworkColors(pixels: IntArray, w: Int, h: Int): Extra
     return ExtractedTrackColors(dominant, scaled(1.12f), scaled(0.90f),
         edgeColor(pixels, w, h, bottom = false, fallback = dominant),
         edgeColor(pixels, w, h, bottom = true, fallback = dominant),
-        artworkColorField(pixels, w, h, dominant))
+        artworkColorField(pixels, w, h))
 }
 
 private fun isLightNeutral(color: Color): Boolean =

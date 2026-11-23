@@ -77,10 +77,11 @@ internal fun QuickPicksGrid(tracks: List<MusicTrack>, state: LazyListState, play
 
 @Composable
 internal fun NativeMusicVideoRow(items: List<ServerHomeItem.Song>, queue: List<MusicTrack>, state: LazyListState, playing: String?,
-    background: Color, border: Color, foreground: Color, muted: Color, play: (MusicTrack, List<MusicTrack>) -> Unit) {
+    background: Color, border: Color, foreground: Color, muted: Color, contentInset: Dp,
+    play: (MusicTrack, List<MusicTrack>) -> Unit) {
     val accent = LocalAppColors.current.primaryAccent
     val pixels = with(LocalDensity.current) { IntSize(224.dp.roundToPx(), 126.dp.roundToPx()) }
-    LazyRow(state = state, contentPadding = PaddingValues(horizontal = 20.dp),
+    LazyRow(state = state, contentPadding = PaddingValues(horizontal = contentInset),
         horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.testTag("native_music_video_row")) {
         items(items, key = { it.key }, contentType = { "native_music_video" }) { item ->
             val selected = item.track.id == playing

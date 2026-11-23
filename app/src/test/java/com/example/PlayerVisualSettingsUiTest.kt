@@ -73,8 +73,9 @@ class PlayerVisualSettingsUiTest {
             CompositionLocalProvider(LocalAppColors provides com.example.ui.theme.DarkAppColors.copy(
                 isDark = dark, scaffoldBackground = canvas, dynamicGlassEnabled = true, dynamicAlbumGlow = true),
                 com.example.ui.components.LocalDynamicGlassEnabled provides true) {
-                PlayerGlassBackground(topEdgeColor = remember { mutableStateOf(Color(0xff164528)) },
-                    bottomEdgeColor = remember { mutableStateOf(Color(0xff2c9c50)) })
+                val cover = remember { com.example.ui.util.artworkColorField(intArrayOf(0xff164528.toInt(),
+                    0xff164528.toInt(), 0xff2c9c50.toInt(), 0xff2c9c50.toInt()), 2, 2) }
+                PlayerGlassBackground(colorField = remember { mutableStateOf(cover) })
             }
         }
         fun capture(): java.awt.image.BufferedImage {
@@ -110,10 +111,8 @@ class PlayerVisualSettingsUiTest {
     @Test fun theSavedGlowOptionActuallyChangesThePlayerBackdrop() {
         compose.setContent {
             MyApplicationTheme(customThemeState = ThemePresets.StudioNight.toCustomThemeState()) {
-                val top = remember { mutableStateOf(Color.Blue) }
-                val bottom = remember { mutableStateOf(Color.Cyan) }
                 Box(Modifier.fillMaxSize()) {
-                    PlayerGlassBackground(topEdgeColor = top, bottomEdgeColor = bottom)
+                    PlayerGlassBackground()
                 }
             }
         }

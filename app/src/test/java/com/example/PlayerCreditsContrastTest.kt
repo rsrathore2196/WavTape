@@ -67,7 +67,7 @@ class PlayerCreditsContrastTest {
     }
 
     @Test fun brightArtworkColorFieldUsesWhiteCreditsMatchingRenderedFieldPixels() {
-        // Pure white, pure black, and bright pastel covers all render through ArtworkColorField (lum <= 0.15).
+        // The source texture is dimmed. The translucent heading can still be brighter than its surroundings.
         for (fill in listOf(0xffffffff.toInt(), 0xff000000.toInt(), 0xffe8f1ff.toInt())) {
             val pixels = IntArray(120 * 120) { fill }
             val extracted = com.example.ui.util.extractPlayerArtworkColors(pixels, 120, 120)!!
@@ -75,7 +75,7 @@ class PlayerCreditsContrastTest {
             val colors = playerCreditsTextColors(extracted.topEdgeColor, extracted.bottomEdgeColor, true, samples)
             assertEquals("Credits on rendered ArtworkColorField must stay white for 0x${Integer.toHexString(fill)}", Color.White, colors.primary)
             assertTrue(colors.heading == Color.White || colors.heading == Color.Black)
-            if (fill == 0xffffffff.toInt() || fill == 0xff000000.toInt()) {
+            if (fill == 0xff000000.toInt()) {
                 assertEquals(Color.White, colors.heading)
             }
             samples.forEach { surface ->

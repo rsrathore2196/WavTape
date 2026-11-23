@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.IntSize
 import androidx.test.core.app.ApplicationProvider
 import coil.ImageLoader
 import coil.decode.DataSource
@@ -133,9 +132,8 @@ class PlayerArtworkPrefetchTest {
         val resolvedCover = java.util.concurrent.atomic.AtomicReference<ResolvedPlayerCover?>()
         val tracks = MutableStateFlow<MusicTrack?>(track)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val metrics = context.resources.displayMetrics
-        val pixels = minOf(metrics.widthPixels, metrics.heightPixels).coerceIn(1, 3000)
-        val source = mapTargetSizeToArtworkDimension(ImageConfig.PLAYER_SCREEN_SIZE, IntSize(pixels, pixels))
+        val decodeSize = playerArtworkDecodeSize(context)
+        val source = mapTargetSizeToArtworkDimension(ImageConfig.PLAYER_SCREEN_SIZE, decodeSize)
         val key = playerPaletteKey(track.copy(coverUrl = originalCover), true, Color.White, Color.Black,
             providerArtworkUrl(originalCover, source))
         try {
@@ -152,7 +150,7 @@ class PlayerArtworkPrefetchTest {
                 events.any { it.startsWith("https://i.ytimg.com") && it.endsWith("cacheOnly=false") })
             assertNotNull("Opening can initialize the backdrop from its prepared palette", TrackPaletteCache.get(key))
             val request = buildOptimizedImageRequest(context, artworkTrack.coverUrl, ImageConfig.PLAYER_SCREEN_SIZE, artworkTrack,
-                decodeSize = IntSize(300, 300), currentTrack = true)
+                decodeSize = decodeSize, currentTrack = true)
             if (videoThumbnail) assertFalse(request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)!!.allowVideoFallback)
             val visible = loader.execute(request) as SuccessResult
             assertTrue(visible.dataSource == DataSource.MEMORY_CACHE || visible.dataSource == DataSource.DISK)

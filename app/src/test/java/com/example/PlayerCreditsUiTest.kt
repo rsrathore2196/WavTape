@@ -63,8 +63,8 @@ class PlayerCreditsUiTest {
     @Test @Config(qualifiers = "w740dp-h360dp-land")
     fun compactLandscapeKeepsLargerPlayerTextAndControlsVisible() = checkCredits()
 
-    @Test fun brightArtworkUsesDarkCreditsWithoutRecoloringThePlayer() = checkBrightCredits()
-    @Test fun brightEdgesUseDarkCreditsEvenWhenTheCenterPaletteIsBlue() = checkBrightCredits(Color.Blue)
+    @Test fun whiteArtworkKeepsCreditsLegibleOnTheBlurredBackdrop() = checkBrightCredits()
+    @Test fun whiteArtworkEdgesKeepCreditsLegibleWithABluePalette() = checkBrightCredits(Color.Blue)
 
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeCreditsAlsoAdaptToBrightArtwork() = checkBrightCredits()
@@ -72,8 +72,9 @@ class PlayerCreditsUiTest {
     private fun checkBrightCredits(dominant: Color = Color.White) {
         val song = MusicTrack("bright-credits", "Bright Song", "Main Artist", "Bright Album", 180_000, "", "",
             singers = "Lead Singer", writer = "Song Writer")
+        val field = com.example.ui.util.artworkColorField(IntArray(16) { -1 }, 4, 4)
         TrackPaletteCache.put(playerPaletteKey(song, true, Color.White, Color.Black),
-            ExtractedTrackColors(dominant, dominant, dominant, Color.White, Color.White))
+            ExtractedTrackColors(dominant, dominant, dominant, Color.White, Color.White, colorField = field))
         var theme by mutableStateOf(DarkAppColors.copy(dynamicGlassEnabled = true, dynamicAlbumGlow = true))
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -91,7 +92,8 @@ class PlayerCreditsUiTest {
                 compose.onAllNodesWithText(text, useUnmergedTree = true)
                     .filterToOne(hasAnyAncestor(hasTestTag("flip_album_art_card")))
                     .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
-                org.junit.Assert.assertEquals("Credits must contrast with the white album backdrop", Color.Black,
+                val expected = if (text == "TRACK CREDITS & DETAILS") Color.Black else Color.White
+                org.junit.Assert.assertEquals("Credits must contrast with the dimmed artwork backdrop", expected,
                     results.single().layoutInput.style.color)
             }
             val header = mutableListOf<TextLayoutResult>()

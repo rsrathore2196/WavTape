@@ -13,6 +13,7 @@ import com.example.ui.screens.HomeScreenContent
 import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.viewmodel.MostListenedArtist
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,7 +64,11 @@ class HomeRadioUiTest {
         } }
         compose.onNodeWithTag("home_screen").performScrollToKey("most_listened_artists")
         compose.onNodeWithText("Artists you play most often").assertIsDisplayed()
-        compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
+        val frame = compose.onNodeWithTag("home_artist_frame").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val card = compose.onNodeWithTag("most_listened_artist_card_Artist One").assertIsDisplayed()
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue(card.left > frame.left && card.right < frame.right)
+        assertTrue(card.top > frame.top && card.bottom < frame.bottom)
         compose.onNodeWithTag("view_artist_Artist One").assertIsDisplayed().performClick()
         assertEquals(first.name, openedArtist)
         compose.onNodeWithTag("artist_radio_play_Artist One").assertIsDisplayed().performClick()

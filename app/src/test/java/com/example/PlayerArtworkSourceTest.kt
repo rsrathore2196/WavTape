@@ -12,6 +12,8 @@ import org.junit.After
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import coil.request.ImageRequest
+import coil.size.Size
+import kotlinx.coroutines.runBlocking
 import com.example.data.model.MusicTrack
 import com.example.ui.util.*
 import org.junit.Assert.*
@@ -38,6 +40,7 @@ class PlayerArtworkSourceTest {
         compose.runOnIdle {
             assertEquals(providerArtworkUrl(original, 1200), request.data)
             assertEquals(request.data, request.placeholderMemoryCacheKey?.key)
+            assertEquals(Size(1200, 1200), runBlocking { request.sizeResolver.size() })
             assertTrue(request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)!!.currentTrack)
             assertFalse(request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)!!.allowVideoFallback)
         }
