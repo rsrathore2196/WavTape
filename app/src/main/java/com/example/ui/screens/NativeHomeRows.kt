@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -44,30 +45,30 @@ internal fun homeTrackTitle(track: MusicTrack): String = remember(track.title, t
 }
 
 internal const val QUICK_PICKS_TRACK_LIMIT = 18
+private const val QUICK_PICKS_ROWS = 4
+internal val HomeShelfTrackHeight = 62.4.dp
 
-/** Six native songs per page, in row-major server order. */
+/** Four stacked songs per swipe, in server order. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun QuickPicksGrid(tracks: List<MusicTrack>, state: LazyListState, playing: String?, background: Color, border: Color,
+internal fun QuickPicksRow(tracks: List<MusicTrack>, state: LazyListState, playing: String?, artworkPlaceholder: Color,
     foreground: Color, muted: Color, contentInset: Dp, play: (MusicTrack, List<MusicTrack>) -> Unit) {
-    val pages = remember(tracks) { tracks.take(QUICK_PICKS_TRACK_LIMIT).chunked(6) }
+    val pages = remember(tracks) { tracks.take(QUICK_PICKS_TRACK_LIMIT).chunked(QUICK_PICKS_ROWS) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val pageWidth = (maxWidth - contentInset * 2).coerceAtLeast(0.dp)
-        LazyRow(state = state, flingBehavior = rememberSnapFlingBehavior(state), modifier = Modifier.testTag("native_quick_picks_grid"),
-            contentPadding = PaddingValues(horizontal = contentInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(pages, key = { it.firstOrNull()?.id ?: it.hashCode().toString() }, contentType = { "quick_picks_page" }) { page ->
+        val nextPagePeek = if (pages.size > 1) 20.dp else 0.dp
+        val pageWidth = (maxWidth - contentInset * 2 - nextPagePeek).coerceAtLeast(0.dp)
+        LazyRow(state = state, flingBehavior = rememberSnapFlingBehavior(state, SnapPosition.Start),
+            modifier = Modifier.testTag("native_quick_picks_grid"),
+            contentPadding = PaddingValues(start = contentInset, end = contentInset + nextPagePeek),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(pages, key = { it.first().id }, contentType = { "quick_picks_page" }) { page ->
                 VisibleItemArtwork(state, page.first().id) {
-                    Column(Modifier.width(pageWidth), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        repeat(3) { row ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                repeat(2) { column ->
-                                    val track = page.getOrNull(row * 2 + column)
-                                    if (track == null) Spacer(Modifier.weight(1f).height(62.4.dp))
-                                    else HabitPillItem(track, track.id == playing, background, border, foreground, muted,
-                                        Modifier.weight(1f)) { play(track, tracks) }
-                                }
-                            }
+                    Column(Modifier.width(pageWidth), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        page.forEach { track ->
+                            HomeShelfTrackRow(track, track.id == playing, artworkPlaceholder, foreground, muted,
+                                modifier = Modifier.fillMaxWidth(), quickPick = true) { play(track, tracks) }
                         }
+                        repeat(QUICK_PICKS_ROWS - page.size) { Spacer(Modifier.height(HomeShelfTrackHeight)) }
                     }
                 }
             }

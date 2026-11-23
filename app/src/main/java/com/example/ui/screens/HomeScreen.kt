@@ -119,6 +119,7 @@ import com.example.playback.PlayerUiState
 import com.example.ui.components.HomePullRefreshOverscrollLayout
 import com.example.ui.components.HomeAppHeader
 import com.example.ui.components.InfiniteRadioHeroCard
+import com.example.ui.components.LocalVisualEffectsActive
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.util.rememberOptimizedImageRequest
@@ -491,11 +492,10 @@ fun HomeScreenContent(
                                     val item1 = pillsTracks.getOrNull(row * 2)
                                     val item2 = pillsTracks.getOrNull(row * 2 + 1)
                                     if (item1 != null) {
-                                        HabitPillItem(
+                                        HomeShelfTrackRow(
                                             track = item1,
                                             isPlaying = item1.id == currentPlayingId,
-                                            cardBg = cardBg,
-                                            cardBorderColor = cardBorderColor,
+                                            artworkPlaceholder = cardBorderColor,
                                             textPrimaryColor = textPrimaryColor,
                                             textMutedColor = textMutedColor,
                                             modifier = Modifier.weight(1f),
@@ -506,11 +506,10 @@ fun HomeScreenContent(
                                     }
 
                                     if (item2 != null) {
-                                        HabitPillItem(
+                                        HomeShelfTrackRow(
                                             track = item2,
                                             isPlaying = item2.id == currentPlayingId,
-                                            cardBg = cardBg,
-                                            cardBorderColor = cardBorderColor,
+                                            artworkPlaceholder = cardBorderColor,
                                             textPrimaryColor = textPrimaryColor,
                                             textMutedColor = textMutedColor,
                                             modifier = Modifier.weight(1f),
@@ -774,9 +773,9 @@ private fun LandscapeHomeOverview(seed: MusicTrack?, currentPlayingId: String?, 
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             repeat(recentColumns) { column ->
                                 val track = visibleRecents.getOrNull(row * recentColumns + column)
-                                if (track == null) Spacer(Modifier.weight(1f)) else HabitPillItem(
+                                if (track == null) Spacer(Modifier.weight(1f)) else HomeShelfTrackRow(
                                     track = track, isPlaying = track.id == currentPlayingId,
-                                    cardBg = colors.cardBackground, cardBorderColor = colors.cardBorder,
+                                    artworkPlaceholder = colors.cardBorder,
                                     textPrimaryColor = colors.textPrimary, textMutedColor = colors.textMuted,
                                     modifier = Modifier.weight(1f),
                                     onClick = { onTrackClick(track, recentTracks) })
@@ -953,7 +952,7 @@ fun SectionCardLayout(
         if (state.isLoading && state.tracks.isEmpty() && shelfItems.isEmpty()) {
             SectionShimmerRow(contentInset = contentInset)
         } else if (quickPicks) {
-            QuickPicksGrid(safeTracks, shelfListState, currentPlayingId, cardBg, cardBorderColor,
+            QuickPicksRow(safeTracks, shelfListState, currentPlayingId, cardBorderColor,
                 textPrimaryColor, textMutedColor, contentInset, onTrackClick)
         } else if (nativeKind == NativeShelfKind.MUSIC_VIDEOS) {
             NativeMusicVideoRow(remember(shelfItems) { shelfItems.filterIsInstance<ServerHomeItem.Song>() }, safeTracks, shelfListState, currentPlayingId,
@@ -1009,35 +1008,23 @@ fun SectionCardLayout(
     }
 }
 
-/**
- * Compact Habit Pill for the 2x3 Grid Layout.
- */
 @Composable
-fun HabitPillItem(
+internal fun HomeShelfTrackRow(
     track: MusicTrack,
     isPlaying: Boolean,
-    cardBg: Color,
-    cardBorderColor: Color,
+    artworkPlaceholder: Color,
     textPrimaryColor: Color,
     textMutedColor: Color,
     modifier: Modifier = Modifier,
+    quickPick: Boolean = false,
     onClick: () -> Unit
 ) {
     val appColors = LocalAppColors.current
-    val pillShape = remember { RoundedCornerShape(10.dp) }
+    val scrollTitle = !quickPick && LocalVisualEffectsActive.current
 
     Row(
         modifier = modifier
-            .height(62.4.dp)
-            .clip(pillShape)
-            .background(if (isPlaying) appColors.primaryAccent.copy(alpha = 0.14f) else cardBg)
-            .border(
-                BorderStroke(
-                    1.dp,
-                    if (isPlaying) appColors.primaryAccent.copy(alpha = 0.55f) else cardBorderColor
-                ),
-                pillShape
-            )
+            .height(HomeShelfTrackHeight)
             .clickable(onClick = onClick)
             .padding(end = 8.dp)
             .testTag("habit_pill_${track.id}"),
@@ -1046,9 +1033,10 @@ fun HabitPillItem(
         Box(
             modifier = Modifier
                 .width(52.dp)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp))
-                .background(cardBorderColor.copy(alpha = 0.25f))
+                .height(if (quickPick) 52.dp else HomeShelfTrackHeight)
+                .clip(if (quickPick) RoundedCornerShape(8.dp)
+                    else RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp))
+                .background(artworkPlaceholder.copy(alpha = 0.25f))
         ) {
             AsyncImage(
                 model = rememberOptimizedImageRequest(track = track, targetSize = 100,
@@ -1074,7 +1062,7 @@ fun HabitPillItem(
             }
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(if (quickPick) 12.dp else 10.dp))
 
         Column(
             modifier = Modifier.weight(1f),
@@ -1082,16 +1070,18 @@ fun HabitPillItem(
         ) {
             Text(
                 text = localizedCatalogText(homeTrackTitle(track)),
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
+                modifier = if (scrollTitle) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
+                fontWeight = if (quickPick) FontWeight.SemiBold else FontWeight.Bold,
+                fontSize = if (quickPick) 16.sp else 13.sp,
                 color = if (isPlaying) appColors.primaryAccent else textPrimaryColor,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                softWrap = false,
+                overflow = if (scrollTitle) TextOverflow.Clip else TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(1.dp))
             Text(
                 text = localizedCatalogText(track.artist),
-                fontSize = 11.sp,
+                fontSize = if (quickPick) 14.sp else 11.sp,
                 color = textMutedColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

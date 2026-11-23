@@ -3,6 +3,9 @@ package com.example
 import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -16,6 +19,7 @@ import com.example.data.model.*
 import com.example.ui.components.LocalDynamicGlassEnabled
 import com.example.ui.components.LocalVisualEffectsActive
 import com.example.ui.screens.SectionCardLayout
+import com.example.ui.screens.HomeShelfTrackRow
 import com.example.ui.theme.DarkAppColors
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.LocalArtworkRequestsActive
@@ -84,25 +88,66 @@ class NativeHomeRowsUiTest {
         }
     }
 
-    @Test fun quickPicksHasTwoColumnsAndThreeRowsPerLazyPageWithOriginalQueueOrder() {
+    @Test fun quickPicksStacksFourUnframedTracksPerColumnWithOriginalQueueOrder() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }
         val frame = compose.onNodeWithTag("native_quick_picks_frame").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val title = compose.onNodeWithText("Native shelf").fetchSemanticsNode().boundsInRoot
         val subtitle = compose.onNodeWithText("A mix of songs to try").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue(title.top > frame.top && subtitle.top >= title.bottom)
-        val bounds = (1..6).map { compose.onNodeWithTag("habit_pill_yt_native$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+        val bounds = (1..4).map { compose.onNodeWithTag("habit_pill_yt_native$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
         assertTrue(bounds.all { it.left > frame.left && it.right < frame.right && it.top > subtitle.bottom && it.bottom < frame.bottom })
-        for (row in 0..2) {
-            assertEquals(bounds[row * 2].top, bounds[row * 2 + 1].top, .5f)
-            assertTrue(bounds[row * 2].right < bounds[row * 2 + 1].right)
+        for ((upper, lower) in bounds.zipWithNext()) {
+            assertEquals(upper.left, lower.left, .5f)
+            assertEquals(upper.right, lower.right, .5f)
+            assertTrue(upper.bottom < lower.top)
         }
-        assertTrue(bounds[0].top < bounds[2].top); assertTrue(bounds[2].top < bounds[4].top)
+        val peek = compose.onNodeWithTag("habit_pill_yt_native5").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(peek.left > bounds.first().right && peek.width < bounds.first().width / 2)
+        val playingRow = captureTrack("habit_pill_yt_native2")
+        assertEquals(homeBackground.toArgb(), playingRow.getRGB(playingRow.width - 18, playingRow.height / 2))
         compose.onNodeWithTag("habit_pill_yt_native3").performClick()
         compose.runOnIdle { assertEquals(tracks[2], selected); assertEquals(tracks, queue) }
         compose.onNodeWithTag("native_quick_picks_grid").performScrollToIndex(1)
-        compose.onNodeWithTag("habit_pill_yt_native7").assertIsDisplayed()
+        compose.onNodeWithTag("habit_pill_yt_native5").assertIsDisplayed()
         compose.onNodeWithTag("habit_pill_yt_native8").assertIsDisplayed()
+    }
+
+    @Test fun recentRowsHaveTransparentSurfacesAndOnlyOverflowingTitlesScroll() {
+        compose.mainClock.autoAdvance = false
+        shelfContent {
+            CompositionLocalProvider(LocalVisualEffectsActive provides true) {
+                Column(Modifier.width(160.dp)) {
+                    for (track in listOf(tracks.first(), tracks[1].copy(title = "Short"))) {
+                        HomeShelfTrackRow(track, false, DarkAppColors.cardBorder, DarkAppColors.textPrimary,
+                            DarkAppColors.textMuted, modifier = Modifier.fillMaxWidth(), onClick = {})
+                    }
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(300)
+        val longBefore = captureTrack("habit_pill_yt_native1")
+        val shortBefore = captureTrack("habit_pill_yt_native2")
+        assertEquals(homeBackground.toArgb(), shortBefore.getRGB(shortBefore.width - 10, shortBefore.height / 2))
+        compose.mainClock.advanceTimeBy(1_800)
+        val longAfter = captureTrack("habit_pill_yt_native1")
+        val shortAfter = captureTrack("habit_pill_yt_native2")
+        fun pixels(image: java.awt.image.BufferedImage) =
+            image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
+        assertFalse(pixels(longBefore).contentEquals(pixels(longAfter)))
+        assertArrayEquals(pixels(shortBefore), pixels(shortAfter))
+    }
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    private fun captureTrack(tag: String): java.awt.image.BufferedImage {
+        val screenshot = File.createTempFile("home-shelf-track-", ".png")
+        return try {
+            compose.onNodeWithTag(tag).captureRoboImage(screenshot.absolutePath,
+                RoborazziOptions(taskType = RoborazziTaskType.Record))
+            ImageIO.read(screenshot)
+        } finally {
+            screenshot.delete()
+        }
     }
     @Test fun verifiedVideoArtworkIsLandscapeAndKeepsPlaybackQueue() {
         var queue: List<MusicTrack> = emptyList()
@@ -135,10 +180,10 @@ class NativeHomeRowsUiTest {
         compose.onNodeWithText(title).assertIsDisplayed().performClick()
         compose.runOnIdle { assertSame(video, selected) }
     }
-    @Test fun quickPicksEndsAfterThreePagesOfSixWithoutChangingThePlaybackQueue() {
+    @Test fun quickPicksKeepsAllEighteenTracksAndThePlaybackQueue() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }
-        compose.onNodeWithTag("native_quick_picks_grid").performScrollToIndex(2)
+        compose.onNodeWithTag("native_quick_picks_grid").performScrollToIndex(4)
         compose.onNodeWithTag("native_quick_picks_grid").performTouchInput { swipeLeft(durationMillis = 350) }
         compose.onNodeWithTag("habit_pill_yt_native18").assertIsDisplayed().performClick()
         compose.onNodeWithTag("habit_pill_yt_native19").assertDoesNotExist()

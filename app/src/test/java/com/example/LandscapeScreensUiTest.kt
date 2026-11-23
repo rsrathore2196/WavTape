@@ -77,8 +77,15 @@ class LandscapeScreensUiTest {
         compose.onNodeWithTag("habit_pill_recent-4").assertIsDisplayed()
         val frame = rect("home_recently_played_frame")
         val cell = rect("habit_pill_recent-4")
+        val first = rect("habit_pill_recent-1")
+        val second = rect("habit_pill_recent-2")
+        val third = rect("habit_pill_recent-3")
         assertTrue(cell.left > frame.left && cell.right < frame.right)
         assertTrue(cell.top > frame.top && cell.bottom < frame.bottom)
+        assertEquals(first.top, second.top, 0.5f)
+        assertEquals(third.top, cell.top, 0.5f)
+        assertEquals(first.left, third.left, 0.5f)
+        assertEquals(second.left, cell.left, 0.5f)
         compose.onNodeWithTag("habit_pill_recent-5").assertDoesNotExist()
     }
 
