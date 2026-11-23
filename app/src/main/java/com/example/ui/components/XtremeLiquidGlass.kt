@@ -114,7 +114,8 @@ fun Modifier.xtremeLiquidGlassBackground(
     neutralFinish: Boolean = false,
     onSample: (() -> Unit)? = null,
     floatingDock: Boolean = false,
-    headerGlass: Boolean = false
+    headerGlass: Boolean = false,
+    unsampledDockFillAlpha: Float = 0.90f
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
     if (!enabled || !LocalDynamicGlassEnabled.current) return this
@@ -239,7 +240,7 @@ fun Modifier.xtremeLiquidGlassBackground(
             val defaultFillAlpha = if (useBackdrop || (backdrop == null && enabled)) {
                 if (dark) 0.50f else 0.64f
             } else 0.90f
-            val fillAlpha = if (floatingDock && !useBackdrop) .90f
+            val fillAlpha = if (floatingDock && !useBackdrop) unsampledDockFillAlpha
                 else profile.surfaceFillAlpha(baseFillAlpha, defaultFillAlpha, floatingDock)
 
             onDrawWithContent {
@@ -263,7 +264,7 @@ fun Modifier.xtremeLiquidGlassBackground(
         .border(BorderStroke(borderWidth, rim), shape)
 }
 
-/** Opt-in control finish; other screens keep their existing button appearance. */
+/** Give player controls the floating dock's glass, with a brighter bevel around the smaller shapes. */
 @Composable
 fun Modifier.playerLiquidGlassButton(
     colors: AppThemeColors,
@@ -274,23 +275,29 @@ fun Modifier.playerLiquidGlassButton(
     borderWidth: Dp = 0.8.dp
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
-    return if (!profile.allowSecondaryBackdropSampling) {
-        val dark = colors.isDark
-        val baseFill = if (dark) Color(0xFF1E2024).copy(alpha = 0.55f) else Color(0xFFF0F4F8).copy(alpha = 0.65f)
-        this
-            .then(if (profile.enableShadows) Modifier.shadow(elevation * profile.shadowElevationMultiplier, shape) else Modifier)
-            .clip(shape)
-            .background(baseFill)
-            .border(borderWidth, Color.White.copy(alpha = if (dark) 0.18f else 0.35f), shape)
-    } else {
-        xtremeLiquidGlassBackground(
-            shape = shape, elevation = elevation, appColors = com.example.ui.util.playerAppearanceColors(colors),
-            tintColor = Color.Transparent,
-            surfaceTintAlpha = 0f,
-            borderWidth = borderWidth,
-            baseFillAlpha = 0f
+    val bevel = remember(isActive) {
+        Brush.verticalGradient(
+            0f to Color.White.copy(alpha = if (isActive) 0.65f else 0.52f),
+            0.34f to Color.White.copy(alpha = 0.18f),
+            0.68f to Color.White.copy(alpha = 0.06f),
+            1f to Color.White.copy(alpha = 0.32f)
         )
     }
+    return xtremeLiquidGlassBackground(
+        shape = shape,
+        floatingDock = true,
+        neutralFinish = true,
+        elevation = elevation.coerceAtLeast(3.dp),
+        appColors = com.example.ui.util.playerAppearanceColors(colors),
+        enabled = colors.dynamicGlassEnabled,
+        tintColor = Color.Transparent,
+        surfaceTintAlpha = 0f,
+        borderWidth = borderWidth,
+        baseFillAlpha = 0.33f,
+        unsampledDockFillAlpha = 0.55f,
+        rimBrush = bevel,
+        backdrop = LocalLiquidGlassBackdrop.current.takeIf { profile.allowSecondaryBackdropSampling }
+    )
 }
 
 @Composable

@@ -45,7 +45,7 @@ class NativeHomeRowsUiTest {
     @get:Rule val compose = createComposeRule()
     private val fullTitle = "Artist 1 - Native song 1 (Live Remix) (Official Music Video)"
     private val homeBackground = Color(0xFF324A58)
-    private val tracks = (1..20).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
+    private val tracks = (1..22).map { MusicTrack("yt_native$it", if (it == 2) "Native song 2 (Acoustic)" else "Native song $it", "Artist $it", "Album", 120_000, "", "",
         originalProviderTitle = if (it == 1) fullTitle else "") }
     private fun shelfContent(content: @Composable () -> Unit) {
         compose.setContent {
@@ -180,19 +180,20 @@ class NativeHomeRowsUiTest {
         compose.onNodeWithText(title).assertIsDisplayed().performClick()
         compose.runOnIdle { assertSame(video, selected) }
     }
-    @Test fun quickPicksKeepsAllEighteenTracksAndThePlaybackQueue() {
+    @Test fun quickPicksKeepsAllTwentyTracksAndThePlaybackQueue() {
         var selected: MusicTrack? = null; var queue: List<MusicTrack> = emptyList()
         content(NativeShelfKind.QUICK_PICKS) { track, list -> selected = track; queue = list }
         compose.onNodeWithTag("native_quick_picks_grid").performScrollToIndex(4)
         compose.onNodeWithTag("native_quick_picks_grid").performTouchInput { swipeLeft(durationMillis = 350) }
-        compose.onNodeWithTag("habit_pill_yt_native18").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("habit_pill_yt_native19").assertDoesNotExist()
-        compose.onNodeWithTag("habit_pill_yt_native20").assertDoesNotExist()
-        compose.runOnIdle { assertEquals(tracks[17], selected); assertEquals(tracks, queue) }
+        for (number in 17..20) compose.onNodeWithTag("habit_pill_yt_native$number").assertIsDisplayed()
+        compose.onNodeWithTag("habit_pill_yt_native20").performClick()
+        compose.onNodeWithTag("habit_pill_yt_native21").assertDoesNotExist()
+        compose.onNodeWithTag("habit_pill_yt_native22").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(tracks[19], selected); assertEquals(tracks, queue) }
     }
 
     @Test fun quickPicksShuffleStartsAnExplicitQueueFromOnlyTheDisplayedTracks() {
-        val original = tracks.take(18)
+        val original = tracks.take(20)
         val requests = mutableListOf<Pair<MusicTrack, List<MusicTrack>>>()
         content(NativeShelfKind.QUICK_PICKS, shuffle = { track, queue -> requests += track to queue }) { _, _ ->
             fail("Shuffle must not start discovery playback")

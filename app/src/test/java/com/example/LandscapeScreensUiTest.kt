@@ -86,14 +86,9 @@ class LandscapeScreensUiTest {
         assertEquals(third.top, cell.top, 0.5f)
         assertEquals(first.left, third.left, 0.5f)
         assertEquals(second.left, cell.left, 0.5f)
-        for ((column, pair) in listOf(first to third, second to cell).withIndex()) {
-            val (upper, lower) = pair
-            val divider = rect("recent_track_divider_0_$column")
-            assertTrue(divider.left > upper.left && divider.right < upper.right)
-            assertEquals(upper.center.x, divider.center.x, 0.5f)
-            assertEquals((upper.bottom + lower.top) / 2f, divider.center.y, 1f)
-        }
-        compose.onNodeWithTag("recent_track_divider_1_0").assertDoesNotExist()
+        assertEquals(px(8f), third.top - first.bottom, 0.5f)
+        compose.onNodeWithTag("recent_track_divider_0_0").assertDoesNotExist()
+        compose.onNodeWithTag("recent_track_divider_0_1").assertDoesNotExist()
         compose.onNodeWithTag("habit_pill_recent-5").assertDoesNotExist()
     }
 

@@ -166,7 +166,8 @@ fun SyncedLyricsView(
     showTranslation: Boolean = true,
     lyricsOffsetMs: Int = 0,
     accentColorState: State<Color>? = null,
-    active: Boolean = true
+    active: Boolean = true,
+    playerGlassRetry: Boolean = false
 ) {
     val appColors = LocalAppColors.current
     val context = LocalContext.current
@@ -378,16 +379,18 @@ fun SyncedLyricsView(
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(16.dp))
+                    val retryShape = RoundedCornerShape(16.dp)
                     OutlinedButton(
                         onClick = onRetry,
+                        modifier = if (playerGlassRetry) Modifier.playerLiquidGlassButton(appColors, retryShape) else Modifier,
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = activeTextColor
                         ),
-                        border = BorderStroke(
+                        border = if (playerGlassRetry) null else BorderStroke(
                             1.dp,
                             if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.25f)
                         ),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = retryShape
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,

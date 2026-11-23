@@ -59,14 +59,15 @@ import kotlin.math.min
 /** Only this small subtree observes live audio data; artwork/lyrics never observe animation frames. */
 @Composable
 fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackText: String,
-    background: Color, border: Color, content: Color, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    content: Color, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val path by AudioSignalPath.state.collectAsStateWithLifecycle()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var showPipeline by remember(trackId) { mutableStateOf(false) }
     val current = path.takeIf { it.trackId == trackId } ?: SignalPathState()
     val label = current.quality.takeIf { it.verified && it.codec.isNotBlank() }?.badgeLabel ?: "Resolving audio"
-    Surface(color = background, border = androidx.compose.foundation.BorderStroke(1.dp, border),
-        shape = RoundedCornerShape(10.dp), modifier = modifier.clip(RoundedCornerShape(10.dp))
+    val shape = RoundedCornerShape(10.dp)
+    Surface(color = Color.Transparent, shape = shape,
+        modifier = modifier.playerLiquidGlassButton(LocalAppColors.current, shape)
             .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Show audio pipeline") { showPipeline = true }) {
         Row(Modifier.padding(horizontal = if (landscape) 12.dp else 10.dp, vertical = if (landscape) 5.dp else 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(if (landscape) 7.dp else 6.dp).clip(androidx.compose.foundation.shape.CircleShape).background(content))

@@ -789,7 +789,10 @@ fun ExpandedPlayerScreen(
                                                     PlayerMorphPart.ARTIST, track.id, active = lyricsExpanded)
                                                     .basicMarquee(animationMode = playerMarqueeMode), softWrap = false)
                                         }
-                                        IconButton(onClick = { onToggleFavorite(track) }) {
+                                        IconButton(
+                                            onClick = { onToggleFavorite(track) },
+                                            modifier = Modifier.liquidGlassButton(appColors, isActive = uiState.isFavorite)
+                                        ) {
                                             Icon(if (uiState.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                                 contentDescription = "Favorite",
                                                 tint = rememberPlayerContentColor(animatedTopEdgeColor, animatedTopEdgeColor,
@@ -1376,7 +1379,6 @@ fun ExpandedPlayerScreen(
                                 color = Color.Transparent,
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .clip(RoundedCornerShape(22.dp))
                                     .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = showLyrics)
                                     .graphicsLayer {
                                         scaleX = lyricsButtonScale
@@ -1409,7 +1411,6 @@ fun ExpandedPlayerScreen(
                                 modifier = Modifier
                                     .height(44.dp)
                                     .padding(horizontal = 8.dp)
-                                    .clip(RoundedCornerShape(22.dp))
                                     .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = isLandscapeOutputActive)
                                     .graphicsLayer {
                                         scaleX = outputButtonScale
@@ -1462,7 +1463,6 @@ fun ExpandedPlayerScreen(
                                 color = Color.Transparent,
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .clip(RoundedCornerShape(22.dp))
                                     .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = false)
                                     .graphicsLayer {
                                         scaleX = queueButtonScale
@@ -2312,7 +2312,6 @@ fun ExpandedPlayerScreen(
                     color = Color.Transparent,
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(22.dp))
                         .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = showLyrics)
                         .graphicsLayer {
                             scaleX = lyricsButtonScale
@@ -2347,7 +2346,6 @@ fun ExpandedPlayerScreen(
                         .height(44.dp)
                         .weight(1f)
                         .padding(horizontal = 8.dp)
-                        .clip(RoundedCornerShape(22.dp))
                         .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = isOutputActive)
                         .graphicsLayer {
                             scaleX = outputButtonScale
@@ -2401,7 +2399,6 @@ fun ExpandedPlayerScreen(
                     color = Color.Transparent,
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(22.dp))
                         .liquidGlassButton(appColors, shape = RoundedCornerShape(22.dp), elevation = 0.dp, isActive = false)
                         .graphicsLayer {
                             scaleX = queueButtonScale
@@ -2724,7 +2721,8 @@ private fun PlayerSyncedLyrics(
         },
         viewportAnimating = viewportAnimating || revealing,
         lyricsOffsetMs = lyricsOffsetMs,
-        active = active && visible
+        active = active && visible,
+        playerGlassRetry = true
     )
 }
 
@@ -3205,8 +3203,6 @@ private fun PlayerTimelineSection(
     val inactiveProgressColor = if (isEffectivelyDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.16f)
 
     val chipContentColor = if (isEffectivelyDark) Color.White else Color(0xFF0F172A)
-    val chipBorderColor = if (isEffectivelyDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.20f)
-    val chipBgColor = if (isEffectivelyDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
     val timeLabelColor = if (appColors.highContrastTypography) {
         if (isEffectivelyDark) Color.White else Color.Black
     } else if (isEffectivelyDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.65f)
@@ -3270,7 +3266,7 @@ private fun PlayerTimelineSection(
                 }.then(if (!showQuality) Modifier.clearAndSetSemantics { } else Modifier)
             ) {
                 AudioQualityBadge(trackId = track.id, fallbackText = qualityChipText,
-                    background = chipBgColor, border = chipBorderColor, content = chipContentColor, enabled = showQuality && active)
+                    content = chipContentColor, enabled = showQuality && active)
             }
 
             Text(

@@ -25,7 +25,7 @@ class SignalPathUiTest {
     @After fun clear() { AudioSignalPath.reset() }
     private fun showBadge() {
         compose.setContent { MaterialTheme {
-            AudioQualityBadge("playing", "Lossless", Color.DarkGray, Color.White, Color.White)
+            AudioQualityBadge("playing", "Lossless", Color.White)
         } }
     }
 

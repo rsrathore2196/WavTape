@@ -69,7 +69,6 @@ import androidx.compose.material.icons.filled.Shuffle
 import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.xtremeLiquidGlassBackground
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -779,7 +778,7 @@ private fun RecentTrackGrid(
 ) {
     val columnsGap = Arrangement.spacedBy(8.dp)
     val rowCount = (tracks.size + columns - 1) / columns
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         repeat(rowCount) { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = columnsGap) {
                 repeat(columns) { column ->
@@ -787,19 +786,6 @@ private fun RecentTrackGrid(
                     if (track == null) Spacer(Modifier.weight(1f)) else HomeShelfTrackRow(
                         track, track.id == playing, artworkPlaceholder, foreground, muted, Modifier.weight(1f)
                     ) { play(track, tracks) }
-                }
-            }
-            if (row < rowCount - 1) {
-                Row(Modifier.fillMaxWidth().height(8.dp), horizontalArrangement = columnsGap) {
-                    repeat(columns) { column ->
-                        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                            if ((row + 1) * columns + column < tracks.size) {
-                                HorizontalDivider(Modifier.fillMaxWidth(0.64f)
-                                    .testTag("recent_track_divider_${row}_$column"),
-                                    color = LocalAppColors.current.dividerColor)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -844,13 +830,15 @@ fun SectionCardLayout(
         return
     }
 
-    val safeTracks = remember(state.tracks, tracksPrepared) {
+    val quickPicks = nativeKind == NativeShelfKind.QUICK_PICKS
+    val safeTracks = remember(state.tracks, tracksPrepared, quickPicks) {
         if (tracksPrepared) state.tracks else
-            state.tracks.distinctBy { it.id }.take(com.example.recommendation.HomeRecommendationPolicy.MAX_SHELF_TRACKS)
+            state.tracks.distinctBy { it.id }.take(
+                if (quickPicks) QUICK_PICKS_TRACK_LIMIT else com.example.recommendation.HomeRecommendationPolicy.MAX_SHELF_TRACKS
+            )
     }
     val shelfListState = rememberLazyListState()
     ObserveHomeScroll(shelfListState)
-    val quickPicks = nativeKind == NativeShelfKind.QUICK_PICKS
     val showShuffle = quickPicks && safeTracks.isNotEmpty()
     val contentInset = HomeShelfInset
     Column(modifier = Modifier.fillMaxWidth().padding(top = 22.dp)

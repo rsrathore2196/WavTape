@@ -141,15 +141,14 @@ fun LyricsProviderPill(
     modifier: Modifier = Modifier
 ) {
     val chipContentColor = if (isEffectivelyDark) Color.White else Color(0xFF0F172A)
-    val chipBorderColor = if (isEffectivelyDark) Color.White.copy(alpha = 0.28f) else Color.Black.copy(alpha = 0.22f)
-    val chipBgColor = if (isEffectivelyDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val shape = RoundedCornerShape(13.dp)
 
     Surface(
         onClick = onClick,
-        color = chipBgColor,
-        border = BorderStroke(1.dp, chipBorderColor),
-        shape = RoundedCornerShape(13.dp),
-        modifier = modifier.testTag("lyrics_provider_pill")
+        color = Color.Transparent,
+        shape = shape,
+        modifier = modifier.playerLiquidGlassButton(LocalAppColors.current, shape)
+            .testTag("lyrics_provider_pill")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

@@ -44,7 +44,7 @@ internal fun homeTrackTitle(track: MusicTrack): String = remember(track.title, t
     CatalogNames.clean(track.originalProviderTitle.ifBlank { track.title })
 }
 
-internal const val QUICK_PICKS_TRACK_LIMIT = 18
+internal const val QUICK_PICKS_TRACK_LIMIT = 20
 private const val QUICK_PICKS_ROWS = 4
 internal val HomeShelfTrackHeight = 62.4.dp
 

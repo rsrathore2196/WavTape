@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -231,6 +232,10 @@ class PlayerAppearanceUiTest {
                             .testTag("clear_secondary"))
                         Box(Modifier.size(104.dp).playerPrimaryLiquidGlassButton(colors)
                             .testTag("clear_primary"))
+                        Box(Modifier.size(72.dp).xtremeLiquidGlassBackground(
+                            shape = CircleShape, floatingDock = true, surfaceTintAlpha = 0f, borderWidth = 0.8.dp,
+                            elevation = 14.dp, appColors = DarkAppColors, baseFillAlpha = .33f, neutralFinish = true
+                        ).testTag("mini_glass_reference"))
                     }
                 }
             }
@@ -238,14 +243,19 @@ class PlayerAppearanceUiTest {
         compose.mainClock.advanceTimeBy(800)
         compose.waitForIdle()
         val dark = listOf("clear_secondary", "clear_primary").map(::capture)
+        val reference = capture("mini_glass_reference")
+        val dockCenter = reference.getRGB(reference.width / 2, reference.height / 2)
         compose.runOnIdle { colors = LightAppColors.copy(primaryAccent = Color.Blue) }
         compose.mainClock.advanceTimeBy(800)
         compose.waitForIdle()
         listOf("clear_secondary", "clear_primary").forEachIndexed { index, tag ->
             val light = capture(tag)
             val center = java.awt.Color(light.getRGB(light.width / 2, light.height / 2))
-            assertTrue("Player controls must reveal the backdrop, not a solid black fill", center.red > 160)
-            assertTrue("Player controls must not add a white wash", center.green < 100)
+            assertEquals("Player buttons sample the same glass material as the mini player", dockCenter, center.rgb)
+            assertTrue("The dock glass keeps its background visible", center.red > 120)
+            val topRim = java.awt.Color(light.getRGB(light.width / 2, 0))
+            val bottomRim = java.awt.Color(light.getRGB(light.width / 2, light.height - 1))
+            assertTrue("The raised button catches more light on its upper rim", topRim.green > bottomRim.green)
             assertEquals(dark[index].width, light.width)
             assertEquals(dark[index].height, light.height)
             for (y in 0 until light.height) for (x in 0 until light.width) {
