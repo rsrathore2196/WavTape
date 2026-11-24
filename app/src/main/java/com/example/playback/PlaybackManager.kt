@@ -568,12 +568,16 @@ class PlaybackManager(
                     qualityBadge = candidate.qualityBadge, isLossless = candidate.isLossless
                 ).toMediaItem(preparedPolicy = policy, playbackMode = startMode).forSourceTransition()
                 var preparedFastMedia: MediaItem? = null
+                var fastStartBuffer: FastStartBuffer? = null
                 val resolved = if (fastSwitch) {
                     repo.resolveFastStartUpgrade(original, policy, manual = !automaticFastStart, stillCurrent = ::ownsFastStart) { candidate ->
                         val media = transitionMedia(candidate)
                         prepareFastStartReplacement(context, media, original, candidate,
                             position = { player.currentPosition.coerceAtLeast(0L) }, stillCurrent = ::ownsFastStart,
-                            automatic = automaticFastStart).also { if (it) preparedFastMedia = media }
+                            automatic = automaticFastStart)?.let {
+                            preparedFastMedia = media
+                            fastStartBuffer = it
+                        } != null
                     } ?: return@launch
                 } else preparedSource ?: withContext(AppDispatchers.Io) { repo.resolvePlayableTrack(if (restoring && !returnToYouTube) origin!!.track else original,
                     forceRefresh = failedUrl != null, failedUrl = failedUrl,
@@ -629,6 +633,7 @@ class PlaybackManager(
                 if (index !in activeQueue.indices || player.currentMediaItem?.playbackUri()?.toString() != originalUri) return@launch
                 val position = if (fastSwitch) player.currentPosition.coerceAtLeast(0L)
                     else losslessRecoveryPosition(_playbackPosition.value, player.currentPosition, true)
+                if (fastSwitch && fastStartBuffer?.covers(position) != true) return@launch
                 val resume = player.playWhenReady
                 val replacement = original.copy(audioUrl = media.localConfiguration!!.uri.toString(), source = resolved.source,
                     qualityBadge = resolved.qualityBadge, bitrateKbps = resolved.bitrateKbps, isLossless = resolved.isLossless)
@@ -649,8 +654,9 @@ class PlaybackManager(
                     SourceTransitionOrigin.write(this, targetOrigin)
                 }
                 fastStartInstalled = fastSwitch
-                player.replaceMediaItem(index, media.buildUpon().setMediaMetadata(
-                    media.mediaMetadata.buildUpon().setExtras(extras).build()).build())
+                val updatedItem = media.buildUpon().setMediaMetadata(
+                    media.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+                player.replaceMediaItem(index, fastStartBuffer?.forHandoff(updatedItem) ?: updatedItem)
                 player.seekTo(index, position)
                 player.prepare(); player.playWhenReady = resume
                 val activated = withTimeoutOrNull(8_000L) {

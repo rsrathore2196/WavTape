@@ -119,6 +119,7 @@ fun QueueBottomSheet(
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
     val appColors = PlayerGlassPopupColors
+    val hasArtwork = LocalPlayerPopupArtwork.current != null
 
     PlayerPopupTheme(appColors) {
         val sheetContent: @Composable () -> Unit = {
@@ -183,6 +184,8 @@ fun QueueBottomSheet(
                         .clickable { onToggleAutoplay() },
                     color = if (isAutoplayEnabled) {
                         playerPopupHighlight(0.16f)
+                    } else if (hasArtwork) {
+                        playerPopupHighlight(0.06f)
                     } else {
                         appColors.cardBackgroundElevated
                     },
@@ -306,6 +309,7 @@ fun QueueBottomSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .testTag("queue_track_$index")
                                 .graphicsLayer { }
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
@@ -313,6 +317,8 @@ fun QueueBottomSheet(
                                         playerPopupHighlight(0.18f)
                                     } else if (isUpNext) {
                                         playerPopupHighlight(0.08f)
+                                    } else if (hasArtwork) {
+                                        playerPopupHighlight(0.06f)
                                     } else {
                                         appColors.cardBackgroundElevated
                                     }
@@ -398,7 +404,8 @@ fun QueueBottomSheet(
                                     } else if (isUpcomingAutoplay && isAutoplayEnabled) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Surface(
-                                            color = appColors.cardBorder.copy(alpha = 0.5f),
+                                            color = if (hasArtwork) playerPopupHighlight(0.12f)
+                                                else appColors.cardBorder.copy(alpha = 0.5f),
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
                                             Text(

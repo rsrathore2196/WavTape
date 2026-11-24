@@ -108,4 +108,42 @@ class AdaptiveLosslessPreparationTest {
         assertFalse(prepare(current = false))
         assertTrue(requests.isEmpty())
     }
+
+    @Test fun fastStartWarmsHlsMediaPastTheCurrentSegment() = runBlocking {
+        server.createContext("/song.m3u8") { exchange ->
+            requests.add(exchange.requestURI.path)
+            val playlist = """
+                #EXTM3U
+                #EXT-X-VERSION:7
+                #EXT-X-TARGETDURATION:5
+                #EXT-X-MAP:URI="init.m4s"
+                #EXTINF:4.074,
+                chunk-1.m4s
+                #EXTINF:4.074,
+                chunk-2.m4s
+                #EXTINF:3.852,
+                chunk-3.m4s
+                #EXT-X-ENDLIST
+            """.trimIndent().toByteArray()
+            exchange.sendResponseHeaders(200, playlist.size.toLong())
+            exchange.responseBody.use { it.write(playlist) }
+            exchange.close()
+        }
+        val source = PlaybackSourcesPreferences.load(app).first { it.kind == PlaybackSourceKind.ADDON }
+        val original = MusicTrack(item.mediaId, "Song", "Artist", "Album", 12_000L, "",
+            "xtreme-youtube://audio/abcdefghijk/stream.audio")
+        val replacement = checkNotNull(StreamingAddons.parseStream(
+            """{"url":"${source.baseUrl}/song.m3u8","format":"flac","manifest":"hls"}""",
+            source.baseUrl, original, original, PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(source)), source.id))
+        val media = item.buildUpon().setUri(replacement.audioUrl).setMimeType(MimeTypes.APPLICATION_M3U8).build()
+        val job = async(Dispatchers.IO) {
+            prepareFastStartReplacement(app, media, original, replacement, { 4_500L }, { true }, automatic = false)
+        }
+        withTimeout(20_000L) {
+            while (!job.isCompleted) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)); delay(10) }
+        }
+        val prepared = job.await()
+        assertTrue("Fast Start must warm the HLS playhead and following chunk, requested $requests", prepared?.covers(4_500L) == true)
+        assertTrue(requests.containsAll(listOf("/song.m3u8", "/init.m4s", "/chunk-2.m4s", "/chunk-3.m4s")))
+    }
 }

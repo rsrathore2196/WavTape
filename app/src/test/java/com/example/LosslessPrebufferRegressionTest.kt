@@ -8,7 +8,9 @@ import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.dash.DashUtil
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AudioQualityPreferences
@@ -16,6 +18,7 @@ import com.example.data.local.PlaybackSourcesPreferences
 import com.example.data.model.MusicTrack
 import com.example.data.remote.StreamingAddons
 import com.example.playback.*
+import com.example.service.FastStartManifests
 import com.example.service.MusicCache
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
@@ -154,9 +157,11 @@ class LosslessPrebufferRegressionTest {
         val current = MusicTrack(item.mediaId, "Song", "Artist", "Album", 24_000L, "",
             "xtreme-youtube://audio/abcdefghijk/stream.audio")
         val replacement = current.copy(audioUrl = item.localConfiguration!!.uri.toString(), isLossless = true)
-        assertTrue(prepareFastStartReplacement(app, item, current, replacement,
-            position = { 6_000L }, stillCurrent = { true }, automatic = false))
-        assertFalse(prepareFastStartReplacement(app, item, current, replacement,
+        val prepared = prepareFastStartReplacement(app, item, current, replacement,
+            position = { 6_000L }, stillCurrent = { true }, automatic = false)
+        assertTrue(prepared?.covers(6_000L) == true)
+        assertFalse(prepared?.covers(19_000L) == true)
+        assertNull(prepareFastStartReplacement(app, item, current, replacement,
             position = { 6_000L }, stillCurrent = { false }, automatic = false))
     }
 
@@ -195,8 +200,32 @@ class LosslessPrebufferRegressionTest {
             prepareFastStartReplacement(app, media, current, replacement,
                 position = { 6_000L }, stillCurrent = { true }, automatic = true)
         }
-        assertTrue("${LosslessDiagnostics.last(current.id)}, requested $requests", ready)
-        assertTrue(requests.contains("segment-2.m4s"))
+        assertNotNull("${LosslessDiagnostics.last(current.id)}, requested $requests", ready)
+        assertTrue(ready!!.covers(6_000L))
+        assertFalse("A seek beyond the warmed window cannot switch sources", ready.covers(14_000L))
+        assertTrue(requests.containsAll(listOf("init.mp4", "segment-2.m4s", "segment-3.m4s")))
+        assertNull("Ordinary source creation must use its own manifest", FastStartManifests.takeFor(media))
+        val handoff = ready.forHandoff(media)
+        assertNull(FastStartManifests.takeFor(handoff.buildUpon().setMediaId("another-track").build()))
+        val prepared = checkNotNull(FastStartManifests.takeFor(handoff))
+        assertNull("The manifest handoff is single-use", FastStartManifests.takeFor(handoff))
+        val networkCalls = requests.toList()
+        withContext(Dispatchers.IO) {
+            val factory = prepared.replaying(MusicCache.createCacheDataSourceFactory(app))
+            val dash = DashUtil.loadManifest(factory.createDataSource(), media.localConfiguration!!.uri)
+            val representation = dash.getPeriod(0).adaptationSets.first().representations.first()
+            val index = checkNotNull(representation.index)
+            val segment = index.getSegmentNum(8_000_000L, dash.getPeriodDurationUs(0))
+            val spec: DataSpec = DashUtil.buildDataSpec(representation, index.getSegmentUrl(segment), 0)
+            val dataSource = factory.createDataSource()
+            try {
+                dataSource.open(spec)
+                val bytes = ByteArray(4)
+                assertEquals(4, dataSource.read(bytes, 0, bytes.size))
+                assertArrayEquals(byteArrayOf(1, 2, 3, 4), bytes)
+            } finally { dataSource.close() }
+        }
+        assertEquals("Playback uses the prepared manifest and the same media cache keys", networkCalls, requests.toList())
     }
     @Test fun nonMaximumProfileRejectsPreparationBeforeItTouchesPlayerOrNetwork() = runBlocking {
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.HIGH)

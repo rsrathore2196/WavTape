@@ -207,7 +207,9 @@ class PlayerPopupThemeUiTest {
                             listOf(SoundOutputDevice(1, "This phone", "Built-in", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, true)),
                             onSelectDevice = {}, onDismiss = { dismissed++ }
                         )
-                        1 -> QueueBottomSheet(listOf(track), track, {}, { _, _ -> }, { dismissed++ })
+                        1 -> QueueBottomSheet(listOf(track) + (1..4).map {
+                            track.copy(id = "queue-$it", title = "Queued track $it")
+                        }, track, {}, { _, _ -> }, { dismissed++ }, isAutoplayEnabled = true)
                         2 -> SleepTimerDialog { dismissed++ }
                         3 -> EqualizerDialog(AudioEffectsState(isEnabled = enabled,
                             availablePresets = listOf("Flat", "Rock & Metal")), { enabled = it }, {}, { _, _ -> },
@@ -245,6 +247,10 @@ class PlayerPopupThemeUiTest {
                 assertArtworkShowsThroughInset("pipeline_stage_icon_0")
             }
             if (index == 1) {
+                if (withArtwork) {
+                    assertArtworkShowsThroughInset("queue_track_2")
+                    assertArtworkShowsThroughInset("queue_track_3")
+                }
                 val surfaceTop = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top
                 val titleTop = compose.onNodeWithText("Now Playing & Queue").fetchSemanticsNode().boundsInRoot.top
                 assertTrue("The sheet artwork starts just above its header", titleTop - surfaceTop in 0f..75f)

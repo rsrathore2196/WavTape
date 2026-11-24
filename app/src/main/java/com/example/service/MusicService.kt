@@ -12,6 +12,7 @@ import com.example.playback.FastStartUpgrade
 import com.example.playback.canSwitchStartupStream
 import com.example.playback.canLookUpFastStartQuality
 import com.example.playback.prepareFastStartReplacement
+import com.example.playback.FastStartBuffer
 import com.example.playback.playbackMode
 import com.example.playback.putPlaybackMode
 
@@ -590,12 +591,16 @@ class MusicService : MediaLibraryService() {
                         .setMediaMetadata(metadata.buildUpon().setExtras(replacementExtras).build()).build()
                 }
                 var preparedFastMedia: MediaItem? = null
+                var fastStartBuffer: FastStartBuffer? = null
                 val resolved = if (fastSwitch) {
                     app.repository.resolveFastStartUpgrade(track, policy, manual = !automaticFastStart, stillCurrent = ::ownsFastStart) { candidate ->
                         val media = transitionMedia(candidate)
                         prepareFastStartReplacement(this@MusicService, media, track, candidate,
                             position = { player.currentPosition.coerceAtLeast(0L) }, stillCurrent = ::ownsFastStart,
-                            automatic = automaticFastStart).also { if (it) preparedFastMedia = media }
+                            automatic = automaticFastStart)?.let {
+                            preparedFastMedia = media
+                            fastStartBuffer = it
+                        } != null
                     } ?: return@launch
                 } else preparedSource ?: withContext(AppDispatchers.Io) { app.repository.resolvePlayableTrack(if (restoring && !returnToYouTube) origin!!.track else track,
                     forceRefresh = failedUrl != null, failedUrl = failedUrl,
@@ -642,12 +647,14 @@ class MusicService : MediaLibraryService() {
                 if (!owns() || fastSwitch && !ownsFastStart()) return@launch
                 val index = player.currentMediaItemIndex
                 val position = player.currentPosition.coerceAtLeast(0L)
+                if (fastSwitch && fastStartBuffer?.covers(position) != true) return@launch
                 val resume = player.playWhenReady
                 val targetUri = Uri.parse(resolved.audioUrl)
                 activatedUri = targetUri
                 headlessTransition = resolved.audioUrl to position
                 fastStartInstalled = fastSwitch
-                player.replaceMediaItem(index, replacement); player.seekTo(index, position)
+                player.replaceMediaItem(index, fastStartBuffer?.forHandoff(replacement) ?: replacement)
+                player.seekTo(index, position)
                 player.prepare(); player.playWhenReady = resume
                 val ready = withTimeoutOrNull(8_000L) {
                     while (owns(targetUri)) {
@@ -907,8 +914,13 @@ class MusicService : MediaLibraryService() {
                     item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
                     return MusicCache.cachedSource(this@MusicService, item)
                 if (address?.scheme in setOf("file", "content", "xtreme-offline") ||
-                    item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key)
-                    return transportSources.createMediaSource(com.example.data.remote.StreamingAddons.prepareMediaItem(item))
+                    item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key) {
+                    val manifests = FastStartManifests.takeFor(item)
+                    val sources = if (manifests == null) transportSources else DefaultMediaSourceFactory(this@MusicService)
+                        .setDataSourceFactory(manifests.replaying(cacheDataSourceFactory))
+                        .setLoadErrorHandlingPolicy(PlaybackLoadErrorPolicy())
+                    return sources.createMediaSource(com.example.data.remote.StreamingAddons.prepareMediaItem(item))
+                }
                 return PolicyResolvingMediaSource(item, this, serviceScope,
                     resolvedIsCurrent = { it.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key }) { requested ->
                     resolveQueuedSource(requested)

@@ -46,6 +46,11 @@ object MusicCache {
     internal fun fullyCachedResource(context: Context, uri: android.net.Uri): Boolean =
         fullyCached(context, StreamedAudioRepresentations.keyFor(uri) ?: safeTransportKey(uri))
 
+    internal fun isRangeCached(context: Context, spec: androidx.media3.datasource.DataSpec, length: Long): Boolean {
+        val key = spec.key ?: StreamedAudioRepresentations.keyFor(spec.uri) ?: safeTransportKey(spec.uri)
+        return getSimpleCache(context).isCached(key, spec.position, length)
+    }
+
     internal fun offlineAudio(context: Context, video: String, cap: Int, sabr: Boolean,
         opusOnly: Boolean = false): YouTubeAudioStreamService.AudioStream? {
         val cached = (YouTubeAudioStreamService.cachedStreams(video) + persistedRepresentations(context, video)).distinctBy { it.cacheKey }.filter {

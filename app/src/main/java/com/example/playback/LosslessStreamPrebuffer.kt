@@ -9,7 +9,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.ParsableByteArray
 import androidx.media3.common.util.Util
+import androidx.media3.common.util.UriUtil
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.exoplayer.dash.DashUtil
+import androidx.media3.exoplayer.dash.DashWrappingSegmentIndex
+import androidx.media3.exoplayer.dash.manifest.DashManifest
+import androidx.media3.exoplayer.hls.HlsManifest
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
+import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
+import androidx.media3.exoplayer.upstream.ParsingLoadable
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.DummyTrackOutput
@@ -25,6 +34,7 @@ import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.ogg.OggExtractor
 import androidx.media3.extractor.wav.WavExtractor
 import com.example.service.MusicCache
+import com.example.service.FastStartManifests
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -128,12 +138,26 @@ internal object LosslessStreamPrebuffer {
      */
     suspend fun prepareAdaptiveSource(context: Context, item: MediaItem, expectedDurationMs: Long,
         stillCurrent: () -> Boolean, durationToleranceMs: Long = 5_000L, automatic: Boolean = false,
-        currentPosition: () -> Long = { 0L }, requireLossless: Boolean = true): Boolean {
+        currentPosition: () -> Long = { 0L }, requireLossless: Boolean = true): Boolean = prepareAdaptive(
+        context, item, expectedDurationMs, stillCurrent, durationToleranceMs, automatic, currentPosition, requireLossless)
+
+    suspend fun prepareAdaptiveFastStart(context: Context, item: MediaItem, expectedDurationMs: Long,
+        stillCurrent: () -> Boolean, durationToleranceMs: Long, automatic: Boolean, currentPosition: () -> Long,
+        requireLossless: Boolean): FastStartBuffer? {
+        var prepared: FastStartBuffer? = null
+        prepareAdaptive(context, item, expectedDurationMs, stillCurrent, durationToleranceMs, automatic,
+            currentPosition, requireLossless) { prepared = it }
+        return prepared
+    }
+
+    private suspend fun prepareAdaptive(context: Context, item: MediaItem, expectedDurationMs: Long,
+        stillCurrent: () -> Boolean, durationToleranceMs: Long, automatic: Boolean, currentPosition: () -> Long,
+        requireLossless: Boolean, onFastStartPrepared: ((FastStartBuffer) -> Unit)? = null): Boolean {
         if (automatic) return com.example.performance.BackgroundWorkCoordinator.startup(
             com.example.performance.BackgroundWorkCoordinator.StartupPriority.DEFERRED, requireForeground = false,
             label = "Adaptive lossless preparation") {
-            prepareAdaptiveSource(context, item, expectedDurationMs, stillCurrent, durationToleranceMs,
-                currentPosition = currentPosition, requireLossless = requireLossless)
+            prepareAdaptive(context, item, expectedDurationMs, stillCurrent, durationToleranceMs, automatic = false,
+                currentPosition, requireLossless, onFastStartPrepared)
         }
         return withContext(com.example.performance.AppDispatchers.Io) {
             worker.withLock {
@@ -146,14 +170,17 @@ internal object LosslessStreamPrebuffer {
                 }
                 if (!allowed()) return@withLock false
                 data class Metadata(val formats: List<Format>, val durationMs: Long, val manifest: Any?)
-                val upstream = MusicCache.createCacheDataSourceFactory(context, 5_000, 5_000)
+                val manifests = onFastStartPrepared?.let { FastStartManifests() }
+                val cache = MusicCache.createCacheDataSourceFactory(context, 5_000, 5_000)
+                val upstream = manifests?.recording(cache) ?: cache
+                val byteBudget = if (manifests != null) 24 * 1024 * 1024L else 4 * 1024 * 1024L
                 val bytes = java.util.concurrent.atomic.AtomicLong()
                 val factory = androidx.media3.datasource.DataSource.Factory {
                     val delegate = upstream.createDataSource()
                     object : androidx.media3.datasource.DataSource by delegate {
                         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-                            if (bytes.get() >= 4 * 1024 * 1024L) throw IOException("Adaptive preparation byte budget reached")
-                            return delegate.read(buffer, offset, minOf(length.toLong(), 4 * 1024 * 1024L - bytes.get()).toInt())
+                            if (bytes.get() >= byteBudget) throw IOException("Adaptive preparation byte budget reached")
+                            return delegate.read(buffer, offset, minOf(length.toLong(), byteBudget - bytes.get()).toInt())
                                 .also { if (it > 0) bytes.addAndGet(it.toLong()) }
                         }
                     }
@@ -221,6 +248,25 @@ internal object LosslessStreamPrebuffer {
                     val position = withContext(Dispatchers.Main.immediate) {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock false
+                    if (manifests != null) {
+                        val warmUntil = minOf(metadata.durationMs, position + FAST_START_READ_AHEAD_MS)
+                        val window = FastStartBuffer(position, warmUntil, manifests)
+                        if (!window.covers(position)) return@withLock false
+                        val ranges = fastStartRanges(metadata.manifest, factory, position, warmUntil, allowDrm)
+                            ?: return@withLock false
+                        for (range in ranges) {
+                            if (!allowed() || !withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock false
+                            val length = readCompleteRange(factory, range)
+                            val ready = if (range.isFlagSet(DataSpec.FLAG_ALLOW_GZIP)) length == 16L // HLS AES key lives in memory.
+                                else MusicCache.isRangeCached(context, range, length)
+                            if (!ready) return@withLock false
+                        }
+                        if (!allowed() || !withContext(Dispatchers.Main.immediate) {
+                                stillCurrent() && window.covers(currentPosition())
+                            }) return@withLock false
+                        onFastStartPrepared(window)
+                        return@withLock true
+                    }
                     val ranges = withContext(com.example.performance.AppDispatchers.CpuBounded) {
                         val dash = metadata.manifest as? androidx.media3.exoplayer.dash.manifest.DashManifest
                         if (dash == null || dash.dynamic || dash.periodCount == 0) emptyList() else {
@@ -272,13 +318,117 @@ internal object LosslessStreamPrebuffer {
         }
     }
 
+    private suspend fun readCompleteRange(factory: DataSource.Factory, spec: DataSpec): Long {
+        val source = factory.createDataSource()
+        val context = currentCoroutineContext()
+        try {
+            val opened = source.open(spec)
+            val expected = if (spec.length >= 0) spec.length else opened
+            val buffer = ByteArray(32 * 1024)
+            var read = 0L
+            while (expected < 0 || read < expected) {
+                context.ensureActive()
+                val length = if (expected < 0) buffer.size else minOf(buffer.size.toLong(), expected - read).toInt()
+                val count = source.read(buffer, 0, length)
+                if (count == C.RESULT_END_OF_INPUT) break
+                read += count
+            }
+            if (read == 0L || expected >= 0 && read != expected) throw IOException("Incomplete Fast Start audio range")
+            return read
+        } finally { source.close() }
+    }
+
+    /** Prepare the rendition ranges Media3 itself will request at a VOD seek. */
+    private fun fastStartRanges(manifest: Any?, factory: DataSource.Factory,
+        fromMs: Long, untilMs: Long, allowDrm: Boolean): List<DataSpec>? {
+        val fromUs = fromMs * 1000
+        val untilUs = untilMs * 1000
+        val requests = linkedMapOf<Triple<String, Long, Long>, DataSpec>()
+        fun add(range: DataSpec) {
+            requests.putIfAbsent(Triple(range.key ?: range.uri.toString(), range.position, range.length), range)
+            if (requests.size > 24) throw IOException("Fast Start segment count exceeds the read budget")
+        }
+        when (manifest) {
+            is DashManifest -> {
+                for (periodIndex in 0 until manifest.periodCount) {
+                    val period = manifest.getPeriod(periodIndex)
+                    val periodStart = period.startMs * 1000
+                    val duration = manifest.getPeriodDurationUs(periodIndex)
+                    val start = maxOf(0L, fromUs - periodStart)
+                    val end = minOf(duration, untilUs - periodStart)
+                    if (start >= end) continue
+                    val audio = period.adaptationSets.filter { it.type == C.TRACK_TYPE_AUDIO }
+                        .flatMap { it.representations }.filter { supportsAdaptiveAudio(it.format, false, allowDrm) }
+                    if (audio.isEmpty()) return null
+                    for (representation in audio) {
+                        val baseUrl = representation.baseUrls.first().url
+                        representation.initializationUri?.let { add(DashUtil.buildDataSpec(representation, baseUrl, it, 0)) }
+                        representation.indexUri?.let { add(DashUtil.buildDataSpec(representation, baseUrl, it, 0)) }
+                        val index = representation.index ?: DashUtil.loadChunkIndex(factory.createDataSource(),
+                            C.TRACK_TYPE_AUDIO, representation)?.let {
+                            DashWrappingSegmentIndex(it, representation.presentationTimeOffsetUs)
+                        } ?: return null
+                        var segment = index.getSegmentNum(start, duration)
+                        val count = index.getSegmentCount(duration)
+                        var covered = start
+                        while (covered < end) {
+                            if (count >= 0 && segment - index.firstSegmentNum >= count) return null
+                            val time = index.getTimeUs(segment)
+                            val next = time + index.getDurationUs(segment, duration)
+                            if (time > covered || next <= covered) return null
+                            // DASH passes a representation-specific cache key, even when it looks like the URI.
+                            add(DashUtil.buildDataSpec(representation, baseUrl, index.getSegmentUrl(segment), 0))
+                            covered = next
+                            segment++
+                        }
+                    }
+                }
+            }
+            is HlsManifest -> {
+                val variants = manifest.multivariantPlaylist
+                val uris = (variants.variants.map { it.url } + variants.audios.mapNotNull { it.url }).distinct()
+                if (uris.size > 4) return null
+                val playlists = if (uris.isEmpty()) listOf(manifest.mediaPlaylist) else uris.map { url ->
+                    if (url.toString() == manifest.mediaPlaylist.baseUri) manifest.mediaPlaylist else ParsingLoadable.load(
+                        factory.createDataSource(), HlsPlaylistParser(variants, null), url, C.DATA_TYPE_MANIFEST
+                    ) as? HlsMediaPlaylist ?: return null
+                }
+                for (playlist in playlists) {
+                    if (!playlist.hasEndTag) return null
+                    var covered = fromUs
+                    fun addSegment(segment: HlsMediaPlaylist.Segment) {
+                        add(DataSpec.Builder().setUri(UriUtil.resolveToUri(playlist.baseUri, segment.url))
+                            .setPosition(segment.byteRangeOffset).setLength(segment.byteRangeLength).build())
+                        segment.fullSegmentEncryptionKeyUri?.let {
+                            add(DataSpec.Builder().setUri(UriUtil.resolveToUri(playlist.baseUri, it))
+                                .setFlags(DataSpec.FLAG_ALLOW_GZIP).build())
+                        }
+                    }
+                    for (segment in playlist.segments) {
+                        val end = segment.relativeStartTimeUs + segment.durationUs
+                        if (end <= covered) continue
+                        if (segment.relativeStartTimeUs > covered || segment.hasGapTag) return null
+                        segment.initializationSegment?.let(::addSegment)
+                        addSegment(segment)
+                        covered = end
+                        if (covered >= untilUs) break
+                    }
+                    if (covered < untilUs) return null
+                }
+            }
+            else -> return null
+        }
+        return requests.values.toList().takeIf { it.isNotEmpty() }
+    }
+
     suspend fun prepare(context: Context, item: MediaItem, expectedDurationMs: Long,
         currentPosition: () -> Long, stillCurrent: () -> Boolean, durationToleranceMs: Long = 5_000L,
-        allowUnknownDuration: Boolean = false, automatic: Boolean = false, requireLossless: Boolean = true): Prepared? {
+        allowUnknownDuration: Boolean = false, automatic: Boolean = false, requireLossless: Boolean = true,
+        fastStart: Boolean = false): Prepared? {
         val coordinator = com.example.performance.BackgroundWorkCoordinator
         suspend fun attempt(): Prepared? = coordinator.finishBoundedBatch {
             prepareAttempt(context, item, expectedDurationMs, currentPosition, stillCurrent,
-                durationToleranceMs, allowUnknownDuration, automatic, requireLossless)
+                durationToleranceMs, allowUnknownDuration, automatic, requireLossless, fastStart)
         }
         if (!automatic) return attempt()
         while (withContext(Dispatchers.Main.immediate) { stillCurrent() }) {
@@ -295,7 +445,8 @@ internal object LosslessStreamPrebuffer {
 
     private suspend fun prepareAttempt(context: Context, item: MediaItem, expectedDurationMs: Long,
         currentPosition: () -> Long, stillCurrent: () -> Boolean, durationToleranceMs: Long,
-        allowUnknownDuration: Boolean, automatic: Boolean, requireLossless: Boolean): Prepared? = withContext(com.example.performance.AppDispatchers.Io) {
+        allowUnknownDuration: Boolean, automatic: Boolean, requireLossless: Boolean,
+        fastStart: Boolean): Prepared? = withContext(com.example.performance.AppDispatchers.Io) {
         worker.withLock {
             fun checkpoint() {
                 currentCheck(automatic)
@@ -335,6 +486,16 @@ internal object LosslessStreamPrebuffer {
             }
             var opened = false
             var fullLength = C.LENGTH_UNSET.toLong()
+            var rangeSpec: DataSpec? = null
+            var rangeStartBytes = 0L
+            val readRanges = mutableListOf<Pair<DataSpec, Long>>()
+            fun closeRange() {
+                source.close()
+                opened = false
+                val spec = rangeSpec
+                val length = bytes - rangeStartBytes
+                if (fastStart && spec != null && length > 0L) readRanges.add(spec to length)
+            }
             fun openAt(position: Long): DefaultExtractorInput {
                 jobContext.ensureActive()
                 checkpoint()
@@ -342,9 +503,12 @@ internal object LosslessStreamPrebuffer {
                 // open another Archive range after a capped-network handover.
                 if (!allowed())
                     throw PreparationFailure(LosslessDiagnostics.Reason.NETWORK_POLICY_BLOCKED, "Active profile changed")
-                if (opened) source.close()
+                if (opened) closeRange()
+                val spec = DataSpec.Builder().setUri(uri).setPosition(position).build()
+                rangeSpec = spec
+                rangeStartBytes = bytes
                 opened = true
-                val remaining = source.open(DataSpec.Builder().setUri(uri).setPosition(position).build())
+                val remaining = source.open(spec)
                 if (remaining >= 0L) fullLength = position + remaining
                 return DefaultExtractorInput(reader, position, fullLength)
             }
@@ -426,7 +590,9 @@ internal object LosslessStreamPrebuffer {
                     val position = withContext(Dispatchers.Main.immediate) {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock null
-                    if ((actualDuration ?: expectedDurationMs).let { it > 0L && it - position < 2_000L })
+                    val required = if (fastStart) FAST_START_BUFFER_MS else 750L
+                    val duration = actualDuration ?: expectedDurationMs
+                    if (duration > 0L && duration - position < maxOf(2_000L, required))
                         throw PreparationFailure(LosslessDiagnostics.Reason.BUFFER_COVERAGE, "Insufficient remaining audio for a safe replacement")
                     if (map.isSeekable) {
                         val point = map.getSeekPoints(position * 1000).first
@@ -436,8 +602,11 @@ internal object LosslessStreamPrebuffer {
                     }
                     // No fabricated byte offsets. For an unindexed file, continue
                     // reading real samples from the start within the same byte/time cap.
-                    while (lastSampleUs < (position + 3_000L) * 1000) if (!step())
+                    val requestedEnd = position + if (fastStart) FAST_START_READ_AHEAD_MS else 3_000L
+                    while (lastSampleUs < requestedEnd * 1000) if (!step()) {
+                        if (fastStart && lastSampleUs >= (position + required) * 1000) break
                         throw PreparationFailure(LosslessDiagnostics.Reason.PREBUFFER_FAILED, "Stream ended before the target position")
+                    }
                     if (!map.isSeekable && position > 0L) {
                         if (actualDuration == null) throw PreparationFailure(LosslessDiagnostics.Reason.SEEK_UNAVAILABLE,
                             "No safe seek index or complete duration")
@@ -447,7 +616,7 @@ internal object LosslessStreamPrebuffer {
                         // Media3's native binary seeker on activation. Never start
                         // an unseekable replacement audibly at the beginning.
                         while (step()) Unit
-                        source.close(); opened = false
+                        closeRange()
                         if (!MusicCache.fullyCachedResource(context, uri)) throw PreparationFailure(
                             LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Cannot guarantee position-preserving activation")
                     }
@@ -455,7 +624,16 @@ internal object LosslessStreamPrebuffer {
                     val latest = withContext(Dispatchers.Main.immediate) {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock null
-                    if (warmed.covers(latest)) return@withLock warmed
+                    val ready = if (fastStart) FastStartBuffer(warmed.fromMs, warmed.untilMs).covers(latest)
+                        else warmed.covers(latest)
+                    if (ready) {
+                        if (fastStart && opened) closeRange()
+                        if (fastStart && !MusicCache.isLocal(uri) && readRanges.any { (spec, length) ->
+                                !MusicCache.isRangeCached(context, spec, length)
+                            }) throw PreparationFailure(LosslessDiagnostics.Reason.BUFFER_COVERAGE,
+                            "The prepared audio ranges did not reach the playback cache")
+                        return@withLock warmed
+                    }
                 }
                 LosslessDiagnostics.record(item.mediaId, LosslessDiagnostics.Reason.BUFFER_COVERAGE, "prebuffer")
                 null
