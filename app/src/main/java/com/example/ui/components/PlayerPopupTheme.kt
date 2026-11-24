@@ -16,20 +16,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.performance.AppDispatchers
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.theme.DarkAppColors
-import com.example.ui.theme.LightAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.resolveColorScheme
@@ -42,7 +50,7 @@ import kotlin.math.roundToInt
 internal val LocalPlayerPopupColors = compositionLocalOf<AppThemeColors?> { null }
 internal val LocalPlayerPopupArtwork = compositionLocalOf<PlayerPopupArtwork?> { null }
 
-internal class PlayerPopupArtwork(val texture: ImageBitmap, val darkContent: Boolean)
+internal class PlayerPopupArtwork(val texture: ImageBitmap, val needsForegroundContrast: Boolean)
 
 @Composable
 internal fun rememberPlayerPopupArtwork(sample: PlayerArtworkSample?, playerVisible: Boolean): PlayerPopupArtwork? {
@@ -55,32 +63,67 @@ internal fun rememberPlayerPopupArtwork(sample: PlayerArtworkSample?, playerVisi
         if (sample == null || !playerVisible || prepared != null) return@LaunchedEffect
         prepared = withContext(AppDispatchers.CpuBounded) {
             val pixels = sample.blurredPopupPixels(blurFraction)
-            val averageLuminance = pixels.sumOf { Color(it).luminance().toDouble() } / pixels.size
             PlayerPopupArtwork(Bitmap.createBitmap(pixels, sample.width, sample.height, Bitmap.Config.ARGB_8888)
-                .asImageBitmap(), darkContent = averageLuminance >= .18)
+                .asImageBitmap(), needsForegroundContrast = pixels.any { Color(it).luminance() >= .18f })
         }
     }
     return prepared
 }
 
-private val darkGlassColors by lazy {
+internal val PlayerGlassPopupColors by lazy {
     playerPopupColors(DarkAppColors.copy(primaryAccent = Color.White, secondaryAccent = Color.White))
-        .copy(textSecondary = Color(0xFFFAFAFA), textMuted = Color(0xFFF5F5F5))
-}
-private val lightGlassColors by lazy {
-    playerPopupColors(LightAppColors.copy(primaryAccent = Color.Black, secondaryAccent = Color.Black))
-        .copy(textSecondary = Color(0xFF151515), textMuted = Color(0xFF202020))
+        .copy(textSecondary = Color.White, textMuted = Color.White, cardBorder = Color.White.copy(alpha = .48f))
 }
 
 @Composable
-internal fun playerGlassPopupColors(): AppThemeColors =
-    if (LocalDynamicGlassEnabled.current && LocalPlayerPopupArtwork.current?.darkContent == true) lightGlassColors
-    else darkGlassColors
+internal fun needsPopupForegroundContrast() =
+    LocalDynamicGlassEnabled.current && LocalPlayerPopupArtwork.current?.needsForegroundContrast == true
+
+/** Cast a short, fading shadow beneath the mark, leaving the surrounding glass as drawn. */
+@Composable
+internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): Modifier {
+    if (!needsPopupForegroundContrast()) return this
+    return drawWithCache {
+        val bounds = Rect(Offset.Zero, size)
+        val near = Paint().apply { colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .7f)) }
+        val far = Paint().apply { colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .22f)) }
+        val nearOffset = .8.dp.toPx()
+        val farOffset = 1.6.dp.toPx()
+        val shadowBounds = bounds.copy(bottom = bounds.bottom + farOffset)
+        val shadowLayer = Paint()
+        val removeFill = if (translucent) Paint().apply {
+            blendMode = BlendMode.DstOut
+            // The shadow must not show through the control's translucent paint.
+            colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { this[3, 3] = 12f })
+        } else null
+        onDrawWithContent {
+            val canvas = drawContext.canvas
+            if (removeFill != null) canvas.saveLayer(shadowBounds, shadowLayer)
+            translate(top = farOffset) {
+                canvas.saveLayer(bounds, far)
+                this@onDrawWithContent.drawContent()
+                canvas.restore()
+            }
+            translate(top = nearOffset) {
+                canvas.saveLayer(bounds, near)
+                this@onDrawWithContent.drawContent()
+                canvas.restore()
+            }
+            if (removeFill != null) {
+                canvas.saveLayer(bounds, removeFill)
+                drawContent()
+                canvas.restore()
+                canvas.restore()
+            }
+            drawContent()
+        }
+    }
+}
 
 @Composable
 internal fun playerPopupSurfaceColor(): Color =
     if (LocalDynamicGlassEnabled.current && LocalPlayerPopupArtwork.current != null) Color.Transparent
-    else darkGlassColors.cardBackground
+    else PlayerGlassPopupColors.cardBackground
 
 /** Keep inset highlights subtle over the live glass. */
 @Composable
@@ -158,10 +201,28 @@ internal fun rememberPlayerPopupColors(fallback: AppThemeColors = LocalAppColors
 }
 
 @Composable
-internal fun PlayerPopupTheme(colors: AppThemeColors, content: @Composable () -> Unit) {
+internal fun PlayerPopupTheme(colors: AppThemeColors, glass: Boolean = false, content: @Composable () -> Unit) {
     val scheme = remember(colors) { resolveColorScheme(colors.isDark, colors) }
+    val typography = MaterialTheme.typography
+    val contrast = glass && needsPopupForegroundContrast()
+    val density = LocalDensity.current
+    val popupTypography = remember(typography, contrast, density) {
+        if (contrast) {
+            val shadow = with(density) {
+                Shadow(Color.Black.copy(alpha = .92f), Offset(0f, 1.dp.toPx()), 2.dp.toPx())
+            }
+            typography.copy(
+                bodyLarge = typography.bodyLarge.copy(shadow = shadow),
+                bodyMedium = typography.bodyMedium.copy(shadow = shadow),
+                bodySmall = typography.bodySmall.copy(shadow = shadow),
+                titleMedium = typography.titleMedium.copy(shadow = shadow),
+                titleSmall = typography.titleSmall.copy(shadow = shadow),
+                labelMedium = typography.labelMedium.copy(shadow = shadow)
+            )
+        } else typography
+    }
     CompositionLocalProvider(LocalAppColors provides colors) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(colorScheme = scheme, typography = popupTypography, content = content)
     }
 }
 

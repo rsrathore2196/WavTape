@@ -194,8 +194,8 @@ fun LyricsTextSizePopup(
     onDismissRequest: () -> Unit,
     origin: Rect? = null
 ) {
-    val appColors = playerGlassPopupColors()
-    PlayerPopupTheme(appColors) {
+    val appColors = PlayerGlassPopupColors
+    PlayerPopupTheme(appColors, glass = true) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, _ ->
             val shape = RoundedCornerShape(26.dp)
             val panelColor = playerPopupSurfaceColor()
@@ -257,7 +257,7 @@ fun LyricsTextSizePopup(
                             activeTrackColor = appColors.primaryAccent,
                             inactiveTrackColor = appColors.textSecondary.copy(alpha = 0.25f)
                         ),
-                        modifier = Modifier.fillMaxWidth().testTag("lyrics_size_slider")
+                        modifier = Modifier.fillMaxWidth().playerPopupControlContrast(translucent = true).testTag("lyrics_size_slider")
                     )
 
                     Spacer(Modifier.height(4.dp))
@@ -296,10 +296,10 @@ fun LyricsProviderSelectionPopup(
 ) {
     // The shared Settings selector keeps its existing presentation.
     val usePlayerTheme = LocalPlayerPopupColors.current != null || allowImport
-    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) playerGlassPopupColors() else appColors
+    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) PlayerGlassPopupColors else appColors
     fun textColor(themeColor: Color) = if (usePlayerTheme) Color.White else themeColor
     val selectedFill = if (usePlayerTheme) playerPopupHighlight(0.12f) else appColors.primaryAccent.copy(alpha = 0.12f)
-    PlayerPopupTheme(appColors) {
+    PlayerPopupTheme(appColors, glass = usePlayerTheme) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, dismiss ->
             val shape = RoundedCornerShape(26.dp)
             val panelColor = if (usePlayerTheme) playerPopupSurfaceColor()
@@ -368,6 +368,7 @@ fun LyricsProviderSelectionPopup(
                                     RadioButton(
                                         selected = isCustomSelected,
                                         onClick = null,
+                                        modifier = if (usePlayerTheme) Modifier.playerPopupControlContrast() else Modifier,
                                         colors = RadioButtonDefaults.colors(
                                             selectedColor = appColors.primaryAccent,
                                             unselectedColor = appColors.textMuted
@@ -417,6 +418,7 @@ fun LyricsProviderSelectionPopup(
                                     RadioButton(
                                         selected = isSelected,
                                         onClick = null,
+                                        modifier = if (usePlayerTheme) Modifier.playerPopupControlContrast() else Modifier,
                                         colors = RadioButtonDefaults.colors(
                                             selectedColor = appColors.primaryAccent,
                                             unselectedColor = appColors.textMuted

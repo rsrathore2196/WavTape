@@ -119,7 +119,7 @@ fun SoundOutputDeviceDialog(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val latestDismiss by rememberUpdatedState(onDismiss)
-    val appColors = playerGlassPopupColors()
+    val appColors = PlayerGlassPopupColors
     val glassEnabled = LocalDynamicGlassEnabled.current
 
     // Audio Manager & Volume Management
@@ -226,7 +226,7 @@ fun SoundOutputDeviceDialog(
         )
     ) {
         KeepPlayerPopupWindowClear()
-        PlayerPopupTheme(appColors) {
+        PlayerPopupTheme(appColors, glass = true) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
@@ -266,7 +266,7 @@ fun SoundOutputDeviceDialog(
                             ) {
                                 Box(Modifier.size(32.dp).playerPopupInsetGlass(CircleShape),
                                     contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Close, "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, "Close", tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast())
                                 }
                             }
                         }
@@ -297,7 +297,7 @@ fun SoundOutputDeviceDialog(
                                     .clickable { permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }
                             ) {
                                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Bluetooth, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.Bluetooth, null, tint = Color.White, modifier = Modifier.size(20.dp).playerPopupControlContrast())
                                     Spacer(Modifier.width(12.dp))
                                     Column {
                                         Text("Allow Bluetooth access", color = Color.White, fontSize = 12.sp,
@@ -326,7 +326,7 @@ fun SoundOutputDeviceDialog(
                                             else -> Icons.AutoMirrored.Filled.VolumeUp
                                         },
                                         if (currentVolume > 0) "Mute" else "Unmute",
-                                        tint = Color.White, modifier = Modifier.size(18.dp)
+                                        tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast()
                                     )
                                 }
                                 Slider(
@@ -340,16 +340,16 @@ fun SoundOutputDeviceDialog(
                                     },
                                     valueRange = 0f..maxVolume.toFloat(),
                                     thumb = {
-                                        Box(Modifier.size(12.dp).background(appColors.heroGradient, CircleShape)
+                                        Box(Modifier.size(12.dp).playerPopupControlContrast().background(Color.White, CircleShape)
                                             .testTag("device_output_volume_thumb"))
                                     },
                                     track = { state ->
-                                        Canvas(Modifier.fillMaxWidth().height(4.dp).testTag("device_output_volume_track")) {
+                                        Canvas(Modifier.fillMaxWidth().height(4.dp).playerPopupControlContrast(translucent = true).testTag("device_output_volume_track")) {
                                             val progress = (state.value / maxVolume).coerceIn(0f, 1f)
                                             val center = size.height / 2f
-                                            drawLine(appColors.textPrimary.copy(alpha = 0.14f), Offset(0f, center),
+                                            drawLine(Color.White.copy(alpha = 0.3f), Offset(0f, center),
                                                 Offset(size.width, center), strokeWidth = size.height, cap = StrokeCap.Round)
-                                            if (progress > 0f) drawLine(appColors.primaryAccent,
+                                            if (progress > 0f) drawLine(Color.White,
                                                 Offset(if (rtl) size.width * (1f - progress) else 0f, center),
                                                 Offset(if (rtl) size.width else size.width * progress, center),
                                                 strokeWidth = size.height, cap = StrokeCap.Round)
@@ -399,22 +399,20 @@ private fun ModernDeviceItemRow(device: SoundOutputDevice, onClick: () -> Unit) 
                 contentAlignment = Alignment.Center) {
                 Icon(deviceIcon(device.category), categoryLabel,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp))
+                    modifier = Modifier.size(20.dp).playerPopupControlContrast())
             }
             Spacer(Modifier.width(10.dp))
             Text(device.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.size(22.dp).then(
-                when {
-                    selected && !colors.isDark -> Modifier.background(colors.heroGradient, CircleShape)
-                    !selected -> Modifier.border(1.5.dp, colors.textMuted.copy(alpha = 0.45f), CircleShape)
-                    else -> Modifier
-                }
+                if (selected) Modifier.background(playerPopupHighlight(0.22f), CircleShape)
+                else Modifier.playerPopupControlContrast(translucent = true)
+                    .border(1.5.dp, colors.textMuted.copy(alpha = 0.45f), CircleShape)
             ), contentAlignment = Alignment.Center) {
                 if (selected) Icon(Icons.Default.Check, null,
                     tint = Color.White,
-                    modifier = Modifier.size(14.dp))
+                    modifier = Modifier.size(14.dp).playerPopupControlContrast())
             }
         }
     }

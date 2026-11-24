@@ -97,10 +97,11 @@ private fun encoding(value: Int): String = SignalPathState.pcmEncodingLabel(valu
 @Composable
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, onClose: () -> Unit = {}) {
-    val colors = playerGlassPopupColors()
+    val colors = PlayerGlassPopupColors
     val effects by AudioEffectsManager.effectsState.collectAsStateWithLifecycle()
     val height = (LocalConfiguration.current.screenHeightDp - 48).coerceAtLeast(120).dp
     val textColor = colors.textPrimary
+    val brightArtwork = needsPopupForegroundContrast()
     val quality = state.quality
     val known = quality.verified
     val dspKnown = state.dspEncoding != C.ENCODING_INVALID && state.dspRateHz > 0
@@ -138,7 +139,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     val flowAlpha = animateFloatAsState(if (state.playbackStatus == "Playing") 1f else 0f,
         tween(if (state.playbackStatus == "Playing") 450 else 320), label = "pipeline_power")
 
-    PlayerPopupTheme(colors) {
+    PlayerPopupTheme(colors, glass = true) {
         val shape = RoundedCornerShape(26.dp)
         Surface(shape = shape, color = playerPopupSurfaceColor(), tonalElevation = 0.dp, shadowElevation = 0.dp,
             modifier = modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = height)
@@ -154,7 +155,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                     FilledTonalIconButton(onClick = onClose,
                         colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = textColor.copy(alpha = 0.08f), contentColor = textColor),
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(28.dp).testTag("pipeline_close")) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close audio pipeline", tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Close, contentDescription = "Close audio pipeline", tint = Color.White, modifier = Modifier.size(16.dp).playerPopupControlContrast())
                     }
                 }
                 Box(Modifier.weight(1f, fill = false).heightIn(max = 420.dp).verticalScroll(rememberScrollState())
@@ -174,7 +175,12 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                 val top = from.y + radius
                                 val bottom = to.y - radius
                                 if (bottom <= top) return@forEach
-                                drawLine(textColor.copy(alpha = 0.2f + 0.06f * power), Offset(from.x, top),
+                                if (brightArtwork) {
+                                    val shadowX = from.x + 1.dp.toPx()
+                                    drawLine(Color.Black.copy(alpha = .22f), Offset(shadowX, top),
+                                        Offset(shadowX, bottom), 2.dp.toPx())
+                                }
+                                drawLine(textColor.copy(alpha = (if (brightArtwork) .45f else .2f) + .06f * power), Offset(from.x, top),
                                     Offset(from.x, bottom), 2.dp.toPx())
                                 val tail = max(top, headY - 38.dp.toPx())
                                 val lead = min(bottom, headY + 8.dp.toPx())
@@ -195,7 +201,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                         }
                         Column(Modifier.fillMaxWidth()) {
                             @Composable fun stage(index: Int, title: String, icon: ImageVector, rows: List<Pair<String, String>>) {
-                                HorizontalDivider(Modifier.padding(start = 50.dp, end = 16.dp), color = colors.dividerColor.copy(alpha = 0.6f))
+                                HorizontalDivider(Modifier.padding(start = 50.dp, end = 16.dp).playerPopupControlContrast(translucent = true), color = colors.dividerColor.copy(alpha = 0.6f))
                                 Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 18.dp, bottom = 22.dp)) {
                                     Box(
                                         modifier = Modifier.size(stageBadgeSize)
@@ -210,7 +216,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp).playerPopupControlContrast())
                                     }
                                     Spacer(Modifier.width(10.dp))
                                     Column(Modifier.weight(1f)) {

@@ -2959,7 +2959,7 @@ private fun PlayerOptionsMenu(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val appColors = playerGlassPopupColors()
+    val appColors = PlayerGlassPopupColors
 
     val downloadScope = rememberCoroutineScope()
     val downloads = remember(context) { com.example.downloads.OfflineDownloads.get(context) }
@@ -2968,7 +2968,7 @@ private fun PlayerOptionsMenu(
     val downloadRecord = observedDownload
     LaunchedEffect(expanded) { if (expanded) runCatching { downloads.load() } }
 
-    PlayerPopupTheme(appColors) {
+    PlayerPopupTheme(appColors, glass = true) {
         val menuShape = RoundedCornerShape(22.dp)
         PlayerOptionsDropdown(
             expanded = expanded,
@@ -2992,7 +2992,7 @@ private fun PlayerOptionsMenu(
                         fontWeight = FontWeight.SemiBold, color = Color.White)) },
                     leadingIcon = {
                         Box(Modifier.size(34.dp).clip(CircleShape).background(itemIconBg), contentAlignment = Alignment.Center) {
-                            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast())
                         }
                     },
                     onClick = { AppHaptics.performTap(context); onDismissRequest(); action() },
@@ -3025,7 +3025,7 @@ private fun PlayerOptionsMenu(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp).playerPopupControlContrast()
                         )
                     }
                 },
@@ -3065,7 +3065,7 @@ private fun PlayerOptionsMenu(
                             imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp).playerPopupControlContrast()
                         )
                     }
                 },
@@ -3095,7 +3095,7 @@ private fun PlayerOptionsMenu(
                             downloadStatus == com.example.downloads.DownloadStatus.DOWNLOADING
                         if (downloadRecord != null && downloadStatus != com.example.downloads.DownloadStatus.COMPLETE &&
                             (active || downloadRecord.total > 0)) {
-                            val ringModifier = Modifier.matchParentSize().testTag("player_download_progress").semantics {
+                            val ringModifier = Modifier.matchParentSize().playerPopupControlContrast(translucent = true).testTag("player_download_progress").semantics {
                                 contentDescription = if (downloadRecord.total > 0) "${(downloadRecord.fraction * 100).roundToInt()}% downloaded"
                                     else if (downloadStatus == com.example.downloads.DownloadStatus.QUEUED) "Download queued"
                                     else "Downloading · size unknown"
@@ -3113,7 +3113,7 @@ private fun PlayerOptionsMenu(
                             com.example.downloads.DownloadStatus.COMPLETE -> Icons.Default.DeleteOutline
                             com.example.downloads.DownloadStatus.QUEUED, com.example.downloads.DownloadStatus.DOWNLOADING -> Icons.Default.Pause
                             else -> Icons.Default.Download
-                        }, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        }, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast())
                     }
                 },
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).testTag("player_download_option"),
@@ -3159,7 +3159,7 @@ private fun PlayerOptionsMenu(
                             imageVector = Icons.Default.Share,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp).playerPopupControlContrast()
                         )
                     }
                 },
@@ -3389,10 +3389,10 @@ internal fun SourceUpgradeMenuItem(trackId: String, onDismiss: () -> Unit,
             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White) },
         leadingIcon = {
             Box(Modifier.size(34.dp).clip(CircleShape).background(iconBackground), contentAlignment = Alignment.Center) {
-                if (upgrading) VisibleCircularProgressIndicator(Modifier.size(18.dp).testTag("player_audio_upgrading"),
+                if (upgrading) VisibleCircularProgressIndicator(Modifier.size(18.dp).playerPopupControlContrast().testTag("player_audio_upgrading"),
                     color = colors.primaryAccent, strokeWidth = 2.dp)
                 else Icon(if (upgraded) Icons.AutoMirrored.Filled.Undo else Icons.Default.AutoAwesome, contentDescription = null,
-                    tint = Color.White, modifier = Modifier.size(18.dp))
+                    tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast())
             }
         },
         enabled = current && !path.sourceTransitionInProgress,

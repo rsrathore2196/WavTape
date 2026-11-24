@@ -9,8 +9,12 @@ import android.media.AudioDeviceInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.geometry.Offset
@@ -95,9 +99,9 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    private fun capture(tag: String): java.awt.image.BufferedImage {
+    private fun capture(tag: String, useUnmergedTree: Boolean = false): java.awt.image.BufferedImage {
         val file = File("build/reports/player-popup-review/$tag$captureSuffix.png").apply { parentFile?.mkdirs() }
-        val node = compose.onNodeWithTag(tag).fetchSemanticsNode()
+        val node = compose.onNodeWithTag(tag, useUnmergedTree = useUnmergedTree).fetchSemanticsNode()
         lateinit var bitmap: Bitmap
         compose.runOnIdle {
             // Draw the node's actual window. The generic multi-window capture can
@@ -145,6 +149,34 @@ class PlayerPopupThemeUiTest {
     private val coverPixels = IntArray(32 * 32) { coverColor.toArgb() }
     private val artwork = checkNotNull(extractPlayerArtworkColors(coverPixels, 32, 32))
 
+    @Test fun translucentWhiteControlCastsAShadowWithoutDarkeningItsFill() {
+        val whiteArtwork = samplePlayerArtwork(IntArray(32 * 32) { Color.White.toArgb() }, 32, 32)
+        var ready = false
+        compose.setContent {
+            val prepared = rememberPlayerPopupArtwork(whiteArtwork, playerVisible = true)
+            SideEffect { ready = prepared != null }
+            CompositionLocalProvider(LocalDynamicGlassEnabled provides true, LocalPlayerPopupArtwork provides prepared) {
+                Box(
+                    Modifier.size(80.dp).playerPopupGlass(RoundedCornerShape(12.dp)).testTag("white_artwork"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(Modifier.size(16.dp).playerPopupControlContrast(translucent = true)
+                        .background(Color.White.copy(alpha = .4f), CircleShape))
+                }
+            }
+        }
+        compose.waitUntil(5_000) { ready }
+        val image = capture("white_artwork")
+        val centerX = image.width / 2
+        val centerY = image.height / 2
+        val belowControl = centerY + (image.height / 10f).roundToInt()
+        assertEquals(Color.White.toArgb(), image.getRGB(centerX, centerY))
+        assertEquals(Color.White.toArgb(), image.getRGB(centerX, centerY / 2))
+        assertEquals(Color.White.toArgb(), image.getRGB(centerX, centerY * 3 / 2))
+        assertTrue("The white control must remain visible on white",
+            Color(image.getRGB(centerX, belowControl)).luminance() < .85f)
+    }
+
     private fun assertArtworkGlass(tag: String): java.awt.image.BufferedImage {
         val image = capture(tag)
         var cover = 0
@@ -163,7 +195,10 @@ class PlayerPopupThemeUiTest {
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNode(hasText(text) and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals("$tag uses white text", Color.White, layouts.single().layoutInput.style.color)
+        val style = layouts.single().layoutInput.style
+        assertEquals("$tag uses white text", Color.White, style.color)
+        assertTrue("$tag casts a soft text shadow over bright artwork",
+            style.shadow?.let { it.offset.y > 0f && it.blurRadius > 0f } == true)
     }
 
     private fun assertContinuousLyricsGlass(tag: String, image: java.awt.image.BufferedImage) {
@@ -272,6 +307,9 @@ class PlayerPopupThemeUiTest {
             if (withGlass && index == 0) {
                 assertGlassInset("device_row_1")
                 assertGlassInset("device_output_volume_panel")
+                val thumb = capture("device_output_volume_thumb", useUnmergedTree = true)
+                assertEquals("The volume thumb stays white on bright artwork", Color.White.toArgb(),
+                    thumb.getRGB(thumb.width / 2, thumb.height / 2))
             }
             if (withGlass && index == 6) {
                 compose.onNodeWithTag("pipeline_stage_icon_0").assertWidthIsEqualTo(28.dp).assertHeightIsEqualTo(28.dp)

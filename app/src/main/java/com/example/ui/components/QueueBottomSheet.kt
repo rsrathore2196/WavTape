@@ -42,6 +42,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -119,7 +121,7 @@ fun QueueBottomSheet(
         if (queue.isEmpty() && currentTrack != null) listOf(currentTrack) else queue
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
-    val appColors = playerGlassPopupColors()
+    val appColors = PlayerGlassPopupColors
     val glassEnabled = LocalDynamicGlassEnabled.current
     val presentation = updateTransition(sheetState.targetValue != SheetValue.Hidden, label = "queue_presentation")
     val reveal = presentation.animateFloat(
@@ -127,7 +129,7 @@ fun QueueBottomSheet(
         label = "queue_glass_reveal"
     ) { if (it) 1f else 0f }
 
-    PlayerPopupTheme(appColors) {
+    PlayerPopupTheme(appColors, glass = true) {
         val sheetContent: @Composable () -> Unit = {
             Column(
                 modifier = Modifier
@@ -147,7 +149,7 @@ fun QueueBottomSheet(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(24.dp).playerPopupControlContrast()
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -175,7 +177,7 @@ fun QueueBottomSheet(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close Queue",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.dp).playerPopupControlContrast()
                         )
                     }
                 }
@@ -217,7 +219,7 @@ fun QueueBottomSheet(
                                     .clip(CircleShape)
                                     .background(
                                         if (isAutoplayEnabled) appColors.primaryAccent.copy(alpha = 0.22f)
-                                        else appColors.chipBackground
+                                        else playerPopupHighlight(0.12f)
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -225,7 +227,7 @@ fun QueueBottomSheet(
                                     imageVector = Icons.Default.AllInclusive,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(18.dp).playerPopupControlContrast()
                                 )
                             }
                             Spacer(modifier = Modifier.width(10.dp))
@@ -252,10 +254,18 @@ fun QueueBottomSheet(
                             }
                         }
 
-                        com.example.ui.theme.AccentSwitch(
+                        Switch(
                             checked = isAutoplayEnabled,
                             onCheckedChange = { onToggleAutoplay() },
-                            colors = playerPopupSwitchColors(appColors)
+                            modifier = Modifier.playerPopupControlContrast(translucent = true),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color.White.copy(alpha = 0.36f),
+                                checkedBorderColor = Color.Transparent,
+                                uncheckedThumbColor = Color.White,
+                                uncheckedTrackColor = Color.White.copy(alpha = 0.12f),
+                                uncheckedBorderColor = appColors.cardBorder
+                            )
                         )
                     }
                 }
@@ -277,7 +287,7 @@ fun QueueBottomSheet(
                                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(40.dp)
+                                modifier = Modifier.size(40.dp).playerPopupControlContrast()
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
@@ -391,7 +401,7 @@ fun QueueBottomSheet(
                                                     imageVector = Icons.Default.AutoAwesome,
                                                     contentDescription = null,
                                                     tint = Color.White,
-                                                    modifier = Modifier.size(9.dp)
+                                                    modifier = Modifier.size(9.dp).playerPopupControlContrast()
                                                 )
                                                 Spacer(modifier = Modifier.width(2.dp))
                                                 Text(
@@ -426,7 +436,7 @@ fun QueueBottomSheet(
                                             imageVector = Icons.Default.Equalizer,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(14.dp).playerPopupControlContrast()
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                     }
@@ -451,7 +461,7 @@ fun QueueBottomSheet(
                                             imageVector = Icons.Default.ArrowUpward,
                                             contentDescription = "Move Up",
                                             tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(16.dp).playerPopupControlContrast()
                                         )
                                     }
                                 }
@@ -464,7 +474,7 @@ fun QueueBottomSheet(
                                             imageVector = Icons.Default.ArrowDownward,
                                             contentDescription = "Move Down",
                                             tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(16.dp).playerPopupControlContrast()
                                         )
                                     }
                                 }
@@ -506,7 +516,7 @@ fun QueueBottomSheet(
                         true
                     }
                 }.padding(vertical = 12.dp).width(40.dp).height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)).background(appColors.cardBorder))
+                    .playerPopupControlContrast().clip(RoundedCornerShape(2.dp)).background(Color.White))
                 sheetContent()
             }
         }
