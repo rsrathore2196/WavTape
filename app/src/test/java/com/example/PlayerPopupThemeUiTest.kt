@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.media.AudioDeviceInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.LyricsOffsetManager
 import com.example.data.model.MusicTrack
@@ -156,6 +158,16 @@ class PlayerPopupThemeUiTest {
             minOf(warm, cool) > image.width * 2)
     }
 
+    private fun assertArtworkShowsThroughInset(tag: String) {
+        val image = capture(tag)
+        var coverPixels = 0
+        for (y in 0 until image.height) for (x in 0 until image.width) {
+            val pixel = Color(image.getRGB(x, y))
+            if (pixel.luminance() >= .09f && kotlin.math.abs(pixel.red - pixel.blue) >= .1f) coverPixels++
+        }
+        assertTrue("$tag should show the cover through most of its glass", coverPixels > image.width * image.height / 2)
+    }
+
     private fun checkPopups(source: AppThemeColors, withArtwork: Boolean = false) {
         captureSuffix = (if (source.isDark) "-dark" else "-light") + if (withArtwork) "-artwork" else ""
         var popup by mutableIntStateOf(0)
@@ -173,7 +185,10 @@ class PlayerPopupThemeUiTest {
                 LocalVisualEffectsActive provides false) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF708090))) {
                     when (popup) {
-                        0 -> SoundOutputDeviceDialog(emptyList(), onSelectDevice = {}, onDismiss = { dismissed++ })
+                        0 -> SoundOutputDeviceDialog(
+                            listOf(SoundOutputDevice(1, "This phone", "Built-in", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, true)),
+                            onSelectDevice = {}, onDismiss = { dismissed++ }
+                        )
                         1 -> QueueBottomSheet(listOf(track), track, {}, { _, _ -> }, { dismissed++ })
                         2 -> SleepTimerDialog { dismissed++ }
                         3 -> EqualizerDialog(AudioEffectsState(isEnabled = enabled,
@@ -201,6 +216,14 @@ class PlayerPopupThemeUiTest {
             val playerGlass = index in listOf(0, 1, 6, 7, 8)
             if (withArtwork && playerGlass) assertArtworkBackground(tag)
             else assertBackground(tag, if (playerGlass) Color.Black else background)
+            if (withArtwork && index == 0) {
+                assertArtworkShowsThroughInset("device_row_1")
+                assertArtworkShowsThroughInset("device_output_volume_panel")
+            }
+            if (withArtwork && index == 6) {
+                compose.onNodeWithTag("pipeline_stage_icon_0").assertWidthIsEqualTo(28.dp).assertHeightIsEqualTo(28.dp)
+                assertArtworkShowsThroughInset("pipeline_stage_icon_0")
+            }
             if (index == 1) {
                 val surfaceTop = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top
                 val titleTop = compose.onNodeWithText("Now Playing & Queue").fetchSemanticsNode().boundsInRoot.top

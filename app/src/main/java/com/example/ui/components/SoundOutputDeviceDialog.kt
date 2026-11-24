@@ -19,7 +19,6 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -281,13 +280,13 @@ fun SoundOutputDeviceDialog(
                                 fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                             Text(devices.size.toString(), color = appColors.textSecondary, fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.background(appColors.cardBackgroundElevated, RoundedCornerShape(8.dp))
+                                modifier = Modifier.playerPopupInsetGlass(RoundedCornerShape(8.dp))
                                     .padding(horizontal = 7.dp, vertical = 3.dp).testTag("output_device_count"))
                             IconButton(
                                 onClick = closeWithAnimation,
                                 modifier = Modifier.size(40.dp).testTag("close_output_devices_dialog")
                             ) {
-                                Box(Modifier.size(32.dp).background(appColors.cardBackgroundElevated, CircleShape),
+                                Box(Modifier.size(32.dp).playerPopupInsetGlass(CircleShape),
                                     contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.Close, "Close", tint = appColors.textSecondary, modifier = Modifier.size(18.dp))
                                 }
@@ -312,10 +311,11 @@ fun SoundOutputDeviceDialog(
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasBluetoothPermission) {
                             Spacer(Modifier.height(12.dp))
+                            val permissionShape = RoundedCornerShape(16.dp)
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = appColors.cardBackgroundElevated,
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                                shape = permissionShape,
+                                color = Color.Transparent,
+                                modifier = Modifier.fillMaxWidth().playerPopupInsetGlass(permissionShape)
                                     .clickable { permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }
                             ) {
                                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -331,7 +331,9 @@ fun SoundOutputDeviceDialog(
                         }
                         Spacer(Modifier.height(16.dp))
                         val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-                        Surface(shape = RoundedCornerShape(16.dp), color = appColors.cardBackgroundElevated) {
+                        val volumeShape = RoundedCornerShape(16.dp)
+                        Surface(shape = volumeShape, color = Color.Transparent,
+                            modifier = Modifier.playerPopupInsetGlass(volumeShape).testTag("device_output_volume_panel")) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(48.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = {
@@ -396,7 +398,6 @@ private fun ModernDeviceItemRow(device: SoundOutputDevice, onClick: () -> Unit) 
     val colors = LocalAppColors.current
     val selected = device.isSelected
     val shape = RoundedCornerShape(16.dp)
-    val iconBackground = if (selected) colors.primaryAccent.copy(alpha = 0.12f) else colors.cardBackground
     val categoryLabel = when (device.category) {
         AudioDeviceCategory.PHONE -> "Phone speaker"
         AudioDeviceCategory.EARBUDS -> "Earbuds"
@@ -409,16 +410,14 @@ private fun ModernDeviceItemRow(device: SoundOutputDevice, onClick: () -> Unit) 
     }
     Surface(
         shape = shape,
-        color = if (selected) androidx.compose.ui.graphics.lerp(colors.cardBackground, colors.primaryAccent, 0.08f)
-            else colors.cardBackgroundElevated,
-        border = if (selected) BorderStroke(1.dp, colors.primaryAccent.copy(alpha = 0.22f)) else null,
-        modifier = Modifier.fillMaxWidth().clip(shape)
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth().playerPopupInsetGlass(shape, emphasized = selected)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .testTag("device_row_${device.id}")
     ) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(36.dp).background(iconBackground, RoundedCornerShape(12.dp)),
+            Box(Modifier.size(36.dp).playerPopupInsetGlass(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center) {
                 Icon(deviceIcon(device.category), categoryLabel,
                     tint = if (selected) colors.primaryAccent else colors.textSecondary,

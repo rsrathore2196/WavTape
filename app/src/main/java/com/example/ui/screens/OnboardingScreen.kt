@@ -972,7 +972,7 @@ fun OnboardingStartupPage(
             Text(
                 text = "Redefining High Fidelity",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    color = primaryAccent.copy(alpha = 0.9f),
+                    color = Color.White,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp,
                     fontSize = 15.sp,

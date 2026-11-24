@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwitchDefaults
@@ -45,6 +46,24 @@ internal fun playerPopupSurfaceColor(): Color =
 @Composable
 internal fun playerPopupHighlight(alpha: Float): Color =
     Color.White.copy(alpha = if (LocalPlayerPopupArtwork.current == null) alpha else alpha * .25f)
+
+/** Frost an inset over the artwork already drawn by its parent panel. */
+@Composable
+internal fun Modifier.playerPopupInsetGlass(shape: Shape, emphasized: Boolean = false): Modifier {
+    val sheen = remember(emphasized) {
+        Brush.verticalGradient(listOf(
+            Color.White.copy(alpha = if (emphasized) .052f else .037f),
+            Color.White.copy(alpha = if (emphasized) .024f else .012f)
+        ))
+    }
+    val rim = remember(emphasized) {
+        Brush.linearGradient(listOf(
+            Color.White.copy(alpha = if (emphasized) .43f else .28f),
+            Color.White.copy(alpha = if (emphasized) .19f else .11f)
+        ))
+    }
+    return background(sheen, shape).border(.8.dp, rim, shape)
+}
 
 /** Dialog and sheet windows have separate render trees. Reuse the player's already-blurred cover texture. */
 @Composable

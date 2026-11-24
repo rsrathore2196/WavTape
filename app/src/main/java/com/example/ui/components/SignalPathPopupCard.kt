@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -130,6 +131,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     }
     val centers = remember { mutableStateMapOf<Int, Offset>() }
     val bodyCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val stageBadgeSize = 28.dp
     // Reading progress only in Canvas avoids re-composing or re-measuring the rows each frame.
     val pulse = rememberVisibleInfiniteFloat(0f, 1f,
         infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart), "pipeline_signal",
@@ -162,7 +164,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                         Canvas(Modifier.matchParentSize().graphicsLayer {}) {
                             val points = (0..4).mapNotNull { centers[it] }
                             if (points.size != 5) return@Canvas
-                            val radius = 11.5.dp.toPx()
+                            val radius = stageBadgeSize.toPx() / 2f
                             val start = points.first().y
                             val length = points.last().y - start
                             val progress = pulse.value
@@ -186,24 +188,32 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                             }
                             points.forEach { point ->
                                 val activation = (1f - abs(headY - point.y) / 24.dp.toPx()).coerceIn(0f, 1f) * fade
-                                drawCircle(colors.cardBackground, radius, point)
                                 drawCircle(Brush.radialGradient(listOf(textColor.copy(alpha = 0.07f + activation * 0.23f), Color.Transparent),
                                     point, radius + 5.dp.toPx()), radius + 5.dp.toPx(), point)
-                                drawCircle(textColor.copy(alpha = 0.35f + activation * 0.55f), radius, point, style = Stroke(1.dp.toPx()))
+                                if (activation > 0f) drawCircle(textColor.copy(alpha = activation * 0.55f),
+                                    radius, point, style = Stroke(1.dp.toPx()))
                             }
                         }
                         Column(Modifier.fillMaxWidth()) {
                             @Composable fun stage(index: Int, title: String, icon: ImageVector, rows: List<Pair<String, String>>) {
                                 HorizontalDivider(Modifier.padding(start = 50.dp, end = 16.dp), color = colors.dividerColor.copy(alpha = 0.6f))
                                 Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 18.dp, bottom = 22.dp)) {
-                                    Icon(icon, contentDescription = null, tint = muted,
-                                        modifier = Modifier.size(24.dp).onGloballyPositioned { coordinates ->
-                                            bodyCoordinates[0]?.takeIf { it.isAttached && coordinates.isAttached }?.let { root ->
-                                                val position = root.localPositionOf(coordinates, Offset(coordinates.size.width / 2f, coordinates.size.height / 2f))
-                                                if (centers[index] != position) centers[index] = position
-                                            }
-                                        })
-                                    Spacer(Modifier.width(14.dp))
+                                    Box(
+                                        modifier = Modifier.size(stageBadgeSize)
+                                            .playerPopupInsetGlass(CircleShape)
+                                            .testTag("pipeline_stage_icon_$index")
+                                            .onGloballyPositioned { coordinates ->
+                                                bodyCoordinates[0]?.takeIf { it.isAttached && coordinates.isAttached }?.let { root ->
+                                                    val center = Offset(coordinates.size.width / 2f, coordinates.size.height / 2f)
+                                                    val position = root.localPositionOf(coordinates, center)
+                                                    if (centers[index] != position) centers[index] = position
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+                                    }
+                                    Spacer(Modifier.width(10.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(title, color = muted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                             letterSpacing = 0.4.sp, modifier = Modifier.padding(bottom = 8.dp).testTag("pipeline_stage_$index"))

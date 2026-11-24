@@ -35,7 +35,7 @@ import org.robolectric.annotation.GraphicsMode
 class AboutCommunityThemeTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun buildVerificationRemainsWithoutTheRemovedAudioArchitectureDetails() {
+    @Test fun buildVerificationShowsTheGreenStablePillInBothThemes() {
         var darkMode by mutableStateOf(true)
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides if (darkMode) DarkAppColors else LightAppColors) {
@@ -46,13 +46,12 @@ class AboutCommunityThemeTest {
         compose.onNodeWithText("WavTape").assertDoesNotExist()
         compose.onNodeWithText("VERSION 2.2").assertIsDisplayed()
         compose.onNodeWithText("Build Verification").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("BETA").assertIsDisplayed()
-        compose.onNodeWithText("STABLE").assertDoesNotExist()
+        compose.onNodeWithText("STABLE").assertIsDisplayed()
         compose.onNodeWithText("Audio Architecture").assertDoesNotExist()
         compose.onNodeWithText("16-Bit PCM / 5-Band DSP").assertDoesNotExist()
 
-        fun assertYellowishBetaBadge() {
-            val file = java.io.File.createTempFile("beta-badge-", ".png")
+        fun assertGreenStableBadge() {
+            val file = java.io.File.createTempFile("stable-badge-", ".png")
             try {
                 compose.onNodeWithTag("build_verification_badge").captureRoboImage(
                     file.absolutePath,
@@ -61,25 +60,25 @@ class AboutCommunityThemeTest {
                 val pixels = javax.imageio.ImageIO.read(file)
                 val bgSample = Color(pixels.getRGB(pixels.width / 2, pixels.height - 4))
                 assertTrue(
-                    "Expected yellowish pill fill, got $bgSample",
-                    bgSample.red >= bgSample.green && bgSample.green > bgSample.blue
+                    "Expected green pill fill, got $bgSample",
+                    bgSample.green > bgSample.red && bgSample.green > bgSample.blue
                 )
             } finally {
                 file.delete()
             }
             val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText("BETA", useUnmergedTree = true)
+            compose.onNodeWithText("STABLE", useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             val textColor = layouts.single().layoutInput.style.color
             assertTrue(
-                "Expected yellowish pill text, got $textColor",
-                textColor.red >= textColor.green && textColor.green > textColor.blue
+                "Expected green pill text, got $textColor",
+                textColor.green > textColor.red && textColor.green > textColor.blue
             )
         }
-        assertYellowishBetaBadge()
+        assertGreenStableBadge()
         compose.runOnIdle { darkMode = false }
-        compose.onNodeWithText("BETA").assertIsDisplayed()
-        assertYellowishBetaBadge()
+        compose.onNodeWithText("STABLE").assertIsDisplayed()
+        assertGreenStableBadge()
     }
 
     @Test fun everyCommunityButtonUsesTheCurrentThemeWithReadableTextAndUnchangedLinks() {

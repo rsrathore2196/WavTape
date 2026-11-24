@@ -131,7 +131,7 @@ class OnboardingAppearanceUiTest {
         compose.onNodeWithTag("onboarding_brand_wordmark").assertIsDisplayed()
             .assertContentDescriptionEquals("WavTape").assertHeightIsEqualTo(40.dp)
         compose.onNodeWithText("WavTape").assertDoesNotExist()
-        assertEquals("Tagline accent must be inherited", inherited.primaryAccent.copy(alpha = 0.9f),
+        assertEquals("The tagline is white in every theme", Color.White,
             textColor("Redefining High Fidelity"))
         assertCanvas("welcome")
         compose.onNodeWithTag("start_listening_button").performScrollTo().performClick()
