@@ -7,17 +7,17 @@ import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Frozen output covers the palette and every pixel of the edge-anchored cover texture. */
+/** Frozen output covers the palette and every pixel of the untinted mirrored cover texture. */
 class ArtworkPaletteCompatibilityTest {
     @Test fun paletteAndTextureRemainIdentical() {
         val expected = listOf(
-            "4651c51fcf0de895f906815634ac3b4f7bb51803eaa59824828b678f1d2c0caf",
-            "70414cbb8b87eb3772a3b1905e934318e505dc0a68ac51026a3f5e875417d5bf",
-            "01da4ba804a3d9e7ed20abe6d9e48123bac84ce22fe630a4e1c4d720663a509e",
-            "8e338297142ee9a912a197b8c1045908506ad29048bd46af8e5122c06119121c",
-            "3519e801416f4006e1b17c5c7d71d875a29c20f07a74c3a372f7014c8e29ff48",
-            "b4250e55bfdd9c72809f670698bffd7b2a5b606a754c9a97f0fe9bcf53a08527",
-            "bfc4888d0ec6a8f720cd5080790536d205613f6c06e6d2c0cc9592833723a502"
+            "f3e3620691618f5c208c2748cd618d589681981492512ebc1165203e5f095183",
+            "d1007e06f43ebc15f85cc63bb558af539a917501f6cc2047ecd279c39b5c8f6e",
+            "37e31e124238737071d5fb5cf6712d7b18cc0b2b04aec91261683dd7a26d24e9",
+            "ba2bcc619161ae5af1c864fcf565f8bc819a711a8201a8346d9e59f785d560ed",
+            "b606bf861aed26612ee0f67e177a8952dd0749d546d554a98cfcfe19eebd578a",
+            "45c86f0ca47d2f23676ae61c9f412bc8349ccd2207d1afb0072d64a1ed0196c6",
+            "e64794d45cf7cc4d47feda23afd9204e2f9aa94656ee87baf0b46cdbd45ddd97"
         )
         val actual = fixtures().map { (width, pixels) ->
             val colors = extractPlayerArtworkColors(pixels, width, pixels.size / width)!!

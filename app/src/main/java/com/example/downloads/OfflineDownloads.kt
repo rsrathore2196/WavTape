@@ -122,11 +122,16 @@ class OfflineDownloads internal constructor(
         for (record in records.value.values) {
             if (record.status !in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)) continue
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val work = WorkManager.getInstance(context).getWorkInfosForUniqueWork(workName(record.track.id)).get().firstOrNull()
-            when (work?.state) {
-                androidx.work.WorkInfo.State.CANCELLED -> update(record.track.id) { it.copy(status = DownloadStatus.PAUSED) }
-                androidx.work.WorkInfo.State.FAILED -> update(record.track.id) { it.copy(status = DownloadStatus.FAILED, error = "Download interrupted. Tap retry.") }
-                null, androidx.work.WorkInfo.State.SUCCEEDED -> schedule(record.track.id)
+            val work = WorkManager.getInstance(context).getWorkInfosForUniqueWork(workName(record.track.id)).get()
+            val state = work.firstOrNull { !it.state.isFinished }?.state ?: work.firstOrNull()?.state
+            when (state) {
+                androidx.work.WorkInfo.State.CANCELLED -> update(record.track.id) {
+                    if (it === record) it.copy(status = DownloadStatus.PAUSED) else it
+                }
+                androidx.work.WorkInfo.State.FAILED -> update(record.track.id) {
+                    if (it === record) it.copy(status = DownloadStatus.FAILED, error = "Download interrupted. Tap retry.") else it
+                }
+                null, androidx.work.WorkInfo.State.SUCCEEDED -> schedule(record.track.id, expected = record)
                 else -> Unit
             }
         }
@@ -206,17 +211,39 @@ class OfflineDownloads internal constructor(
                 if (next != old || collections != oldCollections) commitLocked(records = next, collections = collections)
                 ids
             }
-            queued.forEach(::schedule)
+            scheduleAll(queued)
         }
     }
-    private fun schedule(id: String) {
+    private suspend fun scheduleAll(ids: List<String>) {
+        var failure: Exception? = null
+        for (id in ids) {
+            val error = schedule(id)
+            if (failure == null) failure = error
+        }
+        failure?.let { throw it }
+    }
+
+    private suspend fun schedule(id: String, expected: DownloadRecord? = _records.value[id]): Exception? {
+        if (expected == null || _records.value[id] !== expected ||
+            expected.status !in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)) return null
         val request = OneTimeWorkRequestBuilder<OfflineDownloadWorker>()
             .setInputData(workDataOf("track_id" to id))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(
                 if (_preferences.value.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
                 .setRequiresStorageNotLow(true).build())
             .addTag(WORK_TAG).build()
-        WorkManager.getInstance(context).enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, request).result.get()
+        return try {
+            WorkManager.getInstance(context).enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, request).result.get()
+            null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // A durable QUEUED row without a worker cannot make progress or be enqueued again.
+            update(id) {
+                if (it === expected) it.copy(status = DownloadStatus.FAILED, error = "Could not start download. Tap retry.") else it
+            }
+            error
+        }
     }
     suspend fun setPreferences(value: DownloadPreferences) = updatePreferences { value }
     suspend fun updatePreferences(transform: (DownloadPreferences) -> DownloadPreferences) = withContext(Dispatchers.IO) {
@@ -246,7 +273,7 @@ class OfflineDownloads internal constructor(
                     } }
                     commitLocked(records = next)
                 }
-                reschedule.forEach(::schedule)
+                scheduleAll(reschedule)
             }
         }
     }
@@ -256,7 +283,7 @@ class OfflineDownloads internal constructor(
     }
     suspend fun resume(id: String) = commands.withLock {
         update(id) { if (it.status == DownloadStatus.COMPLETE) it else it.copy(status = DownloadStatus.QUEUED, error = null) }
-        if (records.value[id]?.status == DownloadStatus.QUEUED) withContext(Dispatchers.IO) { schedule(id) }
+        if (records.value[id]?.status == DownloadStatus.QUEUED) withContext(Dispatchers.IO) { scheduleAll(listOf(id)) }
     }
     suspend fun remove(id: String): Unit = removeRecords(setOf(id))
     suspend fun clear(): Unit = removeRecords(null)

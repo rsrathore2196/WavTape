@@ -102,6 +102,7 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
         .collectLatest { (track, visible) ->
             if (track == null || !visible) return@collectLatest
             try {
+                TrackPaletteCache.initialize(context)
                 (context.applicationContext as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
                 val cover = BackgroundWorkCoordinator.traceWork("Player cover identity") { resolveCover(track) }
                 currentCoroutineContext().ensureActive()

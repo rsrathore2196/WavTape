@@ -150,9 +150,10 @@ class AppUpdaterTest {
     }
 
     @Test fun updatePopupRendersAvailableDownloadingAndReadyToInstallStates() {
+        val releaseVersion = "${BuildConfig.VERSION_NAME}.1"
         val info = UpdateInfo(
-            versionName = "2.2",
-            releaseTitle = "WavTape v2.2",
+            versionName = releaseVersion,
+            releaseTitle = "WavTape v$releaseVersion",
             releaseNotes = "- Improved liquid glass header\n- Faster updates",
             apkDownloadUrl = "https://github.com/rsrathore2196/Xtreme-Player/releases/download/v2.2/app-release.apk",
             apkFileName = "app-release.apk",
@@ -171,7 +172,7 @@ class AppUpdaterTest {
         }
         compose.onNodeWithTag("auto_update_popup_dialog").assertIsDisplayed()
         compose.onNodeWithText("New Update Available").assertIsDisplayed()
-        compose.onNodeWithText("v2.2").assertIsDisplayed()
+        compose.onNodeWithText("v$releaseVersion").assertIsDisplayed()
         compose.onNodeWithText("20.0 MB").assertIsDisplayed()
         compose.onNodeWithText("Download Update").assertIsDisplayed()
 

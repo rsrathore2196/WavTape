@@ -19,7 +19,6 @@ import coil.request.ImageRequest
 import coil.size.Scale
 import coil.size.Precision
 import com.example.data.model.MusicTrack
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -119,38 +118,48 @@ data class ExtractedTrackColors(
 }
 
 object TrackPaletteCache {
-    private val memoryCache = android.util.LruCache<String, ExtractedTrackColors>(128)
+    private const val MAX_ENTRIES = 128
+    private val memoryCache = android.util.LruCache<String, ExtractedTrackColors>(MAX_ENTRIES)
     private val revision = MutableStateFlow(0L)
-    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
-    private val pending = kotlinx.coroutines.channels.Channel<Map<String, ExtractedTrackColors>>(kotlinx.coroutines.channels.Channel.CONFLATED)
-    private var clearGeneration = 0L
-    @Volatile private var file: android.util.AtomicFile? = null
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + AppDispatchers.Io)
+    private val pending = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private var cleared = false
+    private var file: android.util.AtomicFile? = null
 
+    @Synchronized
     fun initialize(context: android.content.Context) {
         if (file != null) return
         val storage = android.util.AtomicFile(java.io.File(context.applicationContext.filesDir, "track_palettes_v2.json"))
         file = storage
-        val readGeneration = synchronized(memoryCache) { clearGeneration }
         scope.launch {
             try {
                 if (storage.baseFile.exists() && storage.baseFile.length() <= 100_000L) {
                     val text = storage.openRead().use { String(it.readBytes()) }
-                    kotlinx.coroutines.withContext(AppDispatchers.CpuBounded) {
-                    val json = org.json.JSONObject(text)
-                    json.keys().asSequence().take(128).forEach { key ->
-                        val item = json.getJSONArray(key)
-                        synchronized(memoryCache) {
-                            if (clearGeneration == readGeneration && memoryCache.get(key) == null)
-                                memoryCache.put(key, ExtractedTrackColors(
-                                    Color(item.getInt(0)), Color(item.getInt(1)), Color(item.getInt(2)),
-                                    Color(item.optInt(3, item.getInt(0))), Color(item.optInt(4, item.getInt(0)))))
-                        }
+                    val restored = kotlinx.coroutines.withContext(AppDispatchers.CpuBounded) {
+                        val json = org.json.JSONObject(text)
+                        json.keys().asSequence().take(MAX_ENTRIES).mapNotNull { key ->
+                            val item = json.optJSONArray(key) ?: return@mapNotNull null
+                            runCatching {
+                                key to ExtractedTrackColors(Color(item.getInt(0)), Color(item.getInt(1)), Color(item.getInt(2)),
+                                    Color(item.optInt(3, item.getInt(0))), Color(item.optInt(4, item.getInt(0))))
+                            }.getOrNull()
+                        }.toList()
                     }
+                    synchronized(memoryCache) {
+                        if (!cleared) {
+                            val before = memoryCache.size()
+                            for ((key, colors) in restored) {
+                                if (memoryCache.size() == MAX_ENTRIES) break
+                                if (memoryCache.get(key) == null) memoryCache.put(key, colors)
+                            }
+                            if (memoryCache.size() != before) revision.value++
+                        }
                     }
                 }
             } catch (_: Exception) { /* A palette miss never prevents artwork/playback. */ }
-            for (snapshot in pending) {
+            for (checkpoint in pending) {
                 try {
+                    val snapshot = synchronized(memoryCache) { memoryCache.snapshot() }
                     val content = kotlinx.coroutines.withContext(AppDispatchers.CpuBounded) {
                     val json = org.json.JSONObject()
                     snapshot.forEach { (key, c) -> json.put(key, org.json.JSONArray().put(c.dominantColor.toArgb())
@@ -185,17 +194,17 @@ object TrackPaletteCache {
             synchronized(memoryCache) {
                 memoryCache.put(trackId, colors)
                 revision.value++
-                pending.trySend(memoryCache.snapshot())
+                pending.trySend(Unit)
             }
         }
     }
 
     fun clear() {
         synchronized(memoryCache) {
-            ++clearGeneration
+            cleared = true
             memoryCache.evictAll()
             revision.value++
-            pending.trySend(emptyMap())
+            pending.trySend(Unit)
         }
     }
 }

@@ -10,8 +10,11 @@ import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
 import com.example.playback.ARTIST_RADIO_EXTRA
 import com.example.playback.ArtistRadio
+import com.example.playback.PlaybackMode
 import com.example.playback.artistRadio
+import com.example.playback.playbackMode
 import com.example.playback.putArtistRadio
+import com.example.playback.putPlaybackMode
 import com.example.service.PlaybackSessionStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -22,7 +25,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -125,17 +127,40 @@ class PlaybackTimelineCheckpointTest {
         }
         val regular = item("regular-song")
         PlaybackSessionStore.checkpoint(context, QueueTimeline(listOf(scoped, shuffled, regular)), 1, 130_000)
-        val saved = File(context.filesDir, "real_playback_session.json")
-        withTimeout(5_000L) {
-            while (runCatching { "\"artistRadioShuffle\":true" !in saved.readText() }.getOrDefault(true)) delay(10)
-        }
-        // Clear the in-process snapshot so restore must decode the session file.
-        PlaybackSessionStore::class.java.getDeclaredField("latest").apply { isAccessible = true }
-            .set(PlaybackSessionStore, null)
-        val restored = requireNotNull(PlaybackSessionStore.restore(context))
+        val restored = restoreFromDiskAt(130_000L)
         assertEquals(ArtistRadio("Selected Artist"), restored.items[0].mediaMetadata.extras?.artistRadio())
         assertEquals(ArtistRadio("Selected Artist", shuffle = true), restored.items[restored.index].mediaMetadata.extras?.artistRadio())
         assertNull(restored.items[2].mediaMetadata.extras?.artistRadio())
+    }
+
+    @Test fun restoredQueuePreservesPlaybackModesAndOlderUnmarkedItems() = runBlocking {
+        fun withMode(id: String, mode: PlaybackMode): MediaItem {
+            val song = item(id)
+            return song.buildUpon().setMediaMetadata(song.mediaMetadata.buildUpon()
+                .setExtras(Bundle().apply { putPlaybackMode(mode) }).build()).build()
+        }
+        val items = listOf(withMode("fast", PlaybackMode.FAST_START),
+            withMode("quality", PlaybackMode.BEST_QUALITY), item("older"))
+        PlaybackSessionStore.checkpoint(context, QueueTimeline(items), 1, 140_000)
+        val restored = restoreFromDiskAt(140_000L)
+        assertEquals(listOf(PlaybackMode.FAST_START, PlaybackMode.BEST_QUALITY, null),
+            restored.items.map { it.playbackMode })
+        assertEquals(1, restored.index)
+        assertEquals(140_000L, restored.positionMs)
+    }
+
+    private suspend fun restoreFromDiskAt(position: Long): PlaybackSessionStore.Snapshot {
+        val writerFile = PlaybackSessionStore::class.java.getDeclaredField("file").apply { isAccessible = true }
+        withTimeout(5_000L) {
+            while (runCatching {
+                    val saved = writerFile.get(PlaybackSessionStore) as android.util.AtomicFile
+                    org.json.JSONObject(saved.baseFile.readText()).getLong("position") != position
+                }.getOrDefault(true)) delay(10)
+        }
+        // Bypass the live snapshot to exercise the data written to disk.
+        PlaybackSessionStore::class.java.getDeclaredField("latest").apply { isAccessible = true }
+            .set(PlaybackSessionStore, null)
+        return requireNotNull(PlaybackSessionStore.restore(context))
     }
 
     @Test fun queueEncodingTracksArtistRadioChangesForTheSameMediaItem() {

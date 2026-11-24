@@ -11,7 +11,10 @@ import androidx.media3.common.Timeline
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.playback.ARTIST_RADIO_EXTRA
 import com.example.playback.ARTIST_RADIO_SHUFFLE_EXTRA
+import com.example.playback.PlaybackMode
+import com.example.playback.playbackMode
 import com.example.playback.putArtistRadio
+import com.example.playback.putPlaybackMode
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
@@ -118,6 +121,7 @@ internal object PlaybackSessionStore {
                     put("isLossless", extras?.getBoolean("isLossless", false) ?: false)
                     put("recommendationOnly", extras?.getBoolean("recommendation_only", false) ?: false)
                     put("queueCollection", extras?.getBoolean("queue_collection", false) ?: false)
+                    item.playbackMode?.let { put("playbackMode", it.name) }
                     extras?.getString(ARTIST_RADIO_EXTRA)?.let { name ->
                         put("artistRadio", name)
                         if (extras.getBoolean(ARTIST_RADIO_SHUFFLE_EXTRA)) put("artistRadioShuffle", true)
@@ -209,6 +213,8 @@ internal object PlaybackSessionStore {
                                 putBoolean("isLossless", entry.optBoolean("isLossless"))
                                 putBoolean("recommendation_only", entry.optBoolean("recommendationOnly"))
                                 putBoolean("queue_collection", entry.optBoolean("queueCollection"))
+                                val mode = entry.optString("playbackMode")
+                                putPlaybackMode(PlaybackMode.entries.firstOrNull { it.name == mode })
                                 entry.optString("artistRadio").takeIf(String::isNotBlank)?.let { artist ->
                                     putArtistRadio(artist, shuffle = entry.optBoolean("artistRadioShuffle"))
                                 }
