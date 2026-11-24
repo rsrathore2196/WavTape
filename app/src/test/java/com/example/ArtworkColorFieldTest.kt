@@ -2,11 +2,37 @@ package com.example
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.example.data.local.PlayerEffect
 import com.example.ui.util.extractPlayerArtworkColors
 import org.junit.Assert.*
 import org.junit.Test
 
 class ArtworkColorFieldTest {
+    @Test fun legacyUsesSeparateEdgeTexturesAndKeepsTheBottomSeamContinuous() {
+        val pixels = IntArray(64 * 64) { if (it / 64 < 32) 0xff8c3020.toInt() else 0xff2044a0.toInt() }
+        val default = extractPlayerArtworkColors(pixels, 64, 64)!!
+        val legacy = extractPlayerArtworkColors(pixels, 64, 64, PlayerEffect.LEGACY)!!
+        val field = legacy.legacyColorField!!
+        assertNull(default.legacyColorField)
+        assertNull(legacy.colorField)
+        assertEquals(default.topEdgeColor, legacy.topEdgeColor)
+        assertEquals(default.bottomEdgeColor, legacy.bottomEdgeColor)
+        assertArrayEquals(field.pixels.takeLast(field.dimension).toIntArray(), field.bottomPixels.take(field.dimension).toIntArray())
+        val top = Color(field.pixels.first())
+        val bottom = Color(field.bottomPixels.last())
+        assertTrue(top.red > top.blue * 2)
+        assertTrue(bottom.blue > bottom.red * 2)
+    }
+
+    @Test fun legacyDoesNotDarkenAnEvenlyColoredCoverBelowTheArtwork() {
+        val fill = 0xff264060.toInt()
+        val field = extractPlayerArtworkColors(IntArray(64 * 64) { fill }, 64, 64,
+            PlayerEffect.LEGACY)!!.legacyColorField!!
+        val seam = Color(field.bottomPixels.first())
+        val base = Color(field.bottomPixels.last())
+        assertEquals(seam.luminance(), base.luminance(), .003f)
+    }
+
     @Test fun bothReflectionsKeepTheOriginalShadowAndMidtoneColors() {
         val warmShadow = 0xff402028.toInt()
         val blueMidtone = 0xff426192.toInt()

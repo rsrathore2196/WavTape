@@ -15,6 +15,8 @@ import coil.ImageLoader
 import coil.imageLoader
 import coil.size.Precision
 import coil.size.Scale
+import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import com.example.data.model.MusicTrack
 import com.example.data.remote.resolveYouTubePlayerCover
 import com.example.data.remote.playerCoverIdentity
@@ -197,13 +199,15 @@ internal fun prepareUpcomingPlayerArtwork(
 
 private suspend fun cachePlayerBackdrop(context: Context, track: MusicTrack, artwork: SuccessResult,
     fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
-    if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
-        !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return
-    fun key(url: String) = playerPaletteKey(track, true, Color.White, Color.Black, url)
+    if (!OtherSettingsPreferences.isDynamicGlassEnabled(context)) return
+    val appearance = OtherSettingsPreferences.playerExperienceSettings(context)
+    if (!appearance.dynamicAlbumGlow) return
+    val effect = appearance.playerEffect
+    fun key(url: String) = playerEffectPaletteKey(playerPaletteKey(track, true, Color.White, Color.Black, url), effect)
     try {
         val selectedKey = key(artwork.request.data.toString())
         val bitmap = (artwork.drawable as? BitmapDrawable)?.bitmap ?: return
-        val colors = prepareDecodedPlayerArtworkColors(selectedKey, bitmap, urgent) ?: return
+        val colors = prepareDecodedPlayerArtworkColors(selectedKey, bitmap, urgent, effect) ?: return
         currentCoroutineContext().ensureActive()
         // An early sample supplies a fallback until the actual full-size source is known.
         for (alias in setOfNotNull(key(track.coverUrl), fullRequest?.let { key(it.data.toString()) })) {
@@ -235,6 +239,10 @@ fun playerPaletteKey(track: MusicTrack, dark: Boolean, accent: Color, base: Colo
 internal fun playerPreviewPaletteKey(track: MusicTrack): String =
     playerPaletteKey(track, true, Color.White, Color.Black) + "|dock-preview"
 
+// Retain existing Default entries and keep the different Legacy textures in their own cache entries.
+internal fun playerEffectPaletteKey(key: String, effect: PlayerEffect): String =
+    if (effect == PlayerEffect.LEGACY) "legacy:$key" else key
+
 private val playerPaletteLocks = Array(8) { Mutex() }
 
 /** Prefetch and the visible player share one decode/analysis, including after navigation waits. */
@@ -243,7 +251,7 @@ internal suspend fun preparePlayerArtworkColors(
     urgent: () -> Boolean = { false },
     prepare: suspend () -> ExtractedTrackColors?
 ): ExtractedTrackColors? {
-    fun prepared() = TrackPaletteCache.get(key)?.takeIf { it.colorField != null }
+    fun prepared() = TrackPaletteCache.get(key)?.takeIf { it.hasBackdrop }
     prepared()?.let { return it }
     BackgroundWorkCoordinator.awaitNavigationIdle(requireForeground = true, bypass = urgent)
     return playerPaletteLocks[(key.hashCode() and Int.MAX_VALUE) % playerPaletteLocks.size].withLock {
@@ -256,7 +264,7 @@ internal suspend fun preparePlayerArtworkColors(
 
 /** Analyze a bounded sample of the decoded cover without another Coil request. */
 internal suspend fun prepareDecodedPlayerArtworkColors(key: String, bitmap: Bitmap,
-    urgent: () -> Boolean = { false }): ExtractedTrackColors? = preparePlayerArtworkColors(key, urgent) {
+    urgent: () -> Boolean = { false }, effect: PlayerEffect = PlayerEffect.DEFAULT): ExtractedTrackColors? = preparePlayerArtworkColors(key, urgent) {
     withContext(AppDispatchers.CpuBounded) {
         val width = bitmap.width
         val height = bitmap.height
@@ -269,7 +277,7 @@ internal suspend fun prepareDecodedPlayerArtworkColors(key: String, bitmap: Bitm
             // getPixels needs readable software pixels even when Coil drew a hardware bitmap.
             val sample = if (android.os.Build.VERSION.SDK_INT >= 26 && scaled.config == Bitmap.Config.HARDWARE)
                 scaled.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null else scaled
-            try { extractPlayerArtworkColors(sample, true) }
+            try { extractPlayerArtworkColors(sample, true, effect) }
             finally { if (sample !== scaled) sample.recycle() }
         } finally { if (scaled !== bitmap) scaled.recycle() }
     }
@@ -369,11 +377,12 @@ private fun playerArtworkDerivative(artwork: ImageRequest, targetPixels: Int,
 
 /** Called on CpuBounded with the small software sample, never a full-size hardware bitmap. */
 @Suppress("UNUSED_PARAMETER")
-internal fun extractPlayerArtworkColors(bitmap: Bitmap, dark: Boolean): ExtractedTrackColors? {
+internal fun extractPlayerArtworkColors(bitmap: Bitmap, dark: Boolean,
+    effect: PlayerEffect = PlayerEffect.DEFAULT): ExtractedTrackColors? {
     val w = bitmap.width
     val h = bitmap.height
     if (w <= 0 || h <= 0) return null
     val pixels = IntArray(w * h)
     bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-    return extractPlayerArtworkColors(pixels, w, h)
+    return extractPlayerArtworkColors(pixels, w, h, effect)
 }

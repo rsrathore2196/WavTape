@@ -10,6 +10,8 @@ import coil.decode.DataSource
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.SuccessResult
+import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import com.example.data.model.MusicTrack
 import com.example.performance.BackgroundWorkCoordinator
 import com.example.ui.util.*
@@ -51,6 +53,7 @@ class PlayerArtworkPrefetchTest {
 
     @Test fun selectedCoverAndColorsArePreparedBeforeOpeningAndReusedByVisibleRequests() = preparedCover(false)
     @Test fun selectedVideoUsesTheResolvedSongCoverForPrefetchPaletteAndPlayerWithoutChangingPlayback() = preparedCover(true)
+    @Test fun legacyBackdropSharesThePreparedCoverWithoutChangingTheDefaultCache() = preparedCover(false, PlayerEffect.LEGACY)
 
     @Test fun collapsedPlayerLoadsMiniArtThenPromotesTheSamePreparationWhenOpened() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -100,7 +103,7 @@ class PlayerArtworkPrefetchTest {
         }
     }
 
-    private fun preparedCover(videoThumbnail: Boolean) = runBlocking {
+    private fun preparedCover(videoThumbnail: Boolean, effect: PlayerEffect = PlayerEffect.DEFAULT) = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val calls = AtomicInteger()
         val paletteRequests = AtomicInteger()
@@ -142,15 +145,22 @@ class PlayerArtworkPrefetchTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val decodeSize = playerArtworkDecodeSize(context)
         val source = mapTargetSizeToArtworkDimension(ImageConfig.PLAYER_SCREEN_SIZE, decodeSize)
-        val key = playerPaletteKey(track.copy(coverUrl = originalCover), true, Color.White, Color.Black,
+        val defaultKey = playerPaletteKey(track.copy(coverUrl = originalCover), true, Color.White, Color.Black,
             providerArtworkUrl(originalCover, source))
+        val key = playerEffectPaletteKey(defaultKey, effect)
+        val previousEffect = OtherSettingsPreferences.playerExperienceSettings(context).playerEffect
         try {
+            OtherSettingsPreferences.setPlayerEffect(context, effect)
             prepareCurrentPlayerArtwork(context, tracks, MutableStateFlow(true), scope,
                 onCoverResolved = resolvedCover::set,
                 resolveCover = { if (videoThumbnail) originalCover else null }
             ) { loader }
-            val ready = withTimeoutOrNull(5000) { while (TrackPaletteCache.get(key)?.colorField == null) delay(10); true }
+            val ready = withTimeoutOrNull(5000) { while (TrackPaletteCache.get(key)?.hasBackdrop != true) delay(10); true }
             assertTrue("Prefetch must finish: $events", ready == true)
+            if (effect == PlayerEffect.LEGACY) {
+                assertNotNull(TrackPaletteCache.get(key)?.legacyColorField)
+                assertNull(TrackPaletteCache.get(defaultKey))
+            }
             val artworkTrack = playerCoverState(com.example.playback.PlayerUiState(currentTrack = track), resolvedCover.get()).currentTrack!!
             assertEquals(originalCover, artworkTrack.coverUrl)
             assertEquals(track.copy(coverUrl = originalCover), artworkTrack)
@@ -167,7 +177,12 @@ class PlayerArtworkPrefetchTest {
             tracks.value = track.copy(audioUrl = "new-provider", source = "JioSaavn", bitrateKbps = 320)
             delay(100)
             assertEquals("Audio-source changes must not repeat image downloads", 1, calls.get())
-        } finally { scope.coroutineContext[Job]!!.cancelAndJoin(); loader.shutdown(); directory.deleteRecursively() }
+        } finally {
+            scope.coroutineContext[Job]!!.cancelAndJoin()
+            OtherSettingsPreferences.setPlayerEffect(context, previousEffect)
+            loader.shutdown()
+            directory.deleteRecursively()
+        }
     }
     @Test fun failedSongCoverDownloadDoesNotReplaceTheCurrentArtwork() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()

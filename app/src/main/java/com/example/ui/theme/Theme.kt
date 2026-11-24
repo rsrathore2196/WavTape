@@ -7,11 +7,13 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -28,6 +30,8 @@ import com.example.data.local.ThemePresets
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+
+internal val LocalPlayerEffect = compositionLocalOf { PlayerEffect.DEFAULT }
 
 private fun parseColorSafe(hex: String, fallback: Color): Color {
     return try {
@@ -291,6 +295,7 @@ fun MyApplicationTheme(
 
     CompositionLocalProvider(
         LocalAppColors provides appColors,
+        LocalPlayerEffect provides playerExperience.playerEffect,
         LocalStatusBarAppearance provides statusBarAppearance,
         androidx.compose.ui.platform.LocalDensity provides customDensity
     ) {

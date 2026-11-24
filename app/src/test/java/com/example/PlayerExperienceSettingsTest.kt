@@ -7,6 +7,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.compose.ui.graphics.toArgb
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import com.example.data.local.PlayerExperienceSettings
 import com.example.data.local.ReactiveSettingsRepository
 import com.example.data.local.ThemePresets
@@ -40,6 +41,25 @@ class PlayerExperienceSettingsTest {
             assertEquals(PlayerExperienceSettings(true, false, false), OtherSettingsPreferences.playerExperienceSettings(context))
             assertEquals(PlayerExperienceSettings(true, false, false),
                 withTimeout(2_000) { OtherSettingsPreferences.observePlayerExperience(context).first() })
+        }
+    }
+
+    @Test fun legacyEffectIsObservedAndSurvivesOpeningANewSettingsRepository() = runBlocking {
+        ReactiveSettingsRepository(app).use { repository ->
+            repository.preload()
+            val context = client(repository)
+            assertEquals(PlayerEffect.DEFAULT, OtherSettingsPreferences.playerExperienceSettings(context).playerEffect)
+            val observed = async { withTimeout(3_000) {
+                OtherSettingsPreferences.observePlayerExperience(context).first { it.playerEffect == PlayerEffect.LEGACY }
+            } }
+            OtherSettingsPreferences.setPlayerEffect(context, PlayerEffect.LEGACY)
+            assertEquals(PlayerEffect.LEGACY, observed.await().playerEffect)
+            repository.awaitPendingWrites()
+        }
+        ReactiveSettingsRepository(app).use { reopened ->
+            reopened.preload()
+            val current = OtherSettingsPreferences.playerExperienceSettings(client(reopened))
+            assertEquals(PlayerExperienceSettings(playerEffect = PlayerEffect.LEGACY), current)
         }
     }
     @Test fun switchingGlowOffBeforePreloadCannotBeOverwrittenAndSurvivesReopening() = runBlocking {

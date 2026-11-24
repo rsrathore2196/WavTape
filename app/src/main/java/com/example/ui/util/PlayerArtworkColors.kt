@@ -2,11 +2,13 @@ package com.example.ui.util
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.example.data.local.PlayerEffect
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** Pure pixel analysis shared by prefetch and the visible player. */
-internal fun extractPlayerArtworkColors(pixels: IntArray, w: Int, h: Int): ExtractedTrackColors? {
+internal fun extractPlayerArtworkColors(pixels: IntArray, w: Int, h: Int,
+    effect: PlayerEffect = PlayerEffect.DEFAULT): ExtractedTrackColors? {
     if (w <= 0 || h <= 0 || w.toLong() * h > pixels.size) return null
     // Spatial Multi-Region Analysis:
     // Partition into a 3x3 grid (9 zones):
@@ -193,7 +195,8 @@ internal fun extractPlayerArtworkColors(pixels: IntArray, w: Int, h: Int): Extra
     return ExtractedTrackColors(dominant, scaled(1.12f), scaled(0.90f),
         edgeColor(pixels, w, h, bottom = false, fallback = dominant),
         edgeColor(pixels, w, h, bottom = true, fallback = dominant),
-        artworkColorField(pixels, w, h))
+        colorField = if (effect == PlayerEffect.DEFAULT) artworkColorField(pixels, w, h) else null,
+        legacyColorField = if (effect == PlayerEffect.LEGACY) legacyArtworkColorField(pixels, w, h, dominant) else null)
 }
 
 private fun isLightNeutral(color: Color): Boolean =

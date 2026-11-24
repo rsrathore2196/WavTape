@@ -19,7 +19,7 @@ internal object BackupSettings {
                 "playback_spatial_audio", "playback_dolby_atmos", "playback_skip_silence", "playback_bit_perfect", "keep_lyrics_screen_awake",
                 "streaming_addon_enabled").forEach { put(it, "boolean") }
             listOf("proxy_host", "proxy_type", "lyrics_provider", "lyrics_translation_language",
-                "playback_output_precision", "streaming_addon_url", "streaming_addon_name").forEach { put(it, "string") }
+                "playback_output_precision", "player_backdrop_effect", "streaming_addon_url", "streaming_addon_name").forEach { put(it, "string") }
             listOf("proxy_port", "text_size_index", "ui_size_index", "lyrics_text_size_sp",
                 "total_played_count", "total_listening_minutes").forEach { put(it, "int") }
         },

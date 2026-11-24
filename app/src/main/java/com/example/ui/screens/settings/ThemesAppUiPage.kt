@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -54,10 +57,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AppThemeMode
+import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassCard
@@ -65,6 +71,7 @@ import com.example.ui.theme.liquidGlassPill
 import com.example.ui.theme.liquidGlassSwitchColors
 import com.example.ui.theme.bouncyClickable
 import com.example.ui.theme.contrastingContentColor
+import com.example.ui.theme.onAccentGradient
 
 private enum class ThemeSettingsPage { OVERVIEW, PRESETS, CUSTOM }
 
@@ -494,6 +501,12 @@ private fun ThemesAppUiOverview(
 
                 HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
 
+                PlayerEffectSetting(playerExperience.playerEffect) { effect ->
+                    OtherSettingsPreferences.setPlayerEffect(settingsContext, effect)
+                }
+
+                HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -613,6 +626,28 @@ private fun ThemesAppUiOverview(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun PlayerEffectSetting(selected: PlayerEffect, onSelect: (PlayerEffect) -> Unit) {
+    val colors = LocalAppColors.current
+    Text("Player Effect", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+    Text("With Dynamic Ambient Album Glow on, Default mirrors the artwork and Legacy blends its top and bottom colors.",
+        fontSize = 11.sp, color = colors.textMuted)
+    Row(Modifier.padding(top = 10.dp).fillMaxWidth()
+        .clip(RoundedCornerShape(16.dp)).background(colors.textPrimary.copy(alpha = .07f))
+        .padding(4.dp).selectableGroup()) {
+        PlayerEffect.entries.forEach { effect ->
+            val active = selected == effect
+            Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+                .then(if (active) Modifier.background(colors.heroGradient) else Modifier)
+                .selectable(selected = active, role = Role.RadioButton, onClick = { if (!active) onSelect(effect) })
+                .testTag("player_effect_${effect.storageKey}"), contentAlignment = Alignment.Center) {
+                Text(effect.label, color = if (active) colors.onAccentGradient else colors.textPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 

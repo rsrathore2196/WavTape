@@ -128,6 +128,9 @@ import com.example.playback.AudioDeviceManager
 import com.example.playback.AudioQuality
 import com.example.playback.SoundOutputDevice
 import com.example.ui.util.TrackPaletteCache
+import com.example.ui.util.ExtractedTrackColors
+import com.example.ui.util.playerEffectPaletteKey
+import com.example.data.local.PlayerEffect
 import com.example.ui.util.ARTWORK_METADATA_PARAMETER
 import com.example.ui.util.ArtworkRequestMetadata
 import com.example.util.AppHaptics
@@ -469,6 +472,7 @@ fun ExpandedPlayerScreen(
     val playerExperience by playerExperienceFlow.collectAsStateWithLifecycle(
         initialValue = remember(context) { com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context) }
     )
+    val playerEffect = playerExperience.playerEffect
     KeepLyricsScreenAwake(showLyrics && isScreenVisible, integrations.keepLyricsAwake)
     var maximizeLyrics by remember(track.id) { mutableStateOf(false) }
     val lyricsExpanded = showLyrics && maximizeLyrics
@@ -588,23 +592,30 @@ fun ExpandedPlayerScreen(
     val previewPaletteKey = remember(rawCoverPaletteKey, track.coverUrl) { com.example.ui.util.playerPreviewPaletteKey(track) }
     // The retained player can take new cached reflections while its scene is hidden.
     // A cold scene reads the same cache before drawing its first frame.
-    val cachedColors by key(paletteKey, rawCoverPaletteKey, renderedPaletteKey, previewPaletteKey) {
-        val keys = remember { listOfNotNull(renderedPaletteKey, paletteKey, rawCoverPaletteKey, previewPaletteKey).distinct().toTypedArray() }
+    val cachedColors by key(paletteKey, rawCoverPaletteKey, renderedPaletteKey, previewPaletteKey, playerEffect) {
+        val keys = remember {
+            val artworkKeys = listOfNotNull(renderedPaletteKey, paletteKey, rawCoverPaletteKey, previewPaletteKey).distinct()
+            if (playerEffect == PlayerEffect.LEGACY) {
+                // Existing edge colors can paint the gradient as soon as the effect is selected.
+                (artworkKeys.map { playerEffectPaletteKey(it, playerEffect) } + artworkKeys).toTypedArray()
+            } else artworkKeys.toTypedArray()
+        }
         val initial = remember { TrackPaletteCache.colorsForArtwork(*keys) }
         remember { TrackPaletteCache.observeArtwork(*keys) }.collectAsState(initial)
     }
-    val artworkColorField = rememberUpdatedState(cachedColors?.colorField)
+    val artworkColorField = rememberUpdatedState(cachedColors?.colorField.takeIf { playerEffect == PlayerEffect.DEFAULT })
     // Only the backdrop's draw scope observes geometry; layout changes do not
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
 
-    LaunchedEffect(loadedCover, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating) {
+    LaunchedEffect(loadedCover, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating, playerEffect) {
         if (!isScreenVisible || !appColors.dynamicAlbumGlow || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
         val bitmap = (loadedCover?.drawable as? BitmapDrawable)?.bitmap ?: return@LaunchedEffect
         val resolvedKey = renderedPaletteKey ?: return@LaunchedEffect
         try {
-            com.example.ui.util.prepareDecodedPlayerArtworkColors(resolvedKey, bitmap, urgent = { isScreenVisible })
+            com.example.ui.util.prepareDecodedPlayerArtworkColors(playerEffectPaletteKey(resolvedKey, playerEffect),
+                bitmap, urgent = { isScreenVisible }, effect = playerEffect)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) { /* A failed backdrop sample leaves the foreground cover intact. */ }
@@ -735,7 +746,9 @@ fun ExpandedPlayerScreen(
             PlayerGlassBackground(
                 artworkBounds = artworkBlendBounds,
                 colorField = artworkColorField,
-                animateArtworkChanges = isScreenVisible || morphAnimating
+                animateArtworkChanges = isScreenVisible || morphAnimating,
+                effect = playerEffect,
+                legacyPalette = cachedColors.takeIf { playerEffect == PlayerEffect.LEGACY }
             )
 
             val configuration = LocalConfiguration.current
@@ -2911,13 +2924,19 @@ internal fun PlayerGlassBackground(
     artworkBounds: State<Rect?>? = null,
     modifier: Modifier = Modifier,
     colorField: State<com.example.ui.util.ArtworkColorField?>? = null,
-    animateArtworkChanges: Boolean = true
+    animateArtworkChanges: Boolean = true,
+    effect: PlayerEffect = PlayerEffect.DEFAULT,
+    legacyPalette: ExtractedTrackColors? = null
 ) {
     val dynamicGlass = LocalDynamicGlassEnabled.current
     val showArtwork = dynamicGlass && LocalAppColors.current.dynamicAlbumGlow
     val backdrop = modifier.fillMaxSize()
         .testTag(if (showArtwork) "player_album_glow_backdrop" else "player_neutral_backdrop")
         .xtremeSharedBackdropSource(enabled = dynamicGlass)
+    if (showArtwork && effect == PlayerEffect.LEGACY) {
+        LegacyPlayerBackdrop(legacyPalette, artworkBounds, backdrop, animateArtworkChanges)
+        return
+    }
     val field = if (showArtwork) colorField?.value else null
     if (field == null) {
         Box(backdrop.background(Color(0xff101010)))

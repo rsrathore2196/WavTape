@@ -112,8 +112,11 @@ data class ExtractedTrackColors(
     val vibrantColor: Color = accentColor,
     val topEdgeColor: Color = dominantColor,
     val bottomEdgeColor: Color = dominantColor,
-    val colorField: ArtworkColorField? = null
-)
+    val colorField: ArtworkColorField? = null,
+    val legacyColorField: LegacyArtworkColorField? = null
+) {
+    internal val hasBackdrop: Boolean get() = colorField != null || legacyColorField != null
+}
 
 object TrackPaletteCache {
     private val memoryCache = android.util.LruCache<String, ExtractedTrackColors>(128)
@@ -169,7 +172,7 @@ object TrackPaletteCache {
         var first: ExtractedTrackColors? = null
         for (key in keys) {
             val colors = memoryCache.get(key) ?: continue
-            if (colors.colorField != null) return@synchronized colors
+            if (colors.hasBackdrop) return@synchronized colors
             if (first == null) first = colors
         }
         first

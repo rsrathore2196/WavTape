@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.playback.PlayerUiState
 import com.example.ui.theme.LocalAppColors
+import com.example.ui.theme.LocalPlayerEffect
 import com.example.ui.theme.onAccentGradient
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -85,6 +86,7 @@ import com.example.ui.util.ImageConfig
 import com.example.ui.util.TrackPaletteCache
 import com.example.ui.util.playerPaletteKey
 import com.example.ui.util.playerPreviewPaletteKey
+import com.example.ui.util.playerEffectPaletteKey
 import com.example.ui.util.prepareDecodedPlayerArtworkColors
 import com.example.ui.util.rememberOptimizedImageRequest
 import androidx.compose.ui.graphics.graphicsLayer
@@ -129,16 +131,18 @@ fun MiniPlayer(
     val buttonContentColor = appColors.onAccentGradient
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
     val prepareReflection = LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
-    val previewKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl) {
-        playerPreviewPaletteKey(track)
+    val effect = LocalPlayerEffect.current
+    val previewKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl, effect) {
+        playerEffectPaletteKey(playerPreviewPaletteKey(track), effect)
     }
     LaunchedEffect(previewKey, morphArtwork, prepareReflection) {
         val bitmap = morphArtwork?.asAndroidBitmap() ?: return@LaunchedEffect
-        if (!prepareReflection || TrackPaletteCache.get(playerPaletteKey(track, true, Color.White, Color.Black))?.colorField != null)
+        val fullKey = playerEffectPaletteKey(playerPaletteKey(track, true, Color.White, Color.Black), effect)
+        if (!prepareReflection || TrackPaletteCache.get(fullKey)?.hasBackdrop == true)
             return@LaunchedEffect
         try {
             // The dock already has a bitmap, even if finding verified album art is still in progress.
-            prepareDecodedPlayerArtworkColors(previewKey, bitmap, urgent = { true })
+            prepareDecodedPlayerArtworkColors(previewKey, bitmap, urgent = { true }, effect = effect)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (_: Exception) { /* The native artwork remains visible if reflection preparation fails. */ }

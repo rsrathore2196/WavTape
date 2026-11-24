@@ -14,6 +14,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AppThemeMode
 import com.example.data.local.OtherSettingsPreferences
+import com.example.data.local.PlayerEffect
 import com.example.data.local.ThemePresets
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.RoborazziOptions
@@ -65,17 +66,43 @@ class PlayerVisualSettingsUiTest {
         compose.onNodeWithTag("switch_ambient_glow").performScrollTo().assertIsOff()
     }
 
+    @Test fun playerEffectSelectorUsesDefaultAndRestoresLegacyWhenAppearanceReopens() {
+        var show by mutableStateOf(true)
+        compose.setContent {
+            MyApplicationTheme(customThemeState = ThemePresets.StudioNight.toCustomThemeState()) {
+                if (show) ThemesAppUiPage(true, AppThemeMode.DARK, {}, ThemePresets.StudioNight.toCustomThemeState())
+            }
+        }
+        val default = compose.onNodeWithTag("player_effect_default")
+        val legacy = compose.onNodeWithTag("player_effect_legacy")
+        default.performScrollTo().assertIsSelected()
+        legacy.assertIsNotSelected().performClick()
+        compose.waitUntil(3_000) { OtherSettingsPreferences.playerExperienceSettings(context).playerEffect == PlayerEffect.LEGACY }
+        compose.runOnIdle { show = false }
+        compose.waitForIdle()
+        compose.runOnIdle { show = true }
+        legacy.performScrollTo().assertIsSelected()
+        default.assertIsNotSelected().performClick()
+        compose.waitUntil(3_000) { OtherSettingsPreferences.playerExperienceSettings(context).playerEffect == PlayerEffect.DEFAULT }
+    }
+
+    @Test fun defaultBackdropDoesNotPickUpAnUnrelatedCustomCanvasHue() = backdropKeepsTheCoverHue(PlayerEffect.DEFAULT)
+
+    @Test fun legacyBackdropDoesNotPickUpAnUnrelatedCustomCanvasHue() = backdropKeepsTheCoverHue(PlayerEffect.LEGACY)
+
     @OptIn(com.github.takahirom.roborazzi.ExperimentalRoborazziApi::class)
-    @Test fun albumBackdropDoesNotPickUpAnUnrelatedCustomCanvasHue() {
+    private fun backdropKeepsTheCoverHue(effect: PlayerEffect) {
         var canvas by mutableStateOf(Color.Blue)
         var dark by mutableStateOf(true)
         compose.setContent {
             CompositionLocalProvider(LocalAppColors provides com.example.ui.theme.DarkAppColors.copy(
                 isDark = dark, scaffoldBackground = canvas, dynamicGlassEnabled = true, dynamicAlbumGlow = true),
                 com.example.ui.components.LocalDynamicGlassEnabled provides true) {
-                val cover = remember { com.example.ui.util.artworkColorField(intArrayOf(0xff164528.toInt(),
-                    0xff164528.toInt(), 0xff2c9c50.toInt(), 0xff2c9c50.toInt()), 2, 2) }
-                PlayerGlassBackground(colorField = remember { mutableStateOf(cover) })
+                val colors = remember { com.example.ui.util.extractPlayerArtworkColors(IntArray(64 * 64) {
+                    if (it / 64 < 32) 0xff164528.toInt() else 0xff2c9c50.toInt()
+                }, 64, 64, effect)!! }
+                PlayerGlassBackground(colorField = rememberUpdatedState(colors.colorField), effect = effect,
+                    legacyPalette = colors.takeIf { effect == PlayerEffect.LEGACY })
             }
         }
         fun capture(): java.awt.image.BufferedImage {
@@ -98,6 +125,7 @@ class PlayerVisualSettingsUiTest {
             val modePixels = listOf(0.2f, 0.5f, 0.8f).map {
                 before.getRGB(before.width / 2, (before.height * it).toInt())
             }
+            org.junit.Assert.assertTrue(modePixels.all { Color(it).green > Color(it).red + .04f })
             if (mode) darkPixels = modePixels else org.junit.Assert.assertEquals(darkPixels, modePixels)
             for (fraction in listOf(0.2f, 0.5f, 0.8f)) {
                 val x = before.width / 2
