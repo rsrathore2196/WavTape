@@ -245,28 +245,42 @@ internal object LosslessStreamPrebuffer {
                     }
                     if (!supported || metadata.durationMs <= 0L || expectedDurationMs > 0L &&
                         abs(metadata.durationMs - expectedDurationMs) > durationToleranceMs) return@withLock false
-                    val position = withContext(Dispatchers.Main.immediate) {
+                    suspend fun livePosition() = withContext(Dispatchers.Main.immediate) {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
-                    } ?: return@withLock false
-                    if (manifests != null) {
-                        val warmUntil = minOf(metadata.durationMs, position + FAST_START_READ_AHEAD_MS)
-                        val window = FastStartBuffer(position, warmUntil, manifests)
-                        if (!window.covers(position)) return@withLock false
-                        val ranges = fastStartRanges(metadata.manifest, factory, position, warmUntil, allowDrm)
-                            ?: return@withLock false
-                        for (range in ranges) {
-                            if (!allowed() || !withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock false
-                            val length = readCompleteRange(factory, range)
-                            val ready = if (range.isFlagSet(DataSpec.FLAG_ALLOW_GZIP)) length == 16L // HLS AES key lives in memory.
-                                else MusicCache.isRangeCached(context, range, length)
-                            if (!ready) return@withLock false
-                        }
-                        if (!allowed() || !withContext(Dispatchers.Main.immediate) {
-                                stillCurrent() && window.covers(currentPosition())
-                            }) return@withLock false
-                        onFastStartPrepared(window)
-                        return@withLock true
                     }
+                    if (manifests != null) {
+                        val warmedRanges = mutableMapOf<Triple<String, Long, Long>, Long>()
+                        repeat(3) {
+                            val position = livePosition() ?: return@withLock false
+                            val warmUntil = minOf(metadata.durationMs, position + FAST_START_READ_AHEAD_MS)
+                            val window = FastStartBuffer(position, warmUntil, manifests)
+                            if (!window.covers(position)) return@withLock false
+                            val ranges = fastStartRanges(metadata.manifest, factory, position, warmUntil, allowDrm)
+                                ?: return@withLock false
+                            for (range in ranges) {
+                                if (!allowed() || livePosition() == null) return@withLock false
+                                val key = Triple(range.key ?: range.uri.toString(), range.position, range.length)
+                                val encryptionKey = range.isFlagSet(DataSpec.FLAG_ALLOW_GZIP)
+                                val warmedLength = warmedRanges[key]
+                                if (warmedLength != null && (encryptionKey || MusicCache.isRangeCached(context, range, warmedLength))) continue
+                                val length = readCompleteRange(factory, range)
+                                // HLS AES keys are retained with the manifests, never the media cache.
+                                if (if (encryptionKey) length != 16L else !MusicCache.isRangeCached(context, range, length)) return@withLock false
+                                warmedRanges[key] = length
+                            }
+                            if (!allowed()) return@withLock false
+                            val latest = livePosition() ?: return@withLock false
+                            if (window.covers(latest)) {
+                                onFastStartPrepared(window)
+                                return@withLock true
+                            }
+                            // The old source kept playing or the listener sought elsewhere.
+                            // Warm the new playhead, reusing any already committed ranges.
+                        }
+                        LosslessDiagnostics.record(item.mediaId, LosslessDiagnostics.Reason.BUFFER_COVERAGE, "adaptive-prebuffer")
+                        return@withLock false
+                    }
+                    val position = livePosition() ?: return@withLock false
                     val ranges = withContext(com.example.performance.AppDispatchers.CpuBounded) {
                         val dash = metadata.manifest as? androidx.media3.exoplayer.dash.manifest.DashManifest
                         if (dash == null || dash.dynamic || dash.periodCount == 0) emptyList() else {

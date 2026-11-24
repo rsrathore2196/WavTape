@@ -6,6 +6,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,12 +40,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,8 +59,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.findRootCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -94,7 +96,6 @@ fun QueueBottomSheet(
     val latestDismiss by rememberUpdatedState(onDismiss)
     var dismissing by remember { mutableStateOf(false) }
     var dismissed by remember { mutableStateOf(false) }
-    val viewportHeight = remember { mutableIntStateOf(0) }
 
     fun finishDismiss() {
         if (dismissed) return
@@ -118,8 +119,13 @@ fun QueueBottomSheet(
         if (queue.isEmpty() && currentTrack != null) listOf(currentTrack) else queue
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
-    val appColors = PlayerGlassPopupColors
+    val appColors = playerGlassPopupColors()
     val glassEnabled = LocalDynamicGlassEnabled.current
+    val presentation = updateTransition(sheetState.targetValue != SheetValue.Hidden, label = "queue_presentation")
+    val reveal = presentation.animateFloat(
+        transitionSpec = { tween(if (targetState) 220 else 160, easing = FastOutSlowInEasing) },
+        label = "queue_glass_reveal"
+    ) { if (it) 1f else 0f }
 
     PlayerPopupTheme(appColors) {
         val sheetContent: @Composable () -> Unit = {
@@ -310,7 +316,6 @@ fun QueueBottomSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("queue_track_$index")
-                                .graphicsLayer { }
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     if (isCurrentlyPlaying) {
@@ -488,15 +493,12 @@ fun QueueBottomSheet(
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
             KeepPlayerPopupWindowClear()
-            // The sheet's own offset drives every visual layer during an animation or drag.
+            // Material owns the vertical position and gestures. A separate visual-only reveal
+            // needs no layout coordinates or offset from the dialog window.
             Column(Modifier.fillMaxWidth()
-                .onGloballyPositioned { viewportHeight.intValue = it.findRootCoordinates().size.height }
                 .graphicsLayer {
-                    val viewport = viewportHeight.intValue.toFloat()
-                    val revealed = if (sheetState.hasExpandedState && viewport > 0f && size.height > 0f) {
-                        ((viewport - sheetState.requireOffset()) / size.height).coerceIn(0f, 1f)
-                    } else 0f
-                    alpha = (revealed * 1.6f).coerceAtMost(1f)
+                    val revealed = reveal.value
+                    alpha = (.35f + revealed * 1.3f).coerceAtMost(1f)
                     scaleX = .98f + .02f * revealed
                     transformOrigin = TransformOrigin(.5f, 1f)
                 }

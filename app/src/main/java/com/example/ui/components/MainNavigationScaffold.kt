@@ -226,6 +226,7 @@ fun MainNavigationScaffold(
     val playerVisualTrack = rememberPlayerHandoff(playerUiState.currentTrack, playerVisibility)
     SideEffect { playerMotion.trackId = playerVisualTrack?.id.orEmpty() }
     var isQueueOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(isPlayerExpanded) { if (!isPlayerExpanded) isQueueOpen = false }
     var isEqualizerOpen by rememberSaveable { mutableStateOf(false) }
     var isCreatePlaylistOpen by rememberSaveable { mutableStateOf(false) }
     var trackToAddToPlaylist by remember { mutableStateOf<MusicTrack?>(null) }
@@ -725,15 +726,15 @@ fun MainNavigationScaffold(
                     viewModel.openGenre(genre)
                 },
                 queueContent = {
-                    if (isQueueOpen) PlayerPresentationHost(viewModel) { playerUiState ->
+                    if (isPlayerExpanded && isQueueOpen) {
                         QueueBottomSheet(
-                            queue = playerUiState.queue,
-                            currentTrack = playerUiState.currentTrack,
+                            queue = expandedPlayer.queue,
+                            currentTrack = expandedPlayer.currentTrack,
                             onTrackClick = viewModel::playQueuedTrack,
                             onMoveTrack = { from, to -> viewModel.reorderQueue(from, to) },
                             onDismiss = { isQueueOpen = false },
-                            isAutoplayEnabled = playerUiState.isAutoplayEnabled,
-                            nextRecommendedTrack = playerUiState.nextRecommendedTrack,
+                            isAutoplayEnabled = expandedPlayer.isAutoplayEnabled,
+                            nextRecommendedTrack = expandedPlayer.nextRecommendedTrack,
                             onToggleAutoplay = { viewModel.toggleAutoplay() }
                         )
                     }
@@ -791,13 +792,6 @@ fun MainNavigationScaffold(
         if (importDialogOpen) ImportDialogHost(viewModel, isDarkMode)
     }
 }
-}
-
-@Composable
-private fun PlayerPresentationHost(viewModel: PlayerViewModel,
-    content: @Composable (com.example.playback.PlayerUiState) -> Unit) {
-    val state by viewModel.playbackPresentationState.collectAsStateWithLifecycle()
-    content(state)
 }
 
 private val DEFAULT_BOTTOM_BAR_TABS = listOf(

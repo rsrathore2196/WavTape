@@ -124,9 +124,13 @@ class StreamingAddonIntegrationTest {
     private lateinit var repository: ReactiveSettingsRepository
     private lateinit var context: Context
     private lateinit var server: HttpServer
+    private lateinit var serverExecutor: java.util.concurrent.ExecutorService
     private lateinit var base: String
     private val requests = CopyOnWriteArrayList<String>()
     private var stream: () -> String = { "" }
+    private var emptySearch = false
+    private var onManifest: () -> Unit = {}
+    private var searchResponse: ((String) -> String)? = null
     private var manifest = """{"id":"personal","name":"My Music","resources":["search","stream"]}"""
     private var manifestStatus = 200
     private val song = MusicTrack("online_song", "Song", "Artist", "Album", 180_000, "cover", "https://aac.saavncdn.com/song_320.mp4")
@@ -141,16 +145,19 @@ class StreamingAddonIntegrationTest {
             override fun getApplicationContext(): Context = this
             override fun getSharedPreferences(name: String, mode: Int) = repository.preferences(name)
         }
+        serverExecutor = java.util.concurrent.Executors.newCachedThreadPool()
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            executor = serverExecutor
             createContext("/a/token/") { exchange ->
                 requests.add(exchange.requestURI.toString())
                 val response = when {
-                    exchange.requestURI.path.endsWith("manifest.json") -> manifest
-                    exchange.requestURI.path.endsWith("search") -> """{"tracks":[
+                    exchange.requestURI.path.endsWith("manifest.json") -> { onManifest(); manifest }
+                    exchange.requestURI.path.endsWith("search") -> searchResponse?.invoke(exchange.requestURI.toString())
+                        ?: if (emptySearch) """{"tracks":[]}""" else """{"tracks":[
                         {"id":"wrong","title":"Song (Live)","artist":"Artist","album":"Album","duration":180},
                         {"id":"right","title":"Song","artist":"Artist","album":"Album","duration":180},
                         {"id":"missing","title":"Unknown"}]}"""
-                    exchange.requestURI.path.endsWith("stream/right") -> stream()
+                    "/stream/" in exchange.requestURI.path -> stream()
                     else -> "{}"
                 }.toByteArray()
                 exchange.responseHeaders.add("Content-Type", "application/json")
@@ -163,8 +170,8 @@ class StreamingAddonIntegrationTest {
         base = "http://127.0.0.1:${server.address.port}/a/token"
         stream = { """{"stream":{"url":"$base/song.flac","codec":"flac","format":"flac","bitrate":1411200}}""" }
     }
-    @After fun cleanup() = runBlocking {
-        repository.awaitPendingWrites(); repository.close(); server.stop(0)
+    @After fun cleanup(): Unit = runBlocking {
+        repository.awaitPendingWrites(); repository.close(); server.stop(0); serverExecutor.shutdownNow()
     }
     private suspend fun enable() {
         OtherSettingsPreferences.saveStreamingAddon(context, base, "My Music")
@@ -249,6 +256,85 @@ class StreamingAddonIntegrationTest {
         assertEquals(1, requests.count { it.endsWith("/manifest.json") })
         assertEquals(1, requests.count { it.contains("/search?") })
         assertEquals(1, requests.count { it.contains("/stream/right?") })
+        val direct = song.copy(id = StreamingAddons.catalogTrackId(base, "right"), title = "Another song")
+        assertEquals("$base/song.flac", StreamingAddons.resolve(context, direct, maximum)?.audioUrl)
+        assertEquals(1, requests.count { it.endsWith("/manifest.json") })
+        assertEquals(2, requests.count { it.contains("/stream/right?") })
+    }
+
+    @Test fun preferredAddonOverlapsItsFirstSearchWithASlowManifest() = runBlocking {
+        enable()
+        val searched = CompletableDeferred<Unit>()
+        val releaseManifest = CompletableDeferred<Unit>()
+        onManifest = { runBlocking { releaseManifest.await() } }
+        searchResponse = {
+            searched.complete(Unit)
+            """{"tracks":[{"id":"right","title":"Song","artist":"Artist","duration":180}]}"""
+        }
+        try {
+            val playback = async(Dispatchers.IO) { StreamingAddons.resolve(context, song, maximum) }
+            withTimeout(1_800) { searched.await() }
+            assertFalse(requests.any { it.contains("/stream/") })
+            releaseManifest.complete(Unit)
+            assertEquals("$base/song.flac", withTimeout(3_000) { playback.await() }?.audioUrl)
+            assertEquals(1, requests.count { it.contains("/search?") })
+        } finally { releaseManifest.complete(Unit) }
+    }
+
+    @Test fun preferredAddonDiscardsTheEarlySearchWhenTheManifestChangesItsParameters() = runBlocking {
+        enable()
+        manifest = """{"name":"My Music","settings":[{"key":"backend","default":"main"}]}"""
+        val searched = CompletableDeferred<Unit>()
+        val releaseManifest = CompletableDeferred<Unit>()
+        onManifest = { runBlocking { releaseManifest.await() } }
+        searchResponse = { request ->
+            val id = if ("backend=main" in request) "right" else "provisional"
+            searched.complete(Unit)
+            """{"tracks":[{"id":"$id","title":"Song","artist":"Artist","duration":180}]}"""
+        }
+        try {
+            val playback = async(Dispatchers.IO) { StreamingAddons.resolve(context, song, maximum) }
+            withTimeout(1_800) { searched.await() }
+            releaseManifest.complete(Unit)
+            assertEquals("$base/song.flac", withTimeout(3_000) { playback.await() }?.audioUrl)
+            assertEquals(2, requests.count { it.contains("/search?") })
+            assertTrue(requests.any { "/stream/right?" in it && "backend=main" in it })
+            assertFalse(requests.any { it.contains("/stream/provisional?") })
+        } finally { releaseManifest.complete(Unit) }
+    }
+
+    @Test fun preferredAddonRefreshesARejectedUrlWithoutSearchingForTheRecordingAgain() = runBlocking {
+        enable()
+        val original = StreamingAddons.resolve(context, song, maximum)!!
+        stream = { """{"url":"$base/new.flac","format":"flac","bitrate":900000}""" }
+        val refreshed = StreamingAddons.resolve(context, song, maximum, rejected = setOf(original.audioUrl))
+        assertEquals("$base/new.flac", refreshed?.audioUrl)
+        assertEquals(1, requests.count { it.contains("/search?") })
+        assertEquals(2, requests.count { it.contains("/stream/right?") })
+    }
+
+    @Test fun preferredAddonSearchesAgainWhenTheProviderReplacesItsCatalogId() = runBlocking {
+        enable()
+        val original = StreamingAddons.resolve(context, song, maximum)!!
+        searchResponse = {
+            """{"tracks":[{"id":"replacement","title":"Song","artist":"Artist","duration":180}]}"""
+        }
+        stream = {
+            if (requests.last().contains("/stream/replacement?")) {
+                """{"url":"$base/replacement.flac","format":"flac","bitrate":900000}"""
+            } else "{}"
+        }
+        val refreshed = StreamingAddons.resolve(context, song, maximum, rejected = setOf(original.audioUrl))
+        assertEquals("$base/replacement.flac", refreshed?.audioUrl)
+        assertEquals(2, requests.count { it.contains("/search?") })
+    }
+
+    @Test fun unavailableSearchTierIsNotRequestedAgainUnderAnAlias() = runBlocking {
+        enable()
+        emptySearch = true
+        manifest = """{"name":"My Music","settings":[{"key":"quality","options":[{"value":"LOSSLESS"}]}]}"""
+        assertTrue(StreamingAddons.search(context, "Unavailable recording", maximum).isEmpty())
+        assertEquals(1, requests.count { it.contains("/search?") })
     }
 
     @Test fun customSearchResultKeepsItsProviderAndResolvesItsOwnIdWithoutAnotherSearch() = runBlocking {

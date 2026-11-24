@@ -1798,8 +1798,9 @@ class MusicService : MediaLibraryService() {
             if (!fromApp && !trustedController) {
                 return Futures.immediateFailedFuture(SecurityException("Controller cannot replace the playback queue"))
             }
+            val policy = networkQuality.sourcePolicy.value
             if (fromApp && mediaItems.all {
-                    !it.mediaId.startsWith("category_") && PlaybackSessionStore.isReal(it)
+                    !it.mediaId.startsWith("category_") && acceptsPreparedAppItem(it, policy)
                 }) {
                 queueGeneration++
                 return Futures.immediateFuture(mediaItems)
@@ -1828,7 +1829,7 @@ class MusicService : MediaLibraryService() {
                             slots.acquire()
                             try {
                                 val item = selection.item
-                                if (fromApp && PlaybackSessionStore.isReal(item)) return@async item
+                                if (fromApp && acceptsPreparedAppItem(item, networkQuality.sourcePolicy.value)) return@async item
                                 val known = app.database.musicDao().getTrackById(item.mediaId)?.toMusicTrack()
                                 if (known != null && realTrack(known)) {
                                     resolveQueuedSource(known.copy(recommendationOnly =
@@ -1891,6 +1892,15 @@ class MusicService : MediaLibraryService() {
             val scheme = item.localConfiguration?.uri?.scheme
             return (fromApp || trustedController && scheme in externalStreamSchemes) &&
                 PlaybackSessionStore.isReal(item)
+        }
+
+        /** Inline add-on manifests are session transports, never durable queue URIs. */
+        internal fun acceptsPreparedAppItem(item: MediaItem, policy: com.example.playback.PlaybackSourcePolicy): Boolean {
+            if (PlaybackSessionStore.isReal(item)) return true
+            val address = item.localConfiguration?.uri?.toString() ?: return false
+            return item.mediaId.isNotBlank() && address.startsWith("data:application/dash+xml;base64,") &&
+                item.mediaMetadata.extras?.getString("source_policy_key") == policy.key &&
+                com.example.data.remote.StreamingAddons.isVerified(address, policy)
         }
     }
 }

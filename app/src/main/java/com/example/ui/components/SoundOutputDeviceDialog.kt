@@ -120,7 +120,7 @@ fun SoundOutputDeviceDialog(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val latestDismiss by rememberUpdatedState(onDismiss)
-    val appColors = PlayerGlassPopupColors
+    val appColors = playerGlassPopupColors()
     val glassEnabled = LocalDynamicGlassEnabled.current
 
     // Audio Manager & Volume Management

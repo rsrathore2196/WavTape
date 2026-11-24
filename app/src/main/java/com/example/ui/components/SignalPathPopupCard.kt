@@ -97,7 +97,7 @@ private fun encoding(value: Int): String = SignalPathState.pcmEncodingLabel(valu
 @Composable
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, onClose: () -> Unit = {}) {
-    val colors = PlayerGlassPopupColors
+    val colors = playerGlassPopupColors()
     val effects by AudioEffectsManager.effectsState.collectAsStateWithLifecycle()
     val height = (LocalConfiguration.current.screenHeightDp - 48).coerceAtLeast(120).dp
     val textColor = colors.textPrimary

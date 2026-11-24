@@ -112,7 +112,8 @@ data class ExtractedTrackColors(
     val topEdgeColor: Color = dominantColor,
     val bottomEdgeColor: Color = dominantColor,
     val colorField: ArtworkColorField? = null,
-    val legacyColorField: LegacyArtworkColorField? = null
+    val legacyColorField: LegacyArtworkColorField? = null,
+    internal val popupSample: PlayerArtworkSample? = null
 ) {
     internal val hasBackdrop: Boolean get() = colorField != null || legacyColorField != null
 }

@@ -58,8 +58,15 @@ internal fun playerBackdropTone(color: Color): Color {
     )
 }
 
-/** Downsample and blur the actual image once on the artwork preparation dispatcher. */
-internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): ArtworkColorField {
+/** Reused by the player and glass panels before either applies its own blur. */
+@Immutable
+class PlayerArtworkSample internal constructor(
+    internal val pixels: IntArray,
+    internal val width: Int,
+    internal val height: Int
+)
+
+internal fun samplePlayerArtwork(pixels: IntArray, width: Int, height: Int): PlayerArtworkSample {
     val scale = minOf(1f, 64f / maxOf(width, height))
     val outWidth = (width * scale).roundToInt().coerceAtLeast(1)
     val outHeight = (height * scale).roundToInt().coerceAtLeast(1)
@@ -83,6 +90,17 @@ internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): Artwo
         val count = (endX - startX) * (endY - startY)
         image[y * outWidth + x] = opaqueRgb(red / count, green / count, blue / count)
     }
+    return PlayerArtworkSample(image, outWidth, outHeight)
+}
+
+internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): ArtworkColorField =
+    artworkColorField(samplePlayerArtwork(pixels, width, height))
+
+/** The existing reflected player texture keeps its original highlight handling. */
+internal fun artworkColorField(sample: PlayerArtworkSample): ArtworkColorField {
+    val outWidth = sample.width
+    val outHeight = sample.height
+    val image = sample.pixels.copyOf()
     val scratch = IntArray(image.size)
     val radius = (maxOf(outWidth, outHeight) * 0.05f).roundToInt().coerceAtLeast(1)
     fun smooth() {
@@ -97,6 +115,19 @@ internal fun artworkColorField(pixels: IntArray, width: Int, height: Int): Artwo
         lighter[index] = softenReflectionHighlights(lighter[index])
     }
     return ArtworkColorField(image, outWidth, outHeight, lighter)
+}
+
+/** Apply the popup blur at texture resolution, with no color or luminance adjustment. */
+internal fun PlayerArtworkSample.blurredPopupPixels(blurFraction: Float): IntArray {
+    val radius = (maxOf(width, height) * blurFraction).roundToInt()
+    if (radius <= 0) return pixels
+    val scratch = IntArray(pixels.size)
+    val blurred = IntArray(pixels.size)
+    blurPass(pixels, scratch, width, height, radius, horizontal = true)
+    blurPass(scratch, blurred, width, height, radius, horizontal = false)
+    blurPass(blurred, scratch, width, height, radius, horizontal = true)
+    blurPass(scratch, blurred, width, height, radius, horizontal = false)
+    return blurred
 }
 
 private fun softenReflectionHighlights(pixel: Int): Int {

@@ -109,6 +109,24 @@ class AdaptiveLosslessPreparationTest {
         assertTrue(requests.isEmpty())
     }
 
+    @Test fun fastStartRewarmsDashWhenTheLivePlayheadLeavesTheFirstWindow() = runBlocking {
+        val url = item.localConfiguration!!.uri.toString()
+        val original = MusicTrack(item.mediaId, "Song", "Artist", "Album", 12_000L, "",
+            "xtreme-youtube://audio/abcdefghijk/stream.audio")
+        val job = async(Dispatchers.IO) {
+            prepareFastStartReplacement(app, item, original, original.copy(audioUrl = url, isLossless = true),
+                position = { if ("/init.m4s" in requests) 4_750L else 0L },
+                stillCurrent = { true }, automatic = false)
+        }
+        withTimeout(20_000L) {
+            while (!job.isCompleted) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)); delay(10) }
+        }
+        val prepared = job.await()
+        assertTrue("The new playhead must be buffered before replacement: $requests", prepared?.covers(4_750L) == true)
+        assertEquals(4_750L, prepared?.fromMs)
+        assertEquals(1, requests.count { it == "/play" })
+    }
+
     @Test fun fastStartWarmsHlsMediaPastTheCurrentSegment() = runBlocking {
         server.createContext("/song.m3u8") { exchange ->
             requests.add(exchange.requestURI.path)

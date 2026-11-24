@@ -608,7 +608,7 @@ fun ExpandedPlayerScreen(
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
 
-    val prepareArtworkBackdrop = LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
+    val prepareArtworkBackdrop = LocalDynamicGlassEnabled.current
     LaunchedEffect(loadedCover, isScreenVisible, prepareArtworkBackdrop, morphAnimating, playerEffect) {
         if (!isScreenVisible || !prepareArtworkBackdrop || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
@@ -719,9 +719,9 @@ fun ExpandedPlayerScreen(
     )
 
     val playerBackdrop = rememberLiquidGlassBackdrop()
-    val popupBackdrop = rememberPlayerPopupBackdrop()
+    val popupArtwork = rememberPlayerPopupArtwork(cachedColors?.popupSample, isScreenVisible && prepareArtworkBackdrop)
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
-        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupBackdrop provides popupBackdrop) {
+        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork) {
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -741,7 +741,7 @@ fun ExpandedPlayerScreen(
         color = if (appColors.isAmoled) Color(0xFF000000) else appColors.scaffoldBackground // 100% OPAQUE base inheriting Canvas Color
     ) {
         Box(
-            modifier = Modifier.fillMaxSize().playerPopupBackdropSource(popupBackdrop),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter
         ) {
             PlayerGlassBackground(
@@ -2959,7 +2959,7 @@ private fun PlayerOptionsMenu(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val appColors = PlayerGlassPopupColors
+    val appColors = playerGlassPopupColors()
 
     val downloadScope = rememberCoroutineScope()
     val downloads = remember(context) { com.example.downloads.OfflineDownloads.get(context) }

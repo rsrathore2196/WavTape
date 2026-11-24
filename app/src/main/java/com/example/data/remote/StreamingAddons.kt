@@ -3,6 +3,7 @@ package com.example.data.remote
 
 import android.content.Context
 import android.net.Uri
+import android.util.LruCache
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.Util
@@ -10,6 +11,7 @@ import com.example.data.local.OtherSettingsPreferences
 import com.example.data.model.MusicTrack
 import com.example.data.repository.RecordingIdentity
 import com.example.performance.AppDispatchers
+import com.example.performance.BackgroundWorkCoordinator
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.PlaybackSourcePolicy
 import com.example.playback.PlaybackSource
@@ -48,9 +50,12 @@ object StreamingAddons {
     private val transports = ConcurrentHashMap<String, Transport>()
     private data class Cached(val track: MusicTrack?, val expires: Long)
     private val resolutions = ConcurrentHashMap<String, Cached>()
+    private data class CatalogMatch(val tracks: List<MusicTrack>, val expires: Long)
+    private val catalogMatches = LruCache<String, CatalogMatch>(128)
     private data class Configuration(val manifest: Manifest, val defaults: Map<String, String>,
         val qualities: List<String>, val stereoValue: String, val expires: Long)
     private val configurations = ConcurrentHashMap<String, Configuration>()
+    private val manifestFallbacks = ConcurrentHashMap<String, Long>()
     private val manifestFlights = Array(8) { kotlinx.coroutines.sync.Mutex() }
     private val permits = Semaphore(2)
     private val client by lazy { OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS)
@@ -75,10 +80,13 @@ object StreamingAddons {
     private const val MAX_SEARCH_BYTES = 1024 * 1024L
     private const val MAX_STREAM_BYTES = 4 * 1024 * 1024L
 
-    private suspend fun get(url: HttpUrl, responseType: String, maxBytes: Long): String = permits.withPermit {
+    private suspend fun get(url: HttpUrl, responseType: String, maxBytes: Long): String =
+        BackgroundWorkCoordinator.traceWork("Add-on $responseType") { permits.withPermit { fetch(url, responseType, maxBytes) } }
+
+    private suspend fun fetch(url: HttpUrl, responseType: String, maxBytes: Long): String {
         val call = client.newCall(Request.Builder().url(url).header("X-LW-Intent", "stream")
             .header("User-Agent", "WavTape/${com.example.BuildConfig.VERSION_NAME}").build())
-        suspendCancellableCoroutine { continuation ->
+        return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -155,10 +163,22 @@ object StreamingAddons {
             }
         } finally { lock.unlock() }
     }
-    private suspend fun requestConfiguration(base: String): Configuration? =
-        try { withTimeoutOrNull(2_500L) { configuration(base) } }
+    private suspend fun requestConfiguration(base: String): Configuration? {
+        val now = System.currentTimeMillis()
+        configurations[base]?.takeIf { it.expires > now }?.let { return it }
+        if ((manifestFallbacks[base] ?: 0L) > now) return null
+        val result = try { withTimeoutOrNull(2_500L) { configuration(base) } }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { null }
+        if (result == null) {
+            // Servers with working search and stream endpoints may omit the manifest.
+            // Avoid paying for the same failed optional request on every song.
+            if (manifestFallbacks.size >= 32) manifestFallbacks.entries.minByOrNull { it.value }
+                ?.let { manifestFallbacks.remove(it.key, it.value) }
+            manifestFallbacks[base] = System.currentTimeMillis() + 20_000L
+        } else manifestFallbacks.remove(base)
+        return result
+    }
 
     private fun configuredEndpoint(base: String, path: String, query: String? = null, tier: String,
         config: Configuration?, dolbyAtmos: Boolean = false): HttpUrl {
@@ -208,9 +228,8 @@ object StreamingAddons {
         }
         return JSONArray()
     }
-    private suspend fun search(base: String, name: String, query: String, ceiling: AudioQualityCeiling, config: Configuration?,
-        tier: String = quality(ceiling)): List<MusicTrack> {
-        val body = get(configuredEndpoint(base, "search", query.trim(), tier, config), "search", MAX_SEARCH_BYTES)
+    private suspend fun search(base: String, name: String, url: HttpUrl): List<MusicTrack> {
+        val body = get(url, "search", MAX_SEARCH_BYTES)
         return withContext(AppDispatchers.CpuBounded) {
             val rows = array(body)
             (0 until minOf(rows.length(), 20)).mapNotNull { index ->
@@ -225,11 +244,36 @@ object StreamingAddons {
         }
     }
     private suspend fun searchPreferred(base: String, name: String, query: String, ceiling: AudioQualityCeiling,
-        config: Configuration?): List<MusicTrack> {
-        val first = search(base, name, query, ceiling, config)
-        if (first.isNotEmpty() || ceiling != AudioQualityCeiling.MAX) return first
-        val highResolution = search(base, name, query, ceiling, config, "hi_res")
-        return highResolution.ifEmpty { search(base, name, query, ceiling, config, "lossless") }
+        config: Configuration?, prefetched: Pair<HttpUrl, List<MusicTrack>>? = null): List<MusicTrack> {
+        val tiers = if (ceiling == AudioQualityCeiling.MAX) listOf(quality(ceiling), "hi_res", "lossless")
+            else listOf(quality(ceiling))
+        for (url in tiers.map { configuredEndpoint(base, "search", query.trim(), it, config) }.distinct()) {
+            val matches = prefetched?.takeIf { it.first == url }?.second ?: search(base, name, url)
+            if (matches.isNotEmpty()) return matches
+        }
+        return emptyList()
+    }
+
+    private suspend fun playbackConfiguration(base: String, name: String, firstQuery: String, ceiling: AudioQualityCeiling):
+        Pair<Configuration?, Pair<HttpUrl, List<MusicTrack>>?> = coroutineScope {
+        val manifest = async { requestConfiguration(base) }
+        withTimeoutOrNull(200L) { manifest.join(); true }?.let { return@coroutineScope manifest.await() to null }
+
+        // Use default parameters to hide the search round trip on a cold connection.
+        // A manifest with different parameters still takes precedence over this request.
+        val tier = quality(ceiling)
+        val defaultUrl = configuredEndpoint(base, "search", firstQuery, tier, null)
+        val pending = async {
+            try { search(base, name, defaultUrl) }
+            catch (_: IOException) { null }
+            catch (_: org.json.JSONException) { null }
+        }
+        val config = manifest.await()
+        if (configuredEndpoint(base, "search", firstQuery, tier, config) != defaultUrl) {
+            pending.cancel()
+            return@coroutineScope config to null
+        }
+        config to pending.await()?.let { defaultUrl to it }
     }
     private suspend fun activeAddons(context: Context, policy: PlaybackSourcePolicy): List<PlaybackSource> {
         OtherSettingsPreferences.loadPlaybackSources(context)
@@ -268,7 +312,9 @@ object StreamingAddons {
         val selectedSource = (if (source == null) active.firstOrNull() else source.takeIf { it in active })
             ?: return@withContext null
         val key = withContext(AppDispatchers.CpuBounded) {
-            "${selectedSource.id}:${fingerprint(selectedSource.baseUrl)}:${RecordingIdentity.key(track)}:${policy.ceiling.name}:atmos=${policy.allowsDolbyAtmos}"
+            val recording = providerId(selectedSource.baseUrl, track.id)?.let { "catalog:$it" }
+                ?: "match:${RecordingIdentity.key(track)}"
+            "${selectedSource.id}:${fingerprint(selectedSource.baseUrl)}:$recording:${policy.ceiling.name}:atmos=${policy.allowsDolbyAtmos}"
         }
         val cached = resolutions[key]?.takeIf { it.expires > System.currentTimeMillis() }
         val explicitRetry = policy.enhancer && policy.requestTrackId == track.id && policy.requestRevision > 0
@@ -281,15 +327,15 @@ object StreamingAddons {
         }
         val result = com.example.recommendation.DiscoveryRequestCoordinator.shared("addon:$key:${rejected.hashCode()}",
             essential = true, network = false) {
-            val value = resolveUncached(context, selectedSource, track, policy, rejected)
+            val value = resolveUncached(selectedSource, track, policy, rejected, key)
             if (resolutions.size >= 128) resolutions.entries.minByOrNull { it.value.expires }?.let { resolutions.remove(it.key) }
             resolutions[key] = Cached(value, System.currentTimeMillis() + if (value == null) 5_000L else 120_000L)
             listOfNotNull(value)
         }.firstOrNull()
         reuse(result).takeIf { stillEnabled(context, selectedSource, policy) }
     }
-    private suspend fun resolveUncached(context: Context, source: PlaybackSource, track: MusicTrack, policy: PlaybackSourcePolicy,
-        rejected: Set<String>): MusicTrack? = withContext(AppDispatchers.Io) {
+    private suspend fun resolveUncached(source: PlaybackSource, track: MusicTrack, policy: PlaybackSourcePolicy,
+        rejected: Set<String>, key: String): MusicTrack? = withContext(AppDispatchers.Io) {
         if (!source.available(policy.ceiling) || !policy.online ||
             Uri.parse(track.audioUrl).scheme in setOf("file", "content")) return@withContext null
         val base = source.baseUrl
@@ -297,53 +343,57 @@ object StreamingAddons {
         try {
             var completed = false
             val result = withTimeoutOrNull(15_000L) {
-                // One manifest attempt serves this recording's search and stream requests,
-                // including servers that serve audio but have an unavailable manifest.
-                val config = requestConfiguration(base)
-                val candidates = if (selected != null) listOf(track) else {
-                    val queries = withContext(AppDispatchers.CpuBounded) {
-                        val title = com.example.data.repository.StreamResolver.extractCleanTitle(track.title, track.artist)
-                        val artist = RecordingIdentity.artistNames(track).firstOrNull().orEmpty()
-                        listOf("$title $artist".trim(), "${track.title} ${track.artist}".trim(), title).filter(String::isNotBlank).distinct()
-                    }
-                    var matched = emptyList<MusicTrack>()
-                    for (query in queries) {
-                        val found = searchPreferred(base, source.name, query, policy.ceiling, config)
-                        matched = withContext(AppDispatchers.CpuBounded) { found.mapNotNull { candidate ->
-                            RecordingIdentity.providerConfidence(track, candidate)?.let { candidate to it }
-                        }.sortedByDescending { it.second }.take(2).map { it.first } }
-                        if (matched.isNotEmpty()) break
-                    }
-                    matched
+                val known = catalogMatches.get(key)?.takeIf { it.expires > System.currentTimeMillis() }?.tracks
+                suspend fun queries() = withContext(AppDispatchers.CpuBounded) {
+                    val title = com.example.data.repository.StreamResolver.extractCleanTitle(track.title, track.artist)
+                    val artist = RecordingIdentity.artistNames(track).firstOrNull().orEmpty()
+                    listOf("$title $artist".trim(), "${track.title} ${track.artist}".trim(), title).filter(String::isNotBlank).distinct()
                 }
+                val initialQueries = if (selected == null && known == null) queries() else emptyList()
+                // One manifest serves every request, including servers where it is optional.
+                val (config, prefetched) = initialQueries.firstOrNull()?.let {
+                    playbackConfiguration(base, source.name, it, policy.ceiling)
+                } ?: (requestConfiguration(base) to null)
                 // Addons are a lossless-only source at MAX quality. Try the
                 // explicit tiers, but never request generic HIGH or accept a
                 // lossy response as a fallback.
                 val tiers = listOf("hi_res", "LOSSLESS", "CD")
                 val tried = mutableSetOf<HttpUrl>()
-                for (tier in tiers) for (candidate in candidates) {
-                    val id = providerId(base, candidate.id) ?: continue
-                    suspend fun request(atmos: Boolean): MusicTrack? {
-                        val url = configuredEndpoint(base, "stream", tier = tier, config = config, dolbyAtmos = atmos)
-                            .newBuilder().addPathSegment(id).build()
-                        if (!tried.add(url)) return null
-                        val body = try { get(url, "stream", MAX_STREAM_BYTES) } catch (e: CancellationException) { throw e }
-                            catch (_: IOException) { return null }
-                        return withContext(AppDispatchers.CpuBounded) {
-                            try { parseStream(body, base, track, candidate, policy.copy(dolbyAtmos = atmos), source.id) }
-                            catch (_: org.json.JSONException) { null }
+                suspend fun stream(candidates: List<MusicTrack>): MusicTrack? {
+                    for (tier in tiers) for (candidate in candidates) {
+                        val id = providerId(base, candidate.id) ?: continue
+                        suspend fun request(atmos: Boolean): MusicTrack? {
+                            val url = configuredEndpoint(base, "stream", tier = tier, config = config, dolbyAtmos = atmos)
+                                .newBuilder().addPathSegment(id).build()
+                            if (!tried.add(url)) return null
+                            val body = try { get(url, "stream", MAX_STREAM_BYTES) } catch (_: IOException) { return null }
+                            return withContext(AppDispatchers.CpuBounded) {
+                                try { parseStream(body, base, track, candidate, policy.copy(dolbyAtmos = atmos), source.id) }
+                                catch (_: org.json.JSONException) { null }
+                            }
                         }
+                        val resolved = (request(policy.allowsDolbyAtmos) ?:
+                            if (policy.allowsDolbyAtmos) request(false) else null) ?: continue
+                        if (resolved.audioUrl !in rejected &&
+                            (resolved.isLossless || transports[resolved.audioUrl]?.atmos == true)) return resolved
                     }
-                    val resolved = (request(policy.allowsDolbyAtmos) ?:
-                        if (policy.allowsDolbyAtmos) request(false) else null) ?: continue
-                    if (!stillEnabled(context, source, policy)) return@withTimeoutOrNull null
-                    if (resolved.audioUrl !in rejected &&
-                        (resolved.isLossless || transports[resolved.audioUrl]?.atmos == true)) {
-                        completed = true
-                        return@withTimeoutOrNull resolved
+                    return null
+                }
+                var candidates = if (selected != null) listOf(track) else known.orEmpty()
+                var resolved = stream(candidates)
+                if (resolved == null && selected == null) {
+                    for (query in initialQueries.ifEmpty { queries() }) {
+                        val found = searchPreferred(base, source.name, query, policy.ceiling, config, prefetched)
+                        candidates = withContext(AppDispatchers.CpuBounded) { found.mapNotNull { candidate ->
+                            RecordingIdentity.providerConfidence(track, candidate)?.let { candidate to it }
+                        }.sortedByDescending { it.second }.take(2).map { it.first } }
+                        if (candidates.isNotEmpty()) break
                     }
+                    resolved = stream(candidates)
+                    if (resolved != null) catalogMatches.put(key, CatalogMatch(candidates, System.currentTimeMillis() + 600_000L))
                 }
                 completed = true
+                if (resolved != null) return@withTimeoutOrNull resolved
                 PlaybackDiagnostics.record(track.id, policy, PlaybackSourceKind.ADDON, PlaybackDiagnostics.Stage.RESOLUTION,
                     if (candidates.isEmpty()) PlaybackDiagnostics.Reason.NO_MATCH else PlaybackDiagnostics.Reason.NO_FORMAT, source.id)
                 null

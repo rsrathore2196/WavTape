@@ -500,9 +500,11 @@ class MusicRepository private constructor(
         }
 
     private suspend fun resolveBestQualityTrack(track: MusicTrack, preferredSourceId: String? = null,
-        jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null): MusicTrack =
+        jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null,
+        audibleFallback: MusicTrack? = null): MusicTrack =
         resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
-            onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true)
+            onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true,
+            audibleFallback = audibleFallback)
 
     internal suspend fun resolveFastStartUpgrade(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
@@ -527,7 +529,9 @@ class MusicRepository private constructor(
                 val query = activeUri.encodedQuery.orEmpty().split('&').filterNot { it == "codec=opus" }.joinToString("&")
                 track.copy(audioUrl = activeUri.buildUpon().encodedQuery(query.ifEmpty { null }).build().toString())
             } else track
-            val candidate = try { resolveBestQualityTrack(lookupTrack) }
+            // The audible stream is already a working fallback. Do not extract it again
+            // while Best Quality verifies the providers that outrank it.
+            val candidate = try { resolveBestQualityTrack(lookupTrack, audibleFallback = track) }
                 catch (_: TrackUnavailableException) { return@withTimeoutOrNull null }
             val candidateSource = SourceTransitionOrigin.sourceId(candidate.id, android.net.Uri.parse(candidate.audioUrl), policy)
             // Keep an already playing source when Best Quality lands on that provider or a lower fallback.
@@ -575,7 +579,8 @@ class MusicRepository private constructor(
         preferredSourceId: String? = null,
         manualUpgrade: Boolean = false,
         retainLosslessLookup: Boolean = true,
-        bestQualityFirst: Boolean = false
+        bestQualityFirst: Boolean = false,
+        audibleFallback: MusicTrack? = null
     ): MusicTrack = withContext(AppDispatchers.Io) {
         if (android.net.Uri.parse(track.audioUrl).scheme == com.example.downloads.OfflineDownloads.SCHEME) return@withContext track
         context?.let { ctx ->
@@ -592,7 +597,10 @@ class MusicRepository private constructor(
             context?.let { com.example.data.local.OtherSettingsPreferences.loadPlaybackSources(it) }
             val monitor = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it) }
             val sourcePolicy = monitor?.sourcePolicySnapshot()
-            var cachedFallback: MusicTrack? = null
+            var cachedFallback = audibleFallback?.takeIf { candidate ->
+                sourcePolicy != null && candidate.id == track.id && candidate.audioUrl.isNotBlank() &&
+                    sourcePolicy.acceptsRemoteTrack(candidate)
+            }
             if (!forceRefresh && !manualUpgrade && failedUrl == null && rejectedUrls.isEmpty() && sourcePolicy != null) {
                 context?.let { ctx ->
                     try {

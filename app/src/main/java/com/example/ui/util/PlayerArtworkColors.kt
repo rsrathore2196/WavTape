@@ -192,11 +192,13 @@ internal fun extractPlayerArtworkColors(pixels: IntArray, w: Int, h: Int,
         val scale = minOf(factor, 1f / maxOf(dominant.red, dominant.green, dominant.blue).coerceAtLeast(0.001f))
         return Color(dominant.red * scale, dominant.green * scale, dominant.blue * scale)
     }
+    val popupSample = samplePlayerArtwork(pixels, w, h)
     return ExtractedTrackColors(dominant, scaled(1.12f), scaled(0.90f),
         edgeColor(pixels, w, h, bottom = false, fallback = dominant),
         edgeColor(pixels, w, h, bottom = true, fallback = dominant),
-        colorField = if (effect == PlayerEffect.DEFAULT) artworkColorField(pixels, w, h) else null,
-        legacyColorField = if (effect == PlayerEffect.LEGACY) legacyArtworkColorField(pixels, w, h, dominant) else null)
+        colorField = if (effect == PlayerEffect.DEFAULT) artworkColorField(popupSample) else null,
+        legacyColorField = if (effect == PlayerEffect.LEGACY) legacyArtworkColorField(pixels, w, h, dominant) else null,
+        popupSample = popupSample)
 }
 
 private fun isLightNeutral(color: Color): Boolean =

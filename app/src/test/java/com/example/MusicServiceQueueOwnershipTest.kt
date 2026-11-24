@@ -70,6 +70,7 @@ class MusicServiceQueueOwnershipTest {
     private val sources = mutableListOf<Pair<MediaSource, MediaSource.MediaSourceCaller>>()
     private var standardAvailable = true
     private var youtubeAvailable = false
+    private val youtubeRequests = AtomicInteger()
     private var standardGate: CompletableDeferred<Unit>? = null
     private var archiveDelayMs: Long? = null
     private val addonAddress = "https://files.example/fast-start.flac"
@@ -111,9 +112,12 @@ class MusicServiceQueueOwnershipTest {
             searchStandard = { _, _ -> standardGate?.await(); if (standardAvailable) listOf(selected) else emptyList() },
             fetchById = { _, _ -> standardGate?.await(); selected.takeIf { standardAvailable } },
             searchYouTube = { if (youtubeAvailable) listOf(selected.copy(id = "yt_abcdefghijk", audioUrl = "")) else emptyList() },
-            resolveYouTube = { request, _, _, _ -> if (youtubeAvailable) request.copy(
-                audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=320000",
-                bitrateKbps = 128, qualityBadge = "Opus • 128 kbps") else null },
+            resolveYouTube = { request, _, _, _ ->
+                youtubeRequests.incrementAndGet()
+                if (youtubeAvailable) request.copy(
+                    audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=320000",
+                    bitrateKbps = 128, qualityBadge = "Opus • 128 kbps") else null
+            },
             resolveAddon = { source, track, policy, _ ->
                 addonRequests.incrementAndGet()
                 addonGate?.await()
@@ -242,6 +246,7 @@ class MusicServiceQueueOwnershipTest {
             initial.track.id, Uri.parse(initial.track.audioUrl), monitor.sourcePolicy.value))
         assertEquals(0, addonRequests.get())
         assertEquals(0, requests.get())
+        assertEquals(1, youtubeRequests.get())
 
         val replacement = async {
             repository.resolveFastStartUpgrade(initial.track, monitor.sourcePolicy.value) { candidate ->
@@ -257,6 +262,7 @@ class MusicServiceQueueOwnershipTest {
         released.complete(Unit)
         providerReady.complete(Unit)
         assertEquals(addonAddress, withTimeout(4_000L) { replacement.await() }?.audioUrl)
+        assertEquals("Best Quality can reuse the audible YouTube fallback", 1, youtubeRequests.get())
     }
 
     @Test fun fastStartUsesTheSameBestQualityResult() = runBlocking {

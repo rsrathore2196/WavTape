@@ -512,7 +512,9 @@ class PlaybackManager(
         }?.upgraded ?: displayed).let { track ->
             // Catalog discovery can omit duration. The active decoder's duration
             // provides recording evidence for an explicit source enhancement.
-            val timed = if (track.durationMs <= 0L && player.duration > 0L) track.copy(durationMs = player.duration) else track
+            val liveDuration = player.duration
+            val timed = if (liveDuration > 0L && (track.durationMs <= 0L || startMode == PlaybackMode.FAST_START))
+                track.copy(durationMs = liveDuration) else track
             if (startMode == PlaybackMode.FAST_START) timed.copy(
                 audioUrl = player.currentMediaItem?.playbackUri()?.toString() ?: timed.audioUrl) else timed
         }

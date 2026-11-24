@@ -194,7 +194,7 @@ fun LyricsTextSizePopup(
     onDismissRequest: () -> Unit,
     origin: Rect? = null
 ) {
-    val appColors = PlayerGlassPopupColors
+    val appColors = playerGlassPopupColors()
     PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, _ ->
             val shape = RoundedCornerShape(26.dp)
@@ -296,7 +296,7 @@ fun LyricsProviderSelectionPopup(
 ) {
     // The shared Settings selector keeps its existing presentation.
     val usePlayerTheme = LocalPlayerPopupColors.current != null || allowImport
-    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) PlayerGlassPopupColors else appColors
+    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) playerGlassPopupColors() else appColors
     val selectedFill = if (usePlayerTheme) playerPopupHighlight(0.12f) else appColors.primaryAccent.copy(alpha = 0.12f)
     PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, dismiss ->

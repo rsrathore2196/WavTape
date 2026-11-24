@@ -40,6 +40,7 @@ import com.example.ui.util.TrackPaletteCache
 import com.example.ui.util.extractPlayerArtworkColors
 import com.example.ui.util.playerAppearanceColors
 import com.example.ui.util.playerPreviewPaletteKey
+import com.example.ui.util.samplePlayerArtwork
 import com.example.ui.viewmodel.PlaylistImportUiState
 import com.github.takahirom.roborazzi.*
 import kotlinx.coroutines.CoroutineScope
@@ -137,25 +138,24 @@ class PlayerPopupThemeUiTest {
 
     @Test fun ordinaryPopupsFollowLightModeWhilePlayerGlassStaysDark() = checkPopups(LightAppColors)
     @Test fun playerPopupsUseReadableControlsInDarkMode() = checkPopups(DarkAppColors)
-    @Test fun playerGlassStaysClearInDarkMode() = checkPopups(DarkAppColors, withGlass = true)
-    @Test fun playerGlassStaysClearInLightMode() = checkPopups(LightAppColors, withGlass = true)
+    @Test fun playerGlassUsesUntintedCoverInDarkMode() = checkPopups(DarkAppColors, withGlass = true)
+    @Test fun playerGlassUsesUntintedCoverInLightMode() = checkPopups(LightAppColors, withGlass = true)
 
-    private val artwork = checkNotNull(extractPlayerArtworkColors(IntArray(32 * 32) {
-        if (it % 32 < 16) 0xFFFF482F.toInt() else 0xFF125DFF.toInt()
-    }, 32, 32))
+    private val coverColor = Color(0xFFF2BD73)
+    private val coverPixels = IntArray(32 * 32) { coverColor.toArgb() }
+    private val artwork = checkNotNull(extractPlayerArtworkColors(coverPixels, 32, 32))
 
-    private fun assertClearGlass(tag: String, brightSource: Boolean = true): java.awt.image.BufferedImage {
+    private fun assertArtworkGlass(tag: String): java.awt.image.BufferedImage {
         val image = capture(tag)
-        var darkOverlay = 0
+        var cover = 0
         for (y in 2 until image.height - 2) for (x in 2 until image.width - 2) {
             val pixel = Color(image.getRGB(x, y))
-            // A software capture can omit the live RenderEffect. Empty glass should then be transparent.
-            if (pixel.alpha >= .12f && (brightSource || pixel.alpha < .98f) && pixel.luminance() < .12f) {
-                darkOverlay++
-            }
+            if (pixel.alpha > .9f && kotlin.math.abs(pixel.red - coverColor.red) < .055f &&
+                kotlin.math.abs(pixel.green - coverColor.green) < .055f &&
+                kotlin.math.abs(pixel.blue - coverColor.blue) < .055f) cover++
         }
-        assertTrue("$tag should have no dark fill ($darkOverlay pixels)",
-            darkOverlay < image.width * image.height / 12)
+        assertTrue("$tag should retain the original album-art tone ($cover pixels)",
+            cover > image.width * image.height / 4)
         return image
     }
 
@@ -177,7 +177,7 @@ class PlayerPopupThemeUiTest {
     }
 
     private fun assertGlassInset(tag: String) {
-        val image = assertClearGlass(tag)
+        val image = assertArtworkGlass(tag)
         val center = Color(image.getRGB(image.width / 2, image.height * 3 / 4))
         assertTrue("$tag should have a glass fill rather than opaque black",
             center.alpha < .99f || center.luminance() > .012f)
@@ -204,13 +204,13 @@ class PlayerPopupThemeUiTest {
         val original = source.copy(primaryAccent = if (source.isDark) Color.White else Color.Yellow)
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
-            val backdrop = rememberPlayerPopupBackdrop()
+            val preparedArtwork = rememberPlayerPopupArtwork(artwork.popupSample.takeIf { withGlass }, playerVisible = true)
             CompositionLocalProvider(LocalAppColors provides playerAppearanceColors(original),
                 LocalPlayerPopupColors provides original, LocalArtworkRequestsActive provides false,
                 LocalDynamicGlassEnabled provides withGlass,
-                LocalPlayerPopupBackdrop provides backdrop,
+                LocalPlayerPopupArtwork provides preparedArtwork,
                 LocalVisualEffectsActive provides false) {
-                Box(Modifier.fillMaxSize().playerPopupBackdropSource(backdrop).background(
+                Box(Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(listOf(Color(0xFFFFDD77), Color(0xFF316FB1)))
                 )) {
                     when (popup) {
@@ -251,7 +251,7 @@ class PlayerPopupThemeUiTest {
             val playerGlass = index in listOf(0, 1, 6, 7, 8)
             if (withGlass && playerGlass) {
                 assertWindowDoesNotDim(tag)
-                val image = assertClearGlass(tag)
+                val image = assertArtworkGlass(tag)
                 if (index == 7 || index == 8) assertContinuousLyricsGlass(tag, image)
             } else assertBackground(tag, if (playerGlass) Color.Black else background)
             if (withGlass && index == 0) {
@@ -304,22 +304,30 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    @Test fun actualPlayerMenuHasNoDarkOverlayEvenWithCachedAlbumArtwork() {
+    @Test fun actualPlayerPreparesAlbumArtworkBeforeOpeningTheMenu() {
         val coveredTrack = track.copy(coverUrl = "https://lh3.googleusercontent.com/popup-cover")
         TrackPaletteCache.put(playerPreviewPaletteKey(coveredTrack), artwork)
         try {
             captureSuffix = "-actual-glass"
+            var prepared = false
             compose.setContent { MaterialTheme {
                 CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
                     LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
                     ExpandedPlayerScreen(PlayerUiState(currentTrack = coveredTrack), {}, {}, {}, {}, {}, {}, {}, {}, {},
-                        onAddToPlaylist = {})
+                        onAddToPlaylist = {}, queueContent = {
+                            val ready = LocalPlayerPopupArtwork.current != null
+                            SideEffect { prepared = ready }
+                        })
                 }
             } }
             settle()
+            compose.waitUntil(5_000) { prepared }
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
-            assertClearGlass("player_options_popup", brightSource = false)
+            assertArtworkGlass("player_options_popup")
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText("Sleep Mode").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue(layouts.single().layoutInput.style.color.luminance() < .05f)
         } finally {
             TrackPaletteCache.clear()
         }
@@ -395,12 +403,19 @@ class PlayerPopupThemeUiTest {
         compose.mainClock.autoAdvance = false
         var open by mutableStateOf(false)
         var dismissals = 0
+        var queueSize by mutableIntStateOf(1)
         compose.setContent { MaterialTheme {
-            Box(Modifier.fillMaxSize()) {
-                if (open) QueueBottomSheet(listOf(track), track, {}, { _, _ -> }, {
-                    dismissals++
-                    open = false
-                })
+            val sample = remember { samplePlayerArtwork(coverPixels, 32, 32) }
+            val art = rememberPlayerPopupArtwork(sample, true)
+            CompositionLocalProvider(LocalPlayerPopupArtwork provides art) {
+                Box(Modifier.fillMaxSize()) {
+                    if (open) QueueBottomSheet(remember(queueSize) {
+                        listOf(track) + List(queueSize - 1) { track.copy(id = "queued-$it") }
+                    }, track, {}, { _, _ -> }, {
+                        dismissals++
+                        open = false
+                    })
+                }
             }
         } }
         val sheet = compose.onNodeWithTag("queue_bottom_sheet")
@@ -422,8 +437,10 @@ class PlayerPopupThemeUiTest {
         sheet.assertDoesNotExist()
         assertEquals(1, dismissals)
 
-        compose.runOnIdle { open = true }
+        compose.runOnIdle { queueSize = 120; open = true }
         settle()
+        compose.onNodeWithText("120 tracks in queue").assertIsDisplayed()
+        assertArtworkGlass("queue_bottom_sheet")
         sheet.performTouchInput {
             swipe(Offset(width * .5f, 12f), Offset(width * .5f, height * .8f))
         }
@@ -470,7 +487,7 @@ class PlayerPopupThemeUiTest {
         settle()
         compose.onNodeWithTag("player_options_button").performClick()
         settle()
-        assertClearGlass("player_options_popup", brightSource = false)
+        assertBackground("player_options_popup", Color.Black)
         assertDownloadRow("Download")
         compose.onNodeWithText("Sleep Mode").performClick()
         settle()
@@ -481,7 +498,7 @@ class PlayerPopupThemeUiTest {
         settle()
         compose.onNodeWithTag("player_options_button").performClick()
         settle()
-        assertClearGlass("player_options_popup", brightSource = false)
+        assertBackground("player_options_popup", Color.Black)
         assertDownloadRow("Download")
         val downloads = OfflineDownloads.get(context)
         for ((status, title) in listOf(DownloadStatus.COMPLETE to "Remove download",
@@ -531,7 +548,7 @@ class PlayerPopupThemeUiTest {
             assertProgress(bytes / 1000f)
         }
         captureSuffix = "-progress-dark"
-        assertClearGlass("player_options_popup", brightSource = false)
+        assertBackground("player_options_popup", Color.Black)
         runBlocking { downloads.update(progressTrack.id) { it.copy(status = DownloadStatus.PAUSED) } }
         settle()
         assertDownloadRow("Resume download")
@@ -540,7 +557,7 @@ class PlayerPopupThemeUiTest {
         settle()
         assertProgress(.73f)
         captureSuffix = "-progress-light"
-        assertClearGlass("player_options_popup", brightSource = false)
+        assertBackground("player_options_popup", Color.Black)
         runBlocking { downloads.update(progressTrack.id) { it.copy(status = DownloadStatus.DOWNLOADING, bytes = 850) } }
         settle()
         assertDownloadRow("Pause download")

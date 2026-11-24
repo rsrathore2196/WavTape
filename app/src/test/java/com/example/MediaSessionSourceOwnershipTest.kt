@@ -2,8 +2,16 @@ package com.example
 
 import android.app.Application
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.session.SessionCommand
+import com.example.data.model.MusicTrack
+import com.example.data.remote.StreamingAddons
+import com.example.playback.AudioQualityCeiling
+import com.example.playback.PlaybackSource
+import com.example.playback.PlaybackSourceKind
+import com.example.playback.PlaybackSourcePolicy
 import com.example.service.MusicService
+import com.example.service.PlaybackSessionStore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -47,5 +55,21 @@ class MediaSessionSourceOwnershipTest {
         assertFalse(MusicService.permitsControllerSource(remote, fromApp = false, trustedController = false))
         assertTrue(MusicService.permitsControllerSource(remote, fromApp = false, trustedController = true))
         assertTrue(MusicService.permitsControllerSource(remote, fromApp = true, trustedController = false))
+    }
+
+    @Test fun verifiedInlineAddonCanEnterTheAppSessionWithoutBeingPersistedOrOpenedExternally() {
+        val base = "https://addon.example"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Addon", baseUrl = base)
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(addon))
+        val track = MusicTrack("library-track", "Song", "Artist", "Album", 100_000, "", "")
+        val result = checkNotNull(StreamingAddons.parseStream(
+            """{"manifestXml":"<MPD><BaseURL>https://audio.example/</BaseURL></MPD>","codec":"flac"}""",
+            base, track, track, policy, addon.id))
+        val prepared = item(result.audioUrl).buildUpon().setMediaMetadata(MediaMetadata.Builder()
+            .setExtras(android.os.Bundle().apply { putString("source_policy_key", policy.key) }).build()).build()
+        assertTrue(MusicService.acceptsPreparedAppItem(prepared, policy))
+        assertFalse(MusicService.acceptsPreparedAppItem(prepared, policy.copy(ceiling = AudioQualityCeiling.HIGH)))
+        assertFalse(MusicService.permitsControllerSource(prepared, fromApp = false, trustedController = true))
+        assertFalse(PlaybackSessionStore.isReal(prepared))
     }
 }
