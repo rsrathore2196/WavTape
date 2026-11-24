@@ -32,6 +32,7 @@ import com.example.service.StreamedAudioRepresentations
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.*
@@ -174,8 +175,8 @@ class MusicServiceQueueOwnershipTest {
         assertEquals("USABC2400001", item.mediaMetadata.extras!!.getString("isrc"))
     }
 
-    @Test fun fastStartQueuesYouTubeWithoutWaitingForAnyPreferredProvider() = runBlocking {
-        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+    @Test fun unsetPlaybackModeQueuesYouTubeWithoutWaitingForAnyPreferredProvider() = runBlocking {
+        app.getSharedPreferences("xtreme_audio_quality_prefs", 0).edit().remove("playback_mode").apply()
         youtubeAvailable = true
         val policy = monitor.sourcePolicySnapshot()
         var timeline: Timeline? = null
@@ -384,7 +385,7 @@ class MusicServiceQueueOwnershipTest {
         var seek: Pair<Int, Long>? = null
         var resume = false
         var isPlaying = false
-        var position = 38_000L
+        val position = AtomicLong(38_000L)
         val player = Proxy.newProxyInstance(ExoPlayer::class.java.classLoader, arrayOf(ExoPlayer::class.java)) { _, method, args ->
             when (method.name) {
                 "getCurrentMediaItem" -> item
@@ -397,7 +398,7 @@ class MusicServiceQueueOwnershipTest {
                 "isCurrentMediaItemSeekable", "isCurrentMediaItemLive", "getShuffleModeEnabled" -> false
                 "getPlaybackState" -> Player.STATE_READY
                 "getDuration" -> selected.durationMs
-                "getCurrentPosition" -> position
+                "getCurrentPosition" -> position.getAndSet(42_500L)
                 "getPlaybackParameters" -> androidx.media3.common.PlaybackParameters.DEFAULT
                 "replaceMediaItem" -> {
                     assertEquals(1, args!![0])
@@ -423,7 +424,6 @@ class MusicServiceQueueOwnershipTest {
             isPlaying = true
             ReflectionHelpers.callInstanceMethod<Unit>(service, "scheduleHeadlessLossless",
                 ReflectionHelpers.ClassParameter.from(PlaybackSourcePolicy::class.java, policy))
-            position = 42_500L
             until { seek != null }
             assertEquals(1 to 42_500L, seek)
             assertTrue(resume)

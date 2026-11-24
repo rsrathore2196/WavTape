@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -35,7 +37,7 @@ class PlaybackModeSettingsUiTest {
 
     @Test fun initialRowShowsTheSavedModeBeforeLifecycleCollectionStarts() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        AudioQualityPreferences.setPlaybackMode(context, PlaybackMode.FAST_START)
+        AudioQualityPreferences.setPlaybackMode(context, PlaybackMode.BEST_QUALITY)
         compose.setContent {
             val stoppedOwner = remember {
                 object : LifecycleOwner {
@@ -46,26 +48,29 @@ class PlaybackModeSettingsUiTest {
                 CompositionLocalProvider(LocalLifecycleOwner provides stoppedOwner) { PlaybackModeSetting() }
             }
         }
-        compose.onNodeWithText("Fast Start").assertIsDisplayed()
+        compose.onNodeWithText("Best Quality").assertIsDisplayed()
     }
 
     @Test fun theTwoPlaybackModesAreSelectableAndPersisted() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        assertEquals(PlaybackMode.BEST_QUALITY, AudioQualityPreferences.playbackMode(context))
+        assertEquals(PlaybackMode.FAST_START, AudioQualityPreferences.playbackMode(context))
         compose.setContent {
             MyApplicationTheme(customThemeState = ThemePresets.StudioNight.toCustomThemeState()) {
                 PlaybackModeSetting()
             }
         }
+        compose.onNodeWithText("Fast Start").assertIsDisplayed()
         compose.onNodeWithText("Playback Mode").performClick()
         PlaybackMode.entries.forEach { mode ->
             compose.onNodeWithText(mode.description).assertIsDisplayed()
         }
-        compose.onNodeWithText("Fast Start").performClick()
-        compose.waitUntil(5_000L) { compose.onAllNodesWithText("Fast Start").fetchSemanticsNodes().isNotEmpty() }
-        assertEquals(PlaybackMode.FAST_START, AudioQualityPreferences.playbackMode(context))
-        compose.onNodeWithText("Playback Mode").performClick()
-        compose.onNodeWithText("Best Quality").performClick()
+        compose.onNodeWithText(PlaybackMode.FAST_START.description).assertIsSelected()
+        compose.onNodeWithText(PlaybackMode.BEST_QUALITY.description).assertIsNotSelected().performClick()
         assertEquals(PlaybackMode.BEST_QUALITY, AudioQualityPreferences.playbackMode(context))
+        compose.waitUntil(5_000L) { compose.onAllNodesWithText("Best Quality").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Playback Mode").performClick()
+        compose.onNodeWithText(PlaybackMode.BEST_QUALITY.description).assertIsSelected()
+        compose.onNodeWithText(PlaybackMode.FAST_START.description).performClick()
+        assertEquals(PlaybackMode.FAST_START, AudioQualityPreferences.playbackMode(context))
     }
 }

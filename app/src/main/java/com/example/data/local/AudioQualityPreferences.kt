@@ -27,7 +27,7 @@ object AudioQualityPreferences {
     }
 
     fun playbackMode(context: Context): PlaybackMode =
-        PlaybackMode.fromPreference(getPrefs(context).getString(KEY_PLAYBACK_MODE, null))
+        PlaybackMode.fromPreference(getPrefs(context).getString(KEY_PLAYBACK_MODE, PlaybackMode.FAST_START.name))
 
     fun setPlaybackMode(context: Context, mode: PlaybackMode) {
         getPrefs(context).edit().putString(KEY_PLAYBACK_MODE, mode.name).apply()
