@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import com.example.ui.theme.accentBackground
 import com.example.ui.util.localizedCatalogText
 
 import androidx.compose.foundation.BorderStroke
@@ -207,7 +206,7 @@ fun QueueBottomSheet(
                                 modifier = Modifier
                                     .size(34.dp)
                                     .clip(CircleShape)
-                                    .accentBackground(
+                                    .background(
                                         if (isAutoplayEnabled) appColors.primaryAccent.copy(alpha = 0.22f)
                                         else appColors.chipBackground
                                     ),

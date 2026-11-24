@@ -197,9 +197,8 @@ internal fun prepareUpcomingPlayerArtwork(
 
 private suspend fun cachePlayerBackdrop(context: Context, track: MusicTrack, artwork: SuccessResult,
     fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
-    val appearance = com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context)
-    if (!appearance.pureLiquidGlassUi && (!appearance.dynamicAlbumGlow ||
-        !com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context))) return
+    if (!com.example.data.local.OtherSettingsPreferences.isDynamicGlassEnabled(context) ||
+        !com.example.data.local.OtherSettingsPreferences.playerExperienceSettings(context).dynamicAlbumGlow) return
     fun key(url: String) = playerPaletteKey(track, true, Color.White, Color.Black, url)
     try {
         val selectedKey = key(artwork.request.data.toString())
@@ -237,25 +236,6 @@ internal fun playerPreviewPaletteKey(track: MusicTrack): String =
     playerPaletteKey(track, true, Color.White, Color.Black) + "|dock-preview"
 
 private val playerPaletteLocks = Array(8) { Mutex() }
-
-/** Reuse a cached cover when the appearance setting is enabled with the mini-player hidden. */
-internal suspend fun prepareCachedAccentArtwork(context: Context, track: MusicTrack, previewKey: String) {
-    if (track.coverUrl.isBlank()) return
-    try {
-        val size = ImageConfig.PALETTE_THUMBNAIL_SIZE
-        val request = buildOptimizedImageRequest(context, track.coverUrl, ImageConfig.MINI_PLAYER_SIZE,
-            track, decodeSize = IntSize(size, size), currentTrack = true)
-            .newBuilder()
-            .networkCachePolicy(CachePolicy.DISABLED)
-            .memoryCachePolicy(CachePolicy.READ_ONLY)
-            .build()
-        val result = context.imageLoader.execute(request) as? SuccessResult ?: return
-        val bitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return
-        prepareDecodedPlayerArtworkColors(previewKey, bitmap, urgent = { true })
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) { /* Ordinary theme colors remain available during a cover miss. */ }
-}
 
 /** Prefetch and the visible player share one decode/analysis, including after navigation waits. */
 internal suspend fun preparePlayerArtworkColors(

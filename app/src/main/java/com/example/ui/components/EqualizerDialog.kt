@@ -1,7 +1,5 @@
 package com.example.ui.components
 
-import com.example.ui.theme.ThemeAccentSurface
-import com.example.ui.theme.accentBackground
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -105,7 +103,7 @@ fun EqualizerDialog(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .accentBackground(
+                                    .background(
                                         if (effectsState.isEnabled) appColors.primaryAccent.copy(alpha = 0.2f)
                                         else appColors.cardBackgroundElevated
                                     ),
@@ -184,7 +182,7 @@ fun EqualizerDialog(
                 ) {
                     effectsState.availablePresets.forEach { preset ->
                         val isSelected = effectsState.selectedPreset.equals(preset, ignoreCase = true)
-                        ThemeAccentSurface(
+                        Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
                                 .bouncyClickable {

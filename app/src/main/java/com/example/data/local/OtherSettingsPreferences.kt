@@ -66,8 +66,7 @@ data class PlayerExperienceSettings(
     val outputPrecision: OutputPrecision = OutputPrecision.PCM_16,
     val dolbyAtmos: Boolean = false,
     val fullScreenAlbumArt: Boolean = true,
-    val bitPerfect: Boolean = false,
-    val pureLiquidGlassUi: Boolean = false
+    val bitPerfect: Boolean = false
 )
 
 object OtherSettingsPreferences {
@@ -143,7 +142,6 @@ object OtherSettingsPreferences {
     private const val KEY_DYNAMIC_GLASS_ENABLED = "dynamic_glass_enabled"
     private const val KEY_LIQUID_GLASS_PROFILE = "liquid_glass_profile"
     private const val KEY_ALBUM_GLOW = "player_dynamic_album_glow"
-    private const val KEY_PURE_LIQUID_GLASS_UI = "pure_liquid_glass_ui"
     private const val KEY_HIGH_CONTRAST = "player_high_contrast_typography"
     private const val KEY_FULL_SCREEN_ALBUM_ART = "player_full_screen_album_art"
     private const val KEY_CROSSFADE = "playback_crossfade_enabled"
@@ -324,15 +322,13 @@ object OtherSettingsPreferences {
             outputPrecision = OutputPrecision.fromStored(prefs.getString(KEY_OUTPUT_PRECISION, null)),
             dolbyAtmos = prefs.getBoolean(KEY_DOLBY_ATMOS, false),
             fullScreenAlbumArt = prefs.getBoolean(KEY_FULL_SCREEN_ALBUM_ART, true),
-            bitPerfect = prefs.getBoolean(KEY_BIT_PERFECT, false),
-            pureLiquidGlassUi = prefs.getBoolean(KEY_PURE_LIQUID_GLASS_UI, false)
+            bitPerfect = prefs.getBoolean(KEY_BIT_PERFECT, false)
         )
     }
 
     fun observePlayerExperience(context: Context): Flow<PlayerExperienceSettings> {
         val keys = setOf(
             KEY_ALBUM_GLOW,
-            KEY_PURE_LIQUID_GLASS_UI,
             KEY_HIGH_CONTRAST,
             KEY_CROSSFADE,
             KEY_SPATIAL_AUDIO,
@@ -363,10 +359,6 @@ object OtherSettingsPreferences {
 
     fun setDynamicAlbumGlow(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_ALBUM_GLOW, enabled).apply()
-    }
-
-    fun setPureLiquidGlassUi(context: Context, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_PURE_LIQUID_GLASS_UI, enabled).apply()
     }
 
     fun setDolbyAtmos(context: Context, enabled: Boolean) {

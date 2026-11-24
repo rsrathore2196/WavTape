@@ -68,9 +68,7 @@ data class AppThemeColors(
     val highContrastTypography: Boolean = false,
     val neutralSurfaces: Boolean = false,
     val settingsSurface: Boolean = false,
-    val tonalPalette: TonalThemeColors? = null,
-    val pureLiquidGlassUi: Boolean = false,
-    val artworkGlass: AccentArtworkGlass? = null
+    val tonalPalette: TonalThemeColors? = null
 ) {
     // Copies that explicitly edit an accent must not inherit another palette's roles.
     val accentRoles: TonalThemeColors?

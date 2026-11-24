@@ -258,10 +258,9 @@ fun MyApplicationTheme(
     val playerExperience by playerExperienceFlow.collectAsStateWithLifecycle(
         initialValue = OtherSettingsPreferences.playerExperienceSettings(context))
     val custom = customThemeState ?: remember { ThemePreferences.getCustomThemeState(context) }
-    val appColors = remember(darkTheme, custom, playerExperience.dynamicAlbumGlow, playerExperience.highContrastTypography,
-        playerExperience.pureLiquidGlassUi) {
+    val appColors = remember(darkTheme, custom, playerExperience.dynamicAlbumGlow, playerExperience.highContrastTypography) {
         resolveAppThemeColors(darkTheme, custom, playerExperience.highContrastTypography)
-            .copy(dynamicAlbumGlow = playerExperience.dynamicAlbumGlow, pureLiquidGlassUi = playerExperience.pureLiquidGlassUi)
+            .copy(dynamicAlbumGlow = playerExperience.dynamicAlbumGlow)
     }
     val colorScheme = remember(darkTheme, appColors) { resolveColorScheme(darkTheme, appColors) }
 

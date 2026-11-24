@@ -1,16 +1,13 @@
 package com.example
 
 import android.app.Application
-import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
@@ -21,18 +18,13 @@ import com.example.data.model.MusicTrack
 import com.example.playback.PlayerUiState
 import com.example.ui.components.*
 import com.example.ui.theme.*
-import com.example.ui.util.ExtractedTrackColors
 import com.example.ui.util.LocalArtworkRequestsActive
-import com.example.ui.util.TrackPaletteCache
-import com.example.ui.util.artworkColorField
-import com.example.ui.util.playerPreviewPaletteKey
 import com.github.takahirom.roborazzi.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.awt.image.BufferedImage
@@ -120,80 +112,6 @@ class MiniPlayerPresentationUiTest {
         compose.onNodeWithTag("mini_player_play_pause").performClick()
         compose.onNodeWithTag("mini_player_next").performClick()
         compose.runOnIdle { assertEquals(1, playTaps); assertEquals(1, skips); assertEquals(0, opens) }
-    }
-
-    @Test fun pureGlassFollowsTheCurrentCoverAndPreservesTextAndNeutralFills() {
-        val palette = DarkAppColors.copy(primaryAccent = Color(0xff92dd86), secondaryAccent = Color(0xff92dd86))
-        val ink = Color(0xff172238)
-        val neutral = Color(0xff463348)
-        val warm = song.copy(id = "pure-glass-warm")
-        val cool = song.copy(id = "pure-glass-cool")
-        val missing = song.copy(id = "pure-glass-missing")
-        fun cacheCover(track: MusicTrack, color: Color) {
-            val field = artworkColorField(IntArray(32 * 32) { color.toArgb() }, 32, 32)
-            TrackPaletteCache.put(playerPreviewPaletteKey(track), ExtractedTrackColors(color, color, colorField = field))
-        }
-        cacheCover(warm, Color(0xfff05235))
-        cacheCover(cool, Color(0xff2c67ed))
-
-        var current by mutableStateOf(warm)
-        var enabled by mutableStateOf(false)
-        var artworkTrackId by mutableStateOf<String?>(null)
-        compose.setContent {
-            val glass = rememberAccentArtworkGlass(enabled, current)
-            SideEffect { artworkTrackId = current.id.takeIf { glass != null } }
-            MaterialTheme {
-                CompositionLocalProvider(LocalAppColors provides palette.copy(artworkGlass = glass)) {
-                    Column {
-                        AccentButton({}, Modifier.width(200.dp).testTag("glass_button")) {
-                            Text("Original ink", Modifier.testTag("glass_label"), color = ink)
-                        }
-                        Box(Modifier.size(40.dp).accentBackground(neutral).testTag("glass_neutral"))
-                    }
-                }
-            }
-        }
-
-        fun sample(tag: String): Color {
-            val image = capture(tag)
-            return Color(image.getRGB(image.width / 5, image.height / 2))
-        }
-        fun assertOriginalInk() {
-            val layout = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithTag("glass_label", useUnmergedTree = true)
-                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
-            assertEquals(ink, layout.single().layoutInput.style.color)
-            assertEquals(neutral, sample("glass_neutral"))
-        }
-
-        fun awaitCover(track: MusicTrack) {
-            compose.waitUntil(5_000) {
-                Shadows.shadowOf(Looper.getMainLooper()).idle()
-                artworkTrackId == track.id
-            }
-        }
-
-        val defaultFill = sample("glass_button")
-        assertEquals(palette.primaryAccent, defaultFill)
-        compose.runOnIdle { enabled = true }
-        awaitCover(warm)
-        val warmFill = sample("glass_button")
-        assertTrue("Warm cover should be visible in the fill: $warmFill", warmFill.red > warmFill.blue)
-        assertOriginalInk()
-
-        compose.runOnIdle { current = cool }
-        awaitCover(cool)
-        val coolFill = sample("glass_button")
-        assertTrue("Changing tracks should show the new cover: $coolFill", coolFill.blue > coolFill.red)
-        assertOriginalInk()
-
-        compose.runOnIdle { current = missing }
-        assertEquals(defaultFill, sample("glass_button"))
-        compose.runOnIdle { current = warm }
-        awaitCover(warm)
-        compose.runOnIdle { enabled = false }
-        assertEquals(defaultFill, sample("glass_button"))
-        assertOriginalInk()
     }
 
     @Test fun bothMiniPlayerLabelsUseHighContrastBoldTextWithoutBlackOutlineGlyphs() {

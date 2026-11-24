@@ -87,7 +87,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -107,7 +106,6 @@ import com.example.ui.theme.bouncyClickable
 import com.example.ui.theme.liquidGlassButton
 import com.example.ui.theme.liquidGlassCard
 import com.example.ui.theme.liquidGlassPill
-import com.example.ui.theme.accentBackground
 import com.example.ui.util.ImageConfig
 import com.example.ui.util.rememberPlaylistCoverRequest
 import androidx.compose.ui.text.style.TextAlign
@@ -253,20 +251,13 @@ fun LibraryScreen(
                             .drawWithCache {
                                 val gap = 4.dp.toPx()
                                 val tabWidth = (size.width - gap) / 2f
-                                val artwork = appColors.artworkGlass
-                                val fill = artwork?.brush(appColors.onAccentGradient)
-                                    ?: Brush.horizontalGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent),
-                                        endX = tabWidth)
+                                val fill = Brush.horizontalGradient(listOf(appColors.primaryAccent, appColors.secondaryAccent),
+                                    endX = tabWidth)
                                 onDrawBehind {
                                     val progress = tabPosition.value.coerceIn(0f, 1f)
                                     val position = if (layoutDirection == LayoutDirection.Rtl) 1f - progress else progress
-                                    val left = (tabWidth + gap) * position
-                                    if (artwork == null) {
-                                        translate(left = left) {
-                                            drawRoundRect(fill, size = Size(tabWidth, size.height), cornerRadius = CornerRadius(12.dp.toPx()))
-                                        }
-                                    } else inset(left, 0f, size.width - left - tabWidth, 0f) {
-                                        drawRoundRect(fill, cornerRadius = CornerRadius(12.dp.toPx()))
+                                    translate(left = (tabWidth + gap) * position) {
+                                        drawRoundRect(fill, size = Size(tabWidth, size.height), cornerRadius = CornerRadius(12.dp.toPx()))
                                     }
                                 }
                             },
@@ -344,8 +335,9 @@ fun LibraryScreen(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .accentBackground(appColors, appColors.primaryAccent.copy(alpha = if (isDark) 0.20f else 0.14f),
-                                        foreground = appColors.primaryAccent),
+                                    .background(
+                                        appColors.primaryAccent.copy(alpha = if (isDark) 0.20f else 0.14f)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(

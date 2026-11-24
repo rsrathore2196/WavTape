@@ -1,7 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
-import com.example.ui.theme.ThemeAccentSurface
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -144,7 +142,7 @@ fun SourcesScreen(
                     "Current Quality: Maximum / Lossless • All sources unlocked"
             }
 
-            ThemeAccentSurface(
+            Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = if (ceiling == AudioQualityCeiling.MAX) colors.primaryAccent.copy(alpha = 0.12f)
                     else colors.dividerColor.copy(alpha = 0.22f),
@@ -212,7 +210,7 @@ fun SourcesScreen(
                                     addonTop(liveAddonOrder, item.id, lockedHeights) else 0f
                             }
                             .scale(dragScale)
-                            .accentBackground(if (isDragging) colors.primaryAccent.copy(alpha = 0.12f) else Color.Transparent)
+                            .background(if (isDragging) colors.primaryAccent.copy(alpha = 0.12f) else Color.Transparent)
                     ) {
                         SourceItemRow(
                             index = index + 1,
@@ -290,7 +288,7 @@ fun SourcesScreen(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .accentBackground(colors.primaryAccent.copy(alpha = 0.15f), CircleShape),
+                                .background(colors.primaryAccent.copy(alpha = 0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -397,7 +395,7 @@ private fun SourceItemRow(
         Box(
             modifier = Modifier
                 .size(38.dp).clickable(enabled = item.iconType == "addon", onClick = onConfigure)
-                .accentBackground(
+                .background(
                     if (isAllowed) appColors.primaryAccent.copy(alpha = 0.12f)
                     else appColors.dividerColor.copy(alpha = 0.2f),
                     CircleShape
@@ -456,7 +454,7 @@ private fun SourceItemRow(
 
         // Switch or Always on
         if (item.isAlwaysOn) {
-            ThemeAccentSurface(
+            Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = appColors.primaryAccent.copy(alpha = 0.12f),
                 modifier = Modifier

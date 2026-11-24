@@ -1,6 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.animation.togetherWith
@@ -262,26 +261,6 @@ private fun ThemesAppUiOverview(
             onOpenPresets = onOpenPresets,
             onOpenCustomTheming = onOpenCustomTheming
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().liquidGlassCard(
-                appColors, shape = RoundedCornerShape(22.dp), elevation = 6.dp, translucency = 0.82f, tintAccent = false
-            ).padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Pure Liquid Glass UI", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
-                Text("Makes the Overall UI Elements have the Liquid Glass Effect based on Playing Track Album Art",
-                    fontSize = 11.5.sp, color = appColors.textMuted, modifier = Modifier.padding(top = 3.dp))
-            }
-            com.example.ui.theme.AccentSwitch(
-                checked = playerExperience.pureLiquidGlassUi,
-                onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setPureLiquidGlassUi(settingsContext, it) },
-                modifier = Modifier.testTag("switch_pure_liquid_glass_ui")
-            )
-        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -607,7 +586,7 @@ private fun ThemesAppUiOverview(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .accentBackground(
+                                    .background(
                                         if (isSelected) appColors.primaryAccent.copy(alpha = if (appColors.isDark) 0.30f else 0.18f)
                                         else appColors.cardBackgroundElevated
                                     )
@@ -677,11 +656,7 @@ private fun ThemeModeOptionCard(
                 ambientColor = if (isDarkMode) Color.Black.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.04f)
             )
             .clip(cardShape)
-            .then(
-                if (isSelected && appColors.artworkGlass != null) {
-                    Modifier.background(appColors.artworkGlass.brush(if (appColors.isDark) accentColor else readableAccent))
-                } else Modifier.background(glassBackground)
-            )
+            .background(glassBackground)
             .border(
                 BorderStroke(if (isSelected) 1.5.dp else 1.3.dp, borderBrush),
                 cardShape
@@ -732,11 +707,7 @@ private fun ThemeModeOptionCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .then(
-                        if (isSelected && appColors.artworkGlass != null) {
-                            Modifier.background(appColors.artworkGlass.brush(iconTint))
-                        } else Modifier.background(circleBg)
-                    )
+                    .background(circleBg)
                     .border(BorderStroke(if (isSelected) 1.2.dp else 1.dp, circleBorder), CircleShape),
                 contentAlignment = Alignment.Center
             ) {

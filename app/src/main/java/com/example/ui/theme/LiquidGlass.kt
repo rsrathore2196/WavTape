@@ -144,7 +144,6 @@ object LiquidGlass {
                 base.copy(alpha = opacity), base.copy(alpha = .98f)
             ))
         }
-        if (tintAccent) colors.artworkGlass?.let { return it.brush(colors.textPrimary) }
         val isDark = colors.isDark
         val accent = colors.primaryAccent
 
@@ -249,9 +248,6 @@ object LiquidGlass {
         colors: AppThemeColors,
         translucency: Float = 0.82f
     ): Brush {
-        if (colors.dynamicGlassEnabled && !colors.isAmoled) {
-            colors.artworkGlass?.let { return it.brush(colors.textPrimary) }
-        }
         if (!colors.dynamicGlassEnabled) return Brush.linearGradient(listOf(colors.cardBackground, colors.cardBackground))
         val isDark = colors.isDark
         val accent = colors.primaryAccent
@@ -374,8 +370,6 @@ fun Modifier.liquidGlass(
         colors.primaryAccent else null
 
     val glassBackgroundBrush = when {
-        albumArtTint == null && effectiveTint != null && colors.artworkGlass != null ->
-            colors.artworkGlass.brush(colors.textPrimary)
         !isDark -> LiquidGlass.glassBrush(colors, translucency, effectiveTint != null)
         effectiveTint != null -> {
             Brush.verticalGradient(
@@ -462,10 +456,8 @@ fun Modifier.liquidGlassButton(
     translucency: Float = 0.75f,
     borderWidth: Dp = 1.3.dp
 ): Modifier {
-    if (!colors.dynamicGlassEnabled && (!isActive || colors.artworkGlass == null)) {
-        return matteThemeSurface(colors, shape, elevation, borderWidth, isActive)
-    }
-    val activePillBrush = colors.artworkGlass?.brush(colors.textPrimary) ?: if (colors.isDark) {
+    if (!colors.dynamicGlassEnabled) return matteThemeSurface(colors, shape, elevation, borderWidth, isActive)
+    val activePillBrush = if (colors.isDark) {
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.35f),
@@ -754,8 +746,7 @@ private fun createLiquidGlassPill(
     sheenAlpha: Float = 0.14f
 ): Modifier {
     if (!colors.dynamicGlassEnabled) return Modifier.matteThemeSurface(colors, shape, elevation, borderWidth, isActive)
-    val fill = if (!isActive) LiquidGlass.glassBrush(colors, translucency, false)
-    else colors.artworkGlass?.brush(colors.textPrimary) ?: if (colors.isDark) {
+    val fill = if (!isActive) LiquidGlass.glassBrush(colors, translucency, false) else if (colors.isDark) {
         Brush.verticalGradient(
             listOf(
                 colors.primaryAccent.copy(alpha = 0.35f),

@@ -1,6 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import android.content.Intent
@@ -196,7 +195,7 @@ fun AboutPage(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .accentBackground(accentColor.copy(alpha = 0.12f)),
+                                .background(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -419,7 +418,7 @@ fun AboutPage(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .accentBackground(accentColor.copy(alpha = 0.12f)),
+                                .background(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -465,7 +464,7 @@ fun AboutPage(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .accentBackground(accentColor.copy(alpha = 0.12f)),
+                                .background(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(

@@ -1,6 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -154,7 +153,7 @@ internal fun AppLanguageSetting() {
 private fun LanguageRow(tag: String, label: String, subtitle: String?, selected: Boolean, onSelect: (String) -> Unit) {
     val colors = LocalAppColors.current
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-        .accentBackground(if (selected) colors.primaryAccent.copy(alpha = .14f) else colors.cardBackgroundElevated)
+        .background(if (selected) colors.primaryAccent.copy(alpha = .14f) else colors.cardBackgroundElevated)
         .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelect(tag) })
         .padding(14.dp).testTag("app_language_${tag.ifEmpty { "system" }}"),
         verticalAlignment = Alignment.CenterVertically) {

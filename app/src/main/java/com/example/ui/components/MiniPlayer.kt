@@ -128,7 +128,7 @@ fun MiniPlayer(
     val buttonPill = rememberDockSelectionPill(appColors)
     val buttonContentColor = appColors.onAccentGradient
     val imageRequest = rememberOptimizedImageRequest(track = track, targetSize = ImageConfig.MINI_PLAYER_SIZE)
-    val prepareReflection = appColors.pureLiquidGlassUi || LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
+    val prepareReflection = LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
     val previewKey = remember(track.id, track.title, track.artist, track.album, track.coverUrl) {
         playerPreviewPaletteKey(track)
     }

@@ -1,7 +1,5 @@
 package com.example.ui.screens
 
-import com.example.ui.theme.accentBackground
-import com.example.ui.theme.ThemeAccentSurface
 import com.example.R
 
 import androidx.compose.ui.res.stringResource
@@ -1139,7 +1137,7 @@ fun SearchScreen(
                                                 Box(
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(4.dp))
-                                                        .accentBackground(appColors.primaryAccent.copy(alpha = 0.18f))
+                                                        .background(appColors.primaryAccent.copy(alpha = 0.18f))
                                                         .border(BorderStroke(0.5.dp, appColors.primaryAccent.copy(alpha = 0.5f)), RoundedCornerShape(4.dp))
                                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                                 ) {
@@ -1250,7 +1248,7 @@ fun SearchScreen(
                             ),
                             modifier = Modifier.weight(1f)
                         )
-                        ThemeAccentSurface(
+                        Surface(
                             color = appColors.primaryAccent.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -1609,7 +1607,7 @@ fun SearchScreen(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .accentBackground(appColors.primaryAccent.copy(alpha = 0.15f)),
+                                        .background(appColors.primaryAccent.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(

@@ -1,7 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
-import com.example.ui.theme.ThemeAccentSurface
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,7 +33,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
-import com.example.ui.theme.ThemeAccentButton as Button
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -220,7 +218,7 @@ fun BackupRestorePage(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .accentBackground(accentColor.copy(alpha = 0.12f)),
+                            .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -381,7 +379,7 @@ fun BackupRestorePage(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .accentBackground(accentColor.copy(alpha = 0.12f)),
+                                .background(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -441,7 +439,7 @@ fun BackupRestorePage(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .accentBackground(accentColor.copy(alpha = 0.12f)),
+                            .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -518,7 +516,7 @@ fun BackupRestorePage(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .accentBackground(accentColor.copy(alpha = 0.12f)),
+                            .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -656,7 +654,7 @@ fun BackupRestorePage(
                                     )
                                 }
 
-                                ThemeAccentSurface(
+                                Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = accentColor.copy(alpha = 0.15f)
                                 ) {
@@ -678,7 +676,7 @@ fun BackupRestorePage(
         // Status Notification Banner
         if (statusNotification != null) {
             Spacer(modifier = Modifier.height(16.dp))
-            ThemeAccentSurface(
+            Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = accentColor.copy(alpha = 0.12f),
                 border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),

@@ -117,7 +117,6 @@ import com.example.ui.components.HomePullRefreshOverscrollLayout
 import com.example.ui.components.HomeAppHeader
 import com.example.ui.components.InfiniteRadioHeroCard
 import com.example.ui.components.LocalVisualEffectsActive
-import com.example.ui.theme.ThemeAccentSurface
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.util.LocalArtworkRequestsActive
 import com.example.ui.util.rememberOptimizedImageRequest
@@ -677,7 +676,7 @@ private fun MostListenedArtistCard(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (onPlayRadio != null) {
-                    ThemeAccentSurface(onClick = { onPlayRadio(artist) }, shape = CircleShape,
+                    Surface(onClick = { onPlayRadio(artist) }, shape = CircleShape,
                         color = colors.primaryAccent, contentColor = colors.onPrimaryAccent,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("artist_radio_play_${artist.name}")) {
                         Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),

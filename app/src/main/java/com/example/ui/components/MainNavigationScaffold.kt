@@ -85,7 +85,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.setValue
-import com.example.ui.theme.rememberAccentArtworkGlass
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.bouncyClickable
 import com.example.ui.theme.liquidGlass
@@ -329,13 +328,12 @@ fun MainNavigationScaffold(
         !playerVisibility.currentState && catalogDetail == null && selectedPlaylistWithTracks == null
 
     val baseAppColors = LocalAppColors.current
-    val artworkGlass = rememberAccentArtworkGlass(baseAppColors.pureLiquidGlassUi, playerUiState.currentTrack)
     val pendingCollectionPlayback by viewModel.pendingCollectionPlayback.collectAsStateWithLifecycle()
     val collectionPlaybackActions = remember(viewModel, pendingCollectionPlayback) {
         CollectionPlaybackActions(pendingCollectionPlayback, viewModel::playCollectionFromCard)
     }
-    val appColors = remember(baseAppColors, isDynamicGlassEnabled, artworkGlass) {
-        baseAppColors.copy(dynamicGlassEnabled = isDynamicGlassEnabled, artworkGlass = artworkGlass)
+    val appColors = remember(baseAppColors, isDynamicGlassEnabled) {
+        baseAppColors.copy(dynamicGlassEnabled = isDynamicGlassEnabled)
     }
     // Retained pages must not style the status bar while another screen covers their header.
     val accentHeaderVisible = selectedTabIndex in 0..2 && !playerVisibility.targetState &&

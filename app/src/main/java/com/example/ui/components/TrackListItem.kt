@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import com.example.ui.theme.accentBackground
 import com.example.R
 
 import androidx.compose.ui.res.stringResource
@@ -156,7 +155,7 @@ fun TrackListItem(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .accentBackground(appColors.primaryAccent.copy(alpha = 0.15f))
+                            .background(appColors.primaryAccent.copy(alpha = 0.15f))
                             .padding(horizontal = 4.dp, vertical = 1.dp)
                     ) {
                         Text(

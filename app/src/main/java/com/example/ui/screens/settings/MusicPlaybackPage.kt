@@ -1,7 +1,5 @@
 package com.example.ui.screens.settings
 
-import com.example.ui.theme.accentBackground
-import com.example.ui.theme.ThemeAccentSurface
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -126,7 +124,7 @@ fun MusicPlaybackPage(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .accentBackground(accentColor.copy(alpha = 0.12f)),
+                            .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -303,7 +301,7 @@ fun MusicPlaybackPage(
                         modifier = Modifier
                             .size(30.dp)
                             .clip(CircleShape)
-                            .accentBackground(accentColor.copy(alpha = 0.12f)),
+                            .background(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -419,7 +417,7 @@ fun MusicPlaybackPage(
                             color = textMuted
                         )
                     }
-                    ThemeAccentSurface(
+                    Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = accentColor.copy(alpha = 0.15f)
                     ) {

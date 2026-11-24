@@ -285,7 +285,7 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
 private fun ThemeColorPreview(accent: Color, secondaryAccent: Color, canvas: Color, card: Color) {
     val colors = LocalAppColors.current
     val accentColors = remember(colors, accent, secondaryAccent) {
-        colors.copy(primaryAccent = accent, secondaryAccent = secondaryAccent, artworkGlass = null)
+        colors.copy(primaryAccent = accent, secondaryAccent = secondaryAccent)
     }
     val accentFill = remember(accentColors) { accentColors.heroGradient }
     val canvasText = readableContent(canvas)
