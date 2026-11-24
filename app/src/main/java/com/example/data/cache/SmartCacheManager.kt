@@ -54,6 +54,9 @@ data class CacheStats(
     /** Approximate in-memory models, excluded from every disk total. */
     val memoryMetadataBytes: Long = 0L
 ) {
+    internal val needsAutoTrim: Boolean
+        get() = autoTrimEnabled && SmartCacheManager.isAtAutoTrimThreshold(maxQuotaBytes, audioBytes + imageBytes)
+
     val usagePercentage: Float
         get() = if (maxQuotaBytes > 0) {
             ((audioBytes + imageBytes).toFloat() / maxQuotaBytes.toFloat()).coerceIn(0f, 1f)
@@ -92,6 +95,9 @@ object SmartCacheManager {
     const val QUOTA_LEAN = MIN_CACHE_BYTES
     const val QUOTA_BALANCED = MIN_CACHE_BYTES
     const val QUOTA_GENEROUS = MAX_CACHE_BYTES
+    const val SMART_OPTIMIZE_PERCENT = 80
+    const val AUTO_TRIM_PERCENT = 95
+    private const val AUTO_TRIM_TARGET_PERCENT = 90L
     // Coil still owns one bounded persistent cache. Within the shared quota,
     // reserve up to one third for artwork before trimming audio under pressure.
     const val ARTWORK_CACHE_MAX_BYTES = 60L * 1024L * 1024L
@@ -104,9 +110,12 @@ object SmartCacheManager {
 
     internal fun audioBudget(quota: Long): Long = normalizeQuota(quota) - ARTWORK_CACHE_MAX_BYTES
 
+    internal fun isAtAutoTrimThreshold(quota: Long, mediaBytes: Long): Boolean =
+        mediaBytes >= (quota * AUTO_TRIM_PERCENT + 99L) / 100L
+
     internal fun optimizationMediaLimit(quota: Long, mediaBytes: Long, totalSpace: Long, usableSpace: Long): Long {
         // Leave headroom below the warning threshold, even when automatic quota eviction has not started.
-        val quotaTarget = if (mediaBytes >= quota * 85L / 100L) quota * 3L / 4L else quota
+        val quotaTarget = if (mediaBytes >= (quota * SMART_OPTIMIZE_PERCENT + 99L) / 100L) quota * 3L / 4L else quota
         if (totalSpace <= 0L || usableSpace > totalSpace / 10L) return quotaTarget
         // This only trims WavTape's disposable media cache. Reclaim a quarter at most per pass
         // unless the device also needs a small absolute reserve for ordinary app writes.
@@ -170,7 +179,7 @@ object SmartCacheManager {
             // No directory traversal and no forced Media3/Coil cache construction.
             if (scheduleMaintenance && System.currentTimeMillis() - lastReconciliation.get() !in 0 until STATS_MAX_AGE_MS)
                 refreshStats(userRequested = false)
-            else if (scheduleMaintenance && audioBytes + imageBytes > _stats.value.maxQuotaBytes) smartAutoTrim()
+            if (scheduleMaintenance) smartAutoTrim(context)
         } catch (error: Exception) {
             initialized.set(false)
             throw error
@@ -212,10 +221,10 @@ object SmartCacheManager {
                     completeAudioTrackCount = completeAudioTrackCount ?: value.completeAudioTrackCount,
                     totalBytes = audio + image + value.lyricsBytes + value.metadataBytes + value.httpBytes)
         }
-        if (_stats.value != before) {
+        val after = _stats.value
+        if (after != before) {
             checkpoints.trySend(Unit)
-            if (initialized.get() && _stats.value.autoTrimEnabled &&
-                _stats.value.audioBytes + _stats.value.imageBytes > _stats.value.maxQuotaBytes)
+            if (initialized.get() && !before.needsAutoTrim && after.needsAutoTrim)
                 smartAutoTrim()
         }
     }
@@ -244,7 +253,7 @@ object SmartCacheManager {
                     else BackgroundWorkCoordinator.StartupPriority.MAINTENANCE, requireForeground = false) {
                     maintenanceMutex.withLock { reconcileStats(ctx) }
                 }
-                if (_stats.value.audioBytes + _stats.value.imageBytes > _stats.value.maxQuotaBytes) smartAutoTrim()
+                smartAutoTrim()
               } catch (e: CancellationException) { throw e }
               catch (e: Exception) { Log.w(TAG, "Cache statistics unavailable: ${e.message}") }
             }
@@ -278,40 +287,45 @@ object SmartCacheManager {
     /** Quota decisions always re-read cache owners; persisted estimates never authorize deletion. */
     fun smartAutoTrim(context: Context? = appContext) {
         val ctx = context ?: appContext ?: return
-        scope.launch { com.example.performance.MaintenanceScheduler.requestCacheMaintenance(ctx) }
-    }
-
-    /** WorkManager entry point; also works with no Activity/Home lifecycle in the process. */
-    internal suspend fun performScheduledMaintenance(context: Context) = withContext(AppDispatchers.Io) {
-        initialize(context, scheduleMaintenance = false)
-        maintenanceMutex.withLock {
-            val prefs = getPrefs()
-            if (prefs?.getBoolean(KEY_SMART_AUTO_TRIM, true) != false) {
-                val quota = configuredQuota(context)
-                enforceMediaQuota(context, quota)
+        if (!_stats.value.needsAutoTrim) return
+        scope.launch {
+            try {
+                com.example.performance.MaintenanceScheduler.requestCachePressureMaintenance(ctx)
+            } catch (error: Exception) {
+                Log.w(TAG, "Cache pressure scheduling unavailable", error)
             }
-            reconcileStats(context)
         }
     }
 
-    /** Audio pressure must not wipe every cover before audio itself is trimmed. */
+    /** WorkManager entry point; also works with no Activity/Home lifecycle in the process. */
+    internal suspend fun performScheduledMaintenance(context: Context, pressureOnly: Boolean = false): Unit = withContext(AppDispatchers.Io) {
+        initialize(context, scheduleMaintenance = false)
+        maintenanceMutex.withLock {
+            val freed = if (getPrefs()?.getBoolean(KEY_SMART_AUTO_TRIM, true) != false)
+                enforceMediaQuota(context, configuredQuota(context)) else 0L
+            if (!pressureOnly || freed > 0L) reconcileStats(context)
+        }
+    }
+
+    /** Reclaim a share from each cache using its own least-recently-used entries. */
     private suspend fun enforceMediaQuota(context: Context, configuredQuota: Long, optimize: Boolean = false): Long {
         val audioOwner = MusicCache.getSimpleCache(context)
         val images = calculateImageCacheBytes(context)
         val mediaBytes = audioOwner.cacheSpace + images
-        val quota = if (optimize) {
+        val target = if (optimize) {
             val volume = context.noBackupFilesDir
             optimizationMediaLimit(configuredQuota, mediaBytes, volume.totalSpace, volume.usableSpace)
-        } else configuredQuota.coerceAtLeast(0L)
-        if (mediaBytes <= quota) return 0L
-        val artworkReserve = minOf(images, quota / 3, ARTWORK_CACHE_MAX_BYTES)
+        } else {
+            if (!isAtAutoTrimThreshold(configuredQuota, mediaBytes)) return 0L
+            configuredQuota * AUTO_TRIM_TARGET_PERCENT / 100L
+        }
+        if (mediaBytes <= target) return 0L
+        val managedImages = (images - legacyImageBytes.get()).coerceAtLeast(0L)
+        val artworkTarget = (managedImages * (target.toDouble() / mediaBytes)).toLong()
         var freed = 0L
-        val audioTarget = quota - artworkReserve
+        if (managedImages > artworkTarget) freed += trimImageCache(context, artworkTarget)
+        val audioTarget = (target - (images - freed)).coerceAtLeast(0L)
         if (audioOwner.cacheSpace > audioTarget) freed += MusicCache.trimAudioCache(context, audioTarget)
-        // Re-read the actual owner after journal-aware audio eviction. Never
-        // authorize artwork deletion using stale pre-trim audio/stat estimates.
-        val artworkTarget = (quota - audioOwner.cacheSpace).coerceAtLeast(0L)
-        if (images > artworkTarget) freed += trimImageCache(context, artworkTarget)
         return freed
     }
 
@@ -414,7 +428,7 @@ object SmartCacheManager {
 
     fun setSmartAutoTrim(enabled: Boolean) {
         getPrefs()?.edit()?.putBoolean(KEY_SMART_AUTO_TRIM, enabled)?.apply()
-        _stats.value = _stats.value.copy(autoTrimEnabled = enabled)
+        _stats.update { it.copy(autoTrimEnabled = enabled) }
         if (enabled) smartAutoTrim()
     }
 

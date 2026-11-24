@@ -608,8 +608,9 @@ fun ExpandedPlayerScreen(
     // recompose the controls or restart artwork decoding.
     val artworkBlendBounds = remember(track.id) { mutableStateOf<Rect?>(null) }
 
-    LaunchedEffect(loadedCover, isScreenVisible, appColors.dynamicAlbumGlow, morphAnimating, playerEffect) {
-        if (!isScreenVisible || !appColors.dynamicAlbumGlow || morphAnimating) return@LaunchedEffect
+    val prepareArtworkBackdrop = LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow
+    LaunchedEffect(loadedCover, isScreenVisible, prepareArtworkBackdrop, morphAnimating, playerEffect) {
+        if (!isScreenVisible || !prepareArtworkBackdrop || morphAnimating) return@LaunchedEffect
         // Reflect the exact URL that rendered, including any same-track fallback.
         val bitmap = (loadedCover?.drawable as? BitmapDrawable)?.bitmap ?: return@LaunchedEffect
         val resolvedKey = renderedPaletteKey ?: return@LaunchedEffect
@@ -2431,7 +2432,6 @@ fun ExpandedPlayerScreen(
     if (showSoundOutputDialog) {
         SoundOutputDeviceDialog(
             devices = effectiveDevices,
-            isDark = isDark,
             onSelectDevice = { deviceId ->
                 onSelectAudioDevice(deviceId)
             },

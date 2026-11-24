@@ -482,10 +482,12 @@ fun QueueBottomSheet(
             sheetState = sheetState,
             shape = sheetShape,
             containerColor = Color.Transparent,
+            scrimColor = Color.Transparent,
             tonalElevation = 0.dp,
             dragHandle = null,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
+            KeepPlayerPopupWindowClear()
             // The sheet's own offset drives every visual layer during an animation or drag.
             Column(Modifier.fillMaxWidth()
                 .onGloballyPositioned { viewportHeight.intValue = it.findRootCoordinates().size.height }

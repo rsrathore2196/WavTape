@@ -173,15 +173,15 @@ class CatalogRepository(context: Context? = null,
         // Follow the provider's own recommendations for this genre, with a bound on
         // both the number of requests and the time spent filling missing shelves.
         withTimeoutOrNull(7_000L) {
-            repeat(2) {
-                val cursor = continuation ?: return@repeat
-                if (!needsMedia()) return@repeat
+            for (attempt in 0 until 2) {
+                val cursor = continuation ?: break
+                if (!needsMedia()) break
                 val page = supplemental {
                     youtubeBrowse(category.browseId, category.params, countryCode, languageCode, cursor,
                         collectionOnly = false, forceRefresh = forceRefresh, exploreShelves = true)
-                }
-                continuation = page?.browseContinuation
-                page?.let(::merge)
+                } ?: break
+                continuation = page.browseContinuation
+                merge(page)
             }
             for (link in result.exploreShelfLinks.filterNot {
                 it.browseId == category.browseId && it.params.orEmpty() == category.params.orEmpty()
@@ -192,11 +192,14 @@ class CatalogRepository(context: Context? = null,
                         collectionOnly = false, forceRefresh = forceRefresh, exploreShelves = true)
                 }?.let(::merge)
             }
-            for (playlist in result.playlists.filterNot { it.isAppLikedSongs() }.take(2)) {
-                if (!needsMedia()) break
+            val playlistLinks = result.playlists.asSequence().filterNot { it.isAppLikedSongs() }.map { playlist ->
                 val id = playlist.id.let { if (it.startsWith("VL")) it else "VL$it" }
+                ExploreShelfLink(id, playlist.browseParams)
+            }
+            for (link in playlistLinks.distinctBy { it.browseId to it.params.orEmpty() }.take(2)) {
+                if (!needsMedia()) break
                 supplemental {
-                    youtubeBrowse(id, playlist.browseParams, countryCode, languageCode, null,
+                    youtubeBrowse(link.browseId, link.params, countryCode, languageCode, null,
                         collectionOnly = true, forceRefresh = forceRefresh, exploreShelves = true)
                 }?.let(::merge)
             }

@@ -28,6 +28,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.LyricsOffsetManager
 import com.example.data.model.MusicTrack
@@ -136,26 +137,25 @@ class PlayerPopupThemeUiTest {
 
     @Test fun ordinaryPopupsFollowLightModeWhilePlayerGlassStaysDark() = checkPopups(LightAppColors)
     @Test fun playerPopupsUseReadableControlsInDarkMode() = checkPopups(DarkAppColors)
-    @Test fun playerGlassUsesANeutralBackdropInDarkMode() = checkPopups(DarkAppColors, withGlass = true)
-    @Test fun playerGlassUsesANeutralBackdropInLightMode() = checkPopups(LightAppColors, withGlass = true)
+    @Test fun playerGlassStaysClearInDarkMode() = checkPopups(DarkAppColors, withGlass = true)
+    @Test fun playerGlassStaysClearInLightMode() = checkPopups(LightAppColors, withGlass = true)
 
     private val artwork = checkNotNull(extractPlayerArtworkColors(IntArray(32 * 32) {
         if (it % 32 < 16) 0xFFFF482F.toInt() else 0xFF125DFF.toInt()
     }, 32, 32))
 
-    private fun assertNeutralGlass(tag: String): java.awt.image.BufferedImage {
+    private fun assertClearGlass(tag: String, brightSource: Boolean = true): java.awt.image.BufferedImage {
         val image = capture(tag)
-        var neutral = 0
-        var saturated = 0
+        var darkOverlay = 0
         for (y in 2 until image.height - 2) for (x in 2 until image.width - 2) {
             val pixel = Color(image.getRGB(x, y))
-            if (pixel.alpha < .5f || pixel.luminance() > .18f) continue
-            if (maxOf(pixel.red, pixel.green, pixel.blue) - minOf(pixel.red, pixel.green, pixel.blue) < .045f)
-                neutral++
-            else saturated++
+            // A software capture can omit the live RenderEffect. Empty glass should then be transparent.
+            if (pixel.alpha >= .12f && (brightSource || pixel.alpha < .98f) && pixel.luminance() < .12f) {
+                darkOverlay++
+            }
         }
-        assertTrue("$tag should show neutral glass without a cover tint ($neutral / $saturated)",
-            neutral > image.width * image.height / 4 && saturated < neutral / 20)
+        assertTrue("$tag should have no dark fill ($darkOverlay pixels)",
+            darkOverlay < image.width * image.height / 12)
         return image
     }
 
@@ -177,10 +177,20 @@ class PlayerPopupThemeUiTest {
     }
 
     private fun assertGlassInset(tag: String) {
-        val image = assertNeutralGlass(tag)
+        val image = assertClearGlass(tag)
         val center = Color(image.getRGB(image.width / 2, image.height * 3 / 4))
         assertTrue("$tag should have a glass fill rather than opaque black",
             center.alpha < .99f || center.luminance() > .012f)
+    }
+
+    private fun assertWindowDoesNotDim(tag: String) {
+        val node = compose.onNodeWithTag(tag).fetchSemanticsNode()
+        compose.runOnIdle {
+            val window = ((node.root as ViewRootForTest).view.parent as DialogWindowProvider).window
+            assertEquals("$tag window dim flag", 0,
+                window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            assertEquals("$tag window dim amount", 0f, window.attributes.dimAmount, 0f)
+        }
     }
 
     private fun checkPopups(source: AppThemeColors, withGlass: Boolean = false) {
@@ -240,7 +250,8 @@ class PlayerPopupThemeUiTest {
             compose.onNodeWithTag(tag).assertIsDisplayed()
             val playerGlass = index in listOf(0, 1, 6, 7, 8)
             if (withGlass && playerGlass) {
-                val image = assertNeutralGlass(tag)
+                assertWindowDoesNotDim(tag)
+                val image = assertClearGlass(tag)
                 if (index == 7 || index == 8) assertContinuousLyricsGlass(tag, image)
             } else assertBackground(tag, if (playerGlass) Color.Black else background)
             if (withGlass && index == 0) {
@@ -293,7 +304,7 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    @Test fun actualPlayerMenuHasNeutralGlassEvenWithCachedAlbumArtwork() {
+    @Test fun actualPlayerMenuHasNoDarkOverlayEvenWithCachedAlbumArtwork() {
         val coveredTrack = track.copy(coverUrl = "https://lh3.googleusercontent.com/popup-cover")
         TrackPaletteCache.put(playerPreviewPaletteKey(coveredTrack), artwork)
         try {
@@ -308,7 +319,7 @@ class PlayerPopupThemeUiTest {
             settle()
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
-            assertNeutralGlass("player_options_popup")
+            assertClearGlass("player_options_popup", brightSource = false)
         } finally {
             TrackPaletteCache.clear()
         }
@@ -446,7 +457,7 @@ class PlayerPopupThemeUiTest {
         menu.assertDoesNotExist()
     }
 
-    @Test fun actualPlayerMenuStaysDarkAndItsChildDialogUsesTheSelectedAppMode() {
+    @Test fun actualPlayerMenuStaysClearAndItsChildDialogUsesTheSelectedAppMode() {
         var colors by mutableStateOf(LightAppColors.copy(dynamicGlassEnabled = false))
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -459,7 +470,7 @@ class PlayerPopupThemeUiTest {
         settle()
         compose.onNodeWithTag("player_options_button").performClick()
         settle()
-        assertNeutralGlass("player_options_popup")
+        assertClearGlass("player_options_popup", brightSource = false)
         assertDownloadRow("Download")
         compose.onNodeWithText("Sleep Mode").performClick()
         settle()
@@ -470,7 +481,7 @@ class PlayerPopupThemeUiTest {
         settle()
         compose.onNodeWithTag("player_options_button").performClick()
         settle()
-        assertNeutralGlass("player_options_popup")
+        assertClearGlass("player_options_popup", brightSource = false)
         assertDownloadRow("Download")
         val downloads = OfflineDownloads.get(context)
         for ((status, title) in listOf(DownloadStatus.COMPLETE to "Remove download",
@@ -520,7 +531,7 @@ class PlayerPopupThemeUiTest {
             assertProgress(bytes / 1000f)
         }
         captureSuffix = "-progress-dark"
-        assertNeutralGlass("player_options_popup")
+        assertClearGlass("player_options_popup", brightSource = false)
         runBlocking { downloads.update(progressTrack.id) { it.copy(status = DownloadStatus.PAUSED) } }
         settle()
         assertDownloadRow("Resume download")
@@ -529,7 +540,7 @@ class PlayerPopupThemeUiTest {
         settle()
         assertProgress(.73f)
         captureSuffix = "-progress-light"
-        assertNeutralGlass("player_options_popup")
+        assertClearGlass("player_options_popup", brightSource = false)
         runBlocking { downloads.update(progressTrack.id) { it.copy(status = DownloadStatus.DOWNLOADING, bytes = 850) } }
         settle()
         assertDownloadRow("Pause download")

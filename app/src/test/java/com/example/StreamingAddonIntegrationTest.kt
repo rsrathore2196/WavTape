@@ -391,6 +391,21 @@ class StreamingAddonIntegrationTest {
             base, song, candidate, maximum))
     }
 
+    @Test fun adaptiveUrlsTakePrecedenceOverTheDeclaredFlacCodec() {
+        val candidate = song.copy(source = "Streaming Addon: My Music")
+        val manifests = mapOf("dash/manifest.mpd" to MimeTypes.APPLICATION_MPD,
+            "hls/playlist.m3u8" to MimeTypes.APPLICATION_M3U8)
+        for ((path, mime) in manifests) {
+            val response = JSONObject().put("url", "$base/$path").put("format", "flac")
+                .put("mimeType", "audio/flac").put("headers", JSONObject().put("Authorization", "Bearer sample"))
+            val resolved = StreamingAddons.parseStream(response.toString(), base, song, candidate, maximum)!!
+            assertTrue(resolved.isLossless)
+            assertEquals(mime, StreamingAddons.mime(resolved.audioUrl))
+            assertNull(StreamingAddons.cacheableLosslessCodec(resolved.audioUrl))
+            assertEquals("Bearer sample", StreamingAddons.headers("$base/${path.substringBeforeLast('/')}/chunk.m4s")["Authorization"])
+        }
+    }
+
     @Test fun dashManifestCodecUnknownsHeaderScopeAndExpiredUrlsAreHandledAccurately() {
         val candidate = song.copy(source = "Streaming Addon: My Music")
         val body = JSONObject().put("url", "$base/audio/manifest.mpd").put("format", "dash")

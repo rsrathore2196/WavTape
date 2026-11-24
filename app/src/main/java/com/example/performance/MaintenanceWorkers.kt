@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit
 /** Scheduling is called on IO after the first draw, never by a provider on Main. */
 object MaintenanceScheduler {
     internal const val CACHE_WORK = "xtreme-cache-maintenance-v1"
+    internal const val CACHE_PRESSURE_WORK = "xtreme-cache-pressure-v1"
+    internal const val PRESSURE_ONLY = "pressure_only"
     internal const val PERIODIC_CACHE = "xtreme-periodic-cache-v1"
     internal const val AUTO_BACKUP = "xtreme-auto-backup-v1"
     private val backupScheduling = Mutex()
@@ -38,7 +40,10 @@ object MaintenanceScheduler {
                 // Scanning and trimming remain owned by deferred maintenance.
                 SmartCacheManager.initialize(app, scheduleMaintenance = false)
                 BackgroundWorkCoordinator.startup(BackgroundWorkCoordinator.StartupPriority.MAINTENANCE,
-                    requireForeground = false, label = "Register cache maintenance") { schedule(app) }
+                    requireForeground = false, label = "Register cache maintenance") {
+                    schedule(app)
+                    SmartCacheManager.smartAutoTrim(app)
+                }
             } catch (cancelled: CancellationException) { periodicRegistered.set(false); throw cancelled }
             catch (error: Exception) {
                 periodicRegistered.set(false)
@@ -50,6 +55,11 @@ object MaintenanceScheduler {
     internal fun cacheRequest() = OneTimeWorkRequestBuilder<CacheMaintenanceWorker>()
         .setInitialDelay(INITIAL_DELAY_MINUTES, TimeUnit.MINUTES)
         .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build()).build()
+
+    internal fun cachePressureRequest() = OneTimeWorkRequestBuilder<CacheMaintenanceWorker>()
+        .setInitialDelay(30L, TimeUnit.SECONDS)
+        .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+        .setInputData(workDataOf(PRESSURE_ONLY to true)).build()
 
     fun schedule(context: Context) {
         updateAutoBackup(context)
@@ -89,6 +99,12 @@ object MaintenanceScheduler {
         try { WorkManager.getInstance(context).enqueueUniqueWork(CACHE_WORK, ExistingWorkPolicy.KEEP, cacheRequest()) }
         catch (error: Exception) { requested.set(false); throw error }
     }
+
+    internal fun requestCachePressureMaintenance(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(CACHE_PRESSURE_WORK, ExistingWorkPolicy.KEEP,
+            cachePressureRequest())
+    }
+
     internal fun cacheWorkStarted() { requested.set(false) }
     internal suspend fun <T> serial(block: suspend () -> T): T = workerLock.withLock { block() }
 }
@@ -97,6 +113,11 @@ class CacheMaintenanceWorker(context: Context, parameters: WorkerParameters) : C
     override suspend fun doWork(): Result = withContext(AppDispatchers.Io) {
         try {
             BackgroundWorkCoordinator.maintenance { MaintenanceScheduler.serial {
+                if (inputData.getBoolean(MaintenanceScheduler.PRESSURE_ONLY, false)) {
+                    BackgroundWorkCoordinator.awaitMaintenanceIdle()
+                    SmartCacheManager.performScheduledMaintenance(applicationContext, pressureOnly = true)
+                    return@serial
+                }
                 DeferredLibraryInitialization.initialize(applicationContext)
                 MaintenanceScheduler.cacheWorkStarted()
                 BackgroundWorkCoordinator.awaitMaintenanceIdle()

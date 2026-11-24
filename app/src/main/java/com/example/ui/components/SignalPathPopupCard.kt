@@ -85,7 +85,7 @@ fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackTex
 
 @Composable
 private fun AudioPipelineDialog(state: SignalPathState, origin: Rect?, onDismiss: () -> Unit) {
-    AnchoredPlayerPopupDialog(origin, onDismiss, dimBackground = true, animated = true) { motion, dismiss ->
+    AnchoredPlayerPopupDialog(origin, onDismiss, decorFitsSystemWindows = true, animated = true) { motion, dismiss ->
         SignalPathPopupCard(state, Modifier.padding(16.dp).then(motion), onClose = dismiss)
     }
 }

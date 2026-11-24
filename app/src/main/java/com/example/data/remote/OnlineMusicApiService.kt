@@ -88,7 +88,8 @@ object OnlineMusicApiService {
             if (!java.io.File(app.cacheDir, "http_music_cache").isDirectory) return 0L
             initialize(app.applicationContext)
         }
-        val size = peekNetworkCacheSize() ?: return 0L
+        // Explicit optimization can open the journal even if the provider hasn't been used yet.
+        val size = runCatching { httpClient.cache?.size() }.getOrNull() ?: return 0L
         return if (size > 0L) trimNetworkCache(size * 2L / 3L) else 0L
     }
 

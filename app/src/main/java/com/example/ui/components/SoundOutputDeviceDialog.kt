@@ -6,10 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.drawable.ColorDrawable
 import android.media.AudioManager
 import android.os.Build
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,7 +75,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -90,7 +87,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -104,7 +100,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
 import com.example.playback.AudioDeviceCategory
 import com.example.playback.AudioDeviceManager
@@ -118,7 +113,6 @@ import kotlinx.coroutines.flow.first
 @OptIn(ExperimentalMaterial3Api::class)
 fun SoundOutputDeviceDialog(
     devices: List<SoundOutputDevice>,
-    isDark: Boolean = LocalAppColors.current.isDark,
     onSelectDevice: (Int) -> Unit,
     origin: Rect? = null,
     onDismiss: () -> Unit
@@ -127,7 +121,7 @@ fun SoundOutputDeviceDialog(
     val haptic = LocalHapticFeedback.current
     val latestDismiss by rememberUpdatedState(onDismiss)
     val appColors = PlayerGlassPopupColors
-    @Suppress("NAME_SHADOWING") val isDark = appColors.isDark
+    val glassEnabled = LocalDynamicGlassEnabled.current
 
     // Audio Manager & Volume Management
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -216,10 +210,6 @@ fun SoundOutputDeviceDialog(
         label = "output_opacity"
     ) { if (it) 1.0f else 0.0f }
 
-    val scrimAlpha by presentation.animateFloat(
-        transitionSpec = { tween(if (targetState) 240 else 200, easing = if (targetState) LinearOutSlowInEasing else FastOutLinearInEasing) },
-        label = "scrim_alpha"
-    ) { if (it) 1.0f else 0.0f }
     val dialogCenter = remember { mutableStateOf(Offset.Unspecified) }
 
     LaunchedEffect(isClosing, presentation) {
@@ -236,24 +226,12 @@ fun SoundOutputDeviceDialog(
             decorFitsSystemWindows = false
         )
     ) {
-        // Android's default dim layer plus our animated scrim used to hide the
-        // player. Keep the dialog window transparent and own just one light scrim.
-        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-        DisposableEffect(window) {
-            window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            window?.setDimAmount(0f)
-            onDispose { }
-        }
+        KeepPlayerPopupWindowClear()
         PlayerPopupTheme(appColors) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .onGloballyPositioned { dialogCenter.value = it.centerOnScreen() }
-                    .drawBehind {
-                        drawRect(if (isDark) Color.Black.copy(alpha = 0.18f * scrimAlpha)
-                            else Color(0xFF0F172A).copy(alpha = 0.12f * scrimAlpha))
-                    }
                     .pointerInput(Unit) { detectTapGestures { closeWithAnimation() } },
                 contentAlignment = Alignment.Center
             ) {
@@ -268,7 +246,8 @@ fun SoundOutputDeviceDialog(
                         .heightIn(max = (maxHeight - 48.dp).coerceAtLeast(120.dp))
                         .anchoredPlayerPopupMotion(origin, dialogCenter, expansion, opacity,
                             fallbackScale = { .96f }, fallbackSlide = 24.dp)
-                        .shadow(24.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.24f))
+                        .then(if (glassEnabled) Modifier else Modifier.shadow(
+                            24.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.24f)))
                         .clip(dialogShape)
                         .playerPopupGlass(dialogShape)
                         .pointerInput(Unit) { detectTapGestures { /* Keep taps inside the dialog. */ } }

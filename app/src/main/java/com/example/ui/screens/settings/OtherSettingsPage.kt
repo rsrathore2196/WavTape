@@ -377,7 +377,8 @@ fun OtherSettingsPage(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = if (usagePercent > 0.85f) Color(0xFFEF4444) else accentColor,
+                            color = if (usagePercent >= SmartCacheManager.SMART_OPTIMIZE_PERCENT / 100f)
+                                Color(0xFFEF4444) else accentColor,
                             trackColor = quotaBarTrackColor
                         )
 
@@ -423,7 +424,7 @@ fun OtherSettingsPage(
                                 color = appColors.textPrimary
                             )
                             Text(
-                                text = "Removes least recently used audio when the cache reaches its limit",
+                                text = "At ${SmartCacheManager.AUTO_TRIM_PERCENT}%, removes least recently used audio and artwork",
                                 fontSize = 10.5.sp,
                                 color = appColors.textMuted
                             )

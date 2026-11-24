@@ -58,6 +58,26 @@ class MaintenanceSchedulingTest {
         assertFalse(request.workSpec.constraints.requiresDeviceIdle())
     }
 
+    @Test fun urgentCachePressureHasOneShortDeferredJobIndependentOfRoutineMaintenance() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        val request = MaintenanceScheduler.cachePressureRequest()
+        assertEquals(TimeUnit.SECONDS.toMillis(30), request.workSpec.initialDelay)
+        assertTrue(request.workSpec.constraints.requiresBatteryNotLow())
+        assertTrue(request.workSpec.input.getBoolean(MaintenanceScheduler.PRESSURE_ONLY, false))
+        val manager = WorkManager.getInstance(context)
+        try {
+            MaintenanceScheduler.requestCacheMaintenance(context)
+            MaintenanceScheduler.requestCachePressureMaintenance(context)
+            MaintenanceScheduler.requestCachePressureMaintenance(context)
+            assertEquals(1, manager.getWorkInfosForUniqueWork(MaintenanceScheduler.CACHE_WORK).get().size)
+            assertEquals(1, manager.getWorkInfosForUniqueWork(MaintenanceScheduler.CACHE_PRESSURE_WORK).get().size)
+        } finally {
+            manager.cancelAllWork().result.get()
+        }
+    }
+
     @Test fun repeatedForegroundsKeepOnePeriodicCacheJobAndOneIdleLogJob() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         WorkManagerTestInitHelper.initializeTestWorkManager(context,

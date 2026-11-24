@@ -98,7 +98,7 @@ internal fun Modifier.anchoredPlayerPopupMotion(
 internal fun AnchoredPlayerPopupDialog(
     origin: Rect?,
     onDismiss: () -> Unit,
-    dimBackground: Boolean = false,
+    decorFitsSystemWindows: Boolean = false,
     animated: Boolean = origin != null,
     content: @Composable (Modifier, () -> Unit) -> Unit
 ) {
@@ -120,21 +120,15 @@ internal fun AnchoredPlayerPopupDialog(
     }
     Dialog(
         onDismissRequest = dismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = dimBackground)
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = decorFitsSystemWindows)
     ) {
         val view = LocalView.current
-        DisposableEffect(view, dimBackground) {
+        KeepPlayerPopupWindowClear()
+        DisposableEffect(view, decorFitsSystemWindows) {
             val root = view.rootView
             val elevation = root.elevation
-            if (dimBackground) {
-                root.elevation = 0f
-            } else {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-                window?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                window?.setDimAmount(0f)
-            }
-            onDispose { if (dimBackground) root.elevation = elevation }
+            if (decorFitsSystemWindows) root.elevation = 0f
+            onDispose { if (decorFitsSystemWindows) root.elevation = elevation }
         }
         Box(
             Modifier.fillMaxSize().onGloballyPositioned { center.value = it.centerOnScreen() }
@@ -145,6 +139,17 @@ internal fun AnchoredPlayerPopupDialog(
                 fallbackScale = { if (visible.targetState) .95f else .97f }) else Modifier
             content(cardMotion.pointerInput(Unit) { detectTapGestures { /* Keep taps inside the card. */ } }, dismiss)
         }
+    }
+}
+
+@Composable
+internal fun KeepPlayerPopupWindowClear() {
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    DisposableEffect(window) {
+        window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        window?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        window?.setDimAmount(0f)
+        onDispose { }
     }
 }
 

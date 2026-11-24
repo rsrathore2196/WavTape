@@ -223,6 +223,34 @@ class ExploreBrowseCatalogTest {
         assertEquals(listOf("FEmusic_genre" to null, "FEmusic_genre_songs" to "songs-params", "VLjazz" to "playlist-params"), requests)
     }
 
+    @Test fun exploreRefreshRequestsOnlyOnePlaylistWhenBothIdFormsAppear() = runBlocking {
+        val requests = mutableListOf<Pair<String, String?>>()
+        val playlist = collection("Jazz Essentials", "VLjazz", "playlist-params", "MUSIC_PAGE_TYPE_PLAYLIST")
+        val alias = collection("Jazz Essentials", "jazz", "playlist-params", "MUSIC_PAGE_TYPE_PLAYLIST")
+        val initial = JSONObject().put("contents", JSONObject().put("sectionListRenderer",
+            JSONObject().put("contents", JSONArray().put(playlist).put(alias))))
+        val repository = CatalogRepository(browseLoader = { id, params, _, _, _ ->
+            requests += id to params
+            if (id == "FEmusic_genre") initial.toString() else page("abcdefghijk", null)
+        })
+        val result = repository.exploreCategory(ExploreCategory("Jazz", "FEmusic_genre"),
+            forceRefresh = true, fillMissingShelves = true)
+        assertEquals(listOf("yt_abcdefghijk"), result.tracks.map { it.id })
+        assertEquals(listOf("FEmusic_genre" to null, "VLjazz" to "playlist-params"), requests)
+    }
+
+    @Test fun exploreKeepsItsContinuationWhenAFillRequestFails() = runBlocking {
+        val cursor = JSONObject().put("continuationItemRenderer", JSONObject().put("continuationEndpoint",
+            JSONObject().put("continuationCommand", JSONObject().put("token", "retry-cursor"))))
+        val first = JSONObject().put("contents", grid("Songs", song("abcdefghijk"), cursor)).toString()
+        val repository = CatalogRepository(browseLoader = { _, _, token, _, _ ->
+            if (token == null) first else throw IOException("Temporary failure")
+        })
+        val result = repository.exploreCategory(ExploreCategory("Jazz", "FEmusic_genre"), fillMissingShelves = true)
+        assertEquals(listOf("yt_abcdefghijk"), result.tracks.map { it.id })
+        assertEquals("retry-cursor", result.browseContinuation?.token)
+    }
+
     @Test fun youtubeCollectionsLoadOnePageAtATimeWithImmutableProgressAndLoopProtection() = runBlocking {
         val calls = mutableListOf<List<String?>>()
         val repository = CatalogRepository(browseLoader = { id, params, token, country, language ->

@@ -31,7 +31,6 @@ import com.example.ui.components.backdrop.backdrops.layerBackdrop
 import com.example.ui.components.backdrop.backdrops.rememberLayerBackdrop
 import com.example.ui.components.backdrop.drawBackdrop
 import com.example.ui.components.backdrop.effects.blur
-import com.example.ui.components.backdrop.effects.colorControls
 
 // Settings-style dialogs use the app palette. Player glass reads the player window underneath.
 internal val LocalPlayerPopupColors = compositionLocalOf<AppThemeColors?> { null }
@@ -108,14 +107,12 @@ internal fun Modifier.playerPopupGlass(shape: Shape): Modifier {
     val sampledBackdrop = if (scene != null) {
         val outline = remember(shape) { { shape } }
         val effects: BackdropEffectScope.() -> Unit = remember(radius) {
-            { blur(radius); colorControls(saturation = 0f) }
+            { blur(radius) }
         }
         Modifier.drawBackdrop(backdrop = scene.layer, shape = outline, backdropScale = scale,
             effects = effects, highlight = null, shadow = null)
     } else Modifier
-    // A neutral transparent fill keeps the original white labels legible on bright artwork or controls.
     return clip(shape).then(sampledBackdrop)
-        .background(Color.Black.copy(alpha = .58f))
         .background(sheen)
         .border(.8.dp, rim, shape)
 }

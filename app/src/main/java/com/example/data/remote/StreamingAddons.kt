@@ -437,9 +437,10 @@ object StreamingAddons {
             manifest.isNotBlank() || stream.startsWith("data:application/dash+xml") || format in setOf("dash", "mpd") ||
                 transport in setOf("dash", "mpd") || declaredMime == MimeTypes.APPLICATION_MPD -> MimeTypes.APPLICATION_MPD
             format in setOf("hls", "m3u8") || transport in setOf("hls", "m3u8") || declaredMime in setOf("application/vnd.apple.mpegurl", "application/x-mpegurl") -> MimeTypes.APPLICATION_M3U8
-            declaredMime in setOf("audio/flac", "audio/x-flac") || (codec == "flac" && format == "flac") -> MimeTypes.AUDIO_FLAC
+            // Providers can describe the codec and omit the container. The manifest URL still identifies it.
             inferredTransport == C.CONTENT_TYPE_DASH -> MimeTypes.APPLICATION_MPD
             inferredTransport == C.CONTENT_TYPE_HLS -> MimeTypes.APPLICATION_M3U8
+            declaredMime in setOf("audio/flac", "audio/x-flac") || (codec == "flac" && format == "flac") -> MimeTypes.AUDIO_FLAC
             atmos -> MimeTypes.AUDIO_E_AC3_JOC
             else -> null
         }
