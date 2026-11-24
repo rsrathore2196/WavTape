@@ -197,7 +197,7 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(1, requests.get())
     }
 
-    @Test fun automaticAndManualFastStartTryTheNextSourceWhenTheFirstCannotResume() = runBlocking {
+    @Test fun automaticFastStartKeepsPlayingWhenBestQualityCannotResume() = runBlocking {
         val base = "https://addons.example/fast-start"
         val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Fixture", baseUrl = base)
         val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
@@ -205,23 +205,27 @@ class MusicServiceQueueOwnershipTest {
         until { monitor.sourcePolicy.value.upgradeSources == sources }
         val playing = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio",
             source = "YouTube Music", bitrateKbps = 128)
-        for (manual in listOf(false, true)) {
-            if (manual) {
-                monitor.setAudioEnhancer(true, trackId = playing.id)
-                until { monitor.sourcePolicy.value.enhancer }
-            }
-            val checked = mutableListOf<String>()
-            val replacement = repository.resolveFastStartUpgrade(playing, monitor.sourcePolicy.value, manual = manual) {
-                checked += it.audioUrl
-                it.audioUrl != addonAddress
-            }
-            assertEquals(listOf(addonAddress, selected.audioUrl), checked)
-            assertEquals(selected.audioUrl, replacement?.audioUrl)
-            assertEquals(playing.id, replacement?.id)
+        val checked = mutableListOf<String>()
+        val automatic = repository.resolveFastStartUpgrade(playing, monitor.sourcePolicy.value) {
+            checked += it.audioUrl
+            false
         }
+        assertNull(automatic)
+        assertEquals(listOf(addonAddress), checked)
+
+        monitor.setAudioEnhancer(true, trackId = playing.id)
+        until { monitor.sourcePolicy.value.enhancer }
+        checked.clear()
+        val manual = repository.resolveFastStartUpgrade(playing, monitor.sourcePolicy.value, manual = true) {
+            checked += it.audioUrl
+            it.audioUrl != addonAddress
+        }
+        assertEquals(listOf(addonAddress, selected.audioUrl), checked)
+        assertEquals(selected.audioUrl, manual?.audioUrl)
+        assertEquals(playing.id, manual?.id)
     }
 
-    @Test fun fastStartReturnsYoutubeBeforeTheAddonAndThenSelectsTheFirstPreparedProvider() = runBlocking {
+    @Test fun fastStartReturnsYoutubeThenWaitsForTheBestQualityAddon() = runBlocking {
         val base = "https://addons.example/preferred"
         val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
         val sources = listOf(addon) + PlaybackSource.builtIns
@@ -247,15 +251,16 @@ class MusicServiceQueueOwnershipTest {
                 true
             }
         }
-        until { addonRequests.get() == 1 }
+        withTimeout(4_000L) { entered.await() }
+        assertEquals(1, addonRequests.get())
         assertFalse(replacement.isCompleted)
+        released.complete(Unit)
         providerReady.complete(Unit)
         assertEquals(addonAddress, withTimeout(4_000L) { replacement.await() }?.audioUrl)
-        assertEquals("Archive ranks below the verified add-on", 0, requests.get())
     }
 
-    @Test fun fastStartCanReachTheBestQualityAddonAfterSwitchingToJioSaavn() = runBlocking {
-        val base = "https://addons.example/after-jiosaavn"
+    @Test fun fastStartUsesTheSameBestQualityResult() = runBlocking {
+        val base = "https://addons.example/best-quality"
         val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
         val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
         PlaybackSourcesPreferences.save(app, sources)
@@ -268,12 +273,10 @@ class MusicServiceQueueOwnershipTest {
         AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
         val initial = repository.resolvePlaybackStart(selected)
         assertEquals(PlaybackMode.FAST_START, initial.mode)
+        assertEquals("xtreme-youtube", Uri.parse(initial.track.audioUrl).scheme)
         val policy = monitor.sourcePolicy.value
-        val jio = checkNotNull(repository.resolveFastStartUpgrade(initial.track, policy) { !it.isLossless })
-        assertEquals(selected.audioUrl, jio.audioUrl)
-
-        val upgraded = checkNotNull(repository.resolveFastStartUpgrade(jio, policy))
-        assertEquals(jio.id, upgraded.id)
+        val upgraded = checkNotNull(repository.resolveFastStartUpgrade(initial.track, policy))
+        assertEquals(initial.track.id, upgraded.id)
         assertEquals(best.track.audioUrl, upgraded.audioUrl)
         assertTrue(upgraded.isLossless)
         assertNull(repository.resolveFastStartUpgrade(upgraded, policy))
@@ -310,15 +313,27 @@ class MusicServiceQueueOwnershipTest {
         assertEquals("xtreme-youtube", reverted.localConfiguration?.uri?.scheme)
     }
 
-    @Test fun fastStartServiceSwitchesAnUnseekableYoutubeItemAtTheLivePosition() = runBlocking {
-        val sources = listOf(PlaybackSource.jio, PlaybackSource.youtube)
+    @Test fun fastStartServiceSwitchesAnUnseekableYoutubeItemAtTheLivePosition() =
+        verifyFastStartHandoff(useAddon = false)
+
+    @Test fun fastStartServiceSwitchesToTheBestQualityAddonAtTheLivePosition() =
+        verifyFastStartHandoff(useAddon = true)
+
+    private fun verifyFastStartHandoff(useAddon: Boolean) = runBlocking {
+        val base = "https://addons.example/service-fast-start"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
+        val sources = if (useAddon) listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
+            else listOf(PlaybackSource.jio, PlaybackSource.youtube)
         PlaybackSourcesPreferences.save(app, sources)
         until { monitor.sourcePolicy.value.upgradeSources == sources }
         val policy = monitor.sourcePolicy.value
+        val candidate = if (useAddon) checkNotNull(StreamingAddons.parseStream(
+            """{"url":"https://files.example/fast-start.wav","codec":"wav","bitrate":1536000}""",
+            base, selected, selected, policy, addon.id)) else selected
         val bytes = wav()
         val cache = MusicCache.getSimpleCache(app)
-        StreamedAudioRepresentations.remember(selected, policy)
-        val key = requireNotNull(StreamedAudioRepresentations.keyFor(Uri.parse(selected.audioUrl)))
+        StreamedAudioRepresentations.remember(candidate, policy)
+        val key = requireNotNull(StreamedAudioRepresentations.keyFor(Uri.parse(candidate.audioUrl)))
         val hole = cache.startReadWrite(key, 0L, bytes.size.toLong())
         try {
             val file = cache.startFile(key, 0L, bytes.size.toLong())
@@ -329,7 +344,8 @@ class MusicServiceQueueOwnershipTest {
             ContentMetadataMutations.setContentLength(it, bytes.size.toLong())
         })
         StreamedAudioRepresentations.persistBinding(cache, key)
-        val starting = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio",
+        val best = repository.resolvePlaybackStart(selected)
+        val starting = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?codec=opus",
             source = "YouTube Music", bitrateKbps = 128).toMediaItem()
         var item = starting.buildUpon().setMediaMetadata(starting.mediaMetadata.buildUpon()
             .setExtras(android.os.Bundle(starting.mediaMetadata.extras).apply {
@@ -338,6 +354,7 @@ class MusicServiceQueueOwnershipTest {
             }).build()).build()
         var seek: Pair<Int, Long>? = null
         var resume = false
+        var isPlaying = false
         var position = 38_000L
         val player = Proxy.newProxyInstance(ExoPlayer::class.java.classLoader, arrayOf(ExoPlayer::class.java)) { _, method, args ->
             when (method.name) {
@@ -346,7 +363,8 @@ class MusicServiceQueueOwnershipTest {
                 "getCurrentMediaItemIndex" -> 1
                 "getMediaItemCount" -> 3
                 "getRepeatMode" -> Player.REPEAT_MODE_OFF
-                "isPlaying", "getPlayWhenReady" -> true
+                "isPlaying" -> isPlaying
+                "getPlayWhenReady" -> true
                 "isCurrentMediaItemSeekable", "isCurrentMediaItemLive", "getShuffleModeEnabled" -> false
                 "getPlaybackState" -> Player.STATE_READY
                 "getDuration" -> selected.durationMs
@@ -357,8 +375,9 @@ class MusicServiceQueueOwnershipTest {
                     item = args[1] as MediaItem
                     ReflectionHelpers.setField(service, "verifiedSignalUri", item.localConfiguration!!.uri)
                     ReflectionHelpers.setField(service, "verifiedSignalFormat", Format.Builder()
-                        .setSampleMimeType(MimeTypes.AUDIO_AAC).setSampleRate(44_100).setChannelCount(2).build())
-                    ReflectionHelpers.setField(service, "verifiedSignalBitrate", 320)
+                        .setSampleMimeType(if (useAddon) MimeTypes.AUDIO_RAW else MimeTypes.AUDIO_AAC)
+                        .setSampleRate(if (useAddon) 48_000 else 44_100).setChannelCount(2).build())
+                    ReflectionHelpers.setField(service, "verifiedSignalBitrate", candidate.bitrateKbps)
                     null
                 }
                 "seekTo" -> { seek = args!![0] as Int to (args[1] as Long); null }
@@ -370,13 +389,22 @@ class MusicServiceQueueOwnershipTest {
             ReflectionHelpers.setField(service, "exoPlayer", player)
             ReflectionHelpers.callInstanceMethod<Unit>(service, "scheduleHeadlessLossless",
                 ReflectionHelpers.ClassParameter.from(PlaybackSourcePolicy::class.java, policy))
+            assertNull(ReflectionHelpers.getField<Job?>(service, "sourceRecoveryJob"))
+            assertEquals(0, addonRequests.get())
+            isPlaying = true
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "scheduleHeadlessLossless",
+                ReflectionHelpers.ClassParameter.from(PlaybackSourcePolicy::class.java, policy))
             position = 42_500L
             until { seek != null }
             assertEquals(1 to 42_500L, seek)
             assertTrue(resume)
             assertEquals(starting.mediaId, item.mediaId)
             assertEquals(PlaybackMode.FAST_START, item.playbackMode)
-            assertEquals(PlaybackSource.jio.id, item.localConfiguration!!.uri.getQueryParameter("provider"))
+            val active = item.localConfiguration!!.uri
+            assertEquals(if (useAddon) addon.id else PlaybackSource.jio.id, active.getQueryParameter("provider"))
+            assertEquals(best.track.audioUrl, active.toString())
+            assertEquals(useAddon, item.mediaMetadata.extras?.getBoolean("isLossless"))
+            assertEquals(0, addonRequests.get())
             val origin = checkNotNull(SourceTransitionOrigin.read(item, selected))
             assertEquals(PlaybackSource.youtube.id, origin.sourceId)
             assertTrue(origin.automaticFastStart)

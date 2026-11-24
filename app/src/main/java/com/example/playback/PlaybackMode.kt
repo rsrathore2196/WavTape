@@ -29,6 +29,9 @@ internal val MediaItem.playbackMode: PlaybackMode?
 internal fun PlaybackSourcePolicy.startupSourcesFor(trackId: String): List<PlaybackSource> =
     if (returnsToYouTube(trackId)) resolutionSourcesFor(trackId) else upgradeSources
 
+internal fun PlaybackSourcePolicy.canLookUpFastStartQuality(trackId: String): Boolean =
+    ready && online && !returnsToYouTube(trackId) && upgradeSources.size > 1
+
 internal fun PlaybackSourcePolicy.fastStartUpgradeSources(track: MusicTrack): List<PlaybackSource> {
     if (!ready || !online || returnsToYouTube(track.id)) return emptyList()
     val current = SourceTransitionOrigin.sourceId(track.id, Uri.parse(track.audioUrl), this) ?: return emptyList()

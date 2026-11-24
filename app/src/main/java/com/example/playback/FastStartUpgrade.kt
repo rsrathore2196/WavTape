@@ -10,7 +10,9 @@ import com.example.service.MusicCache
 internal class FastStartUpgrade {
     private var attemptedKey: String? = null
 
-    fun claim(key: String): Boolean {
+    fun claim(trackId: String, policy: PlaybackSourcePolicy): Boolean {
+        // Switching transport for this occurrence must not start the same Best Quality lookup again.
+        val key = "$trackId:${policy.key}"
         if (attemptedKey == key) return false
         attemptedKey = key
         return true

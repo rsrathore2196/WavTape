@@ -70,6 +70,7 @@ import com.example.playback.PlaybackSourcePolicy
 import com.example.playback.PlaybackStart
 import com.example.playback.SourceTransitionOrigin
 import com.example.playback.fastStartUpgradeSources
+import com.example.playback.canLookUpFastStartQuality
 import com.example.playback.startupSourcesFor
 
 data class SearchResultCategory(
@@ -495,36 +496,55 @@ class MusicRepository private constructor(
                     // Failure of a single provider does not make the recording unavailable.
                 }
             }
-            val resolved = resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
-                onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true)
-            PlaybackStart(resolved, mode)
+            PlaybackStart(resolveBestQualityTrack(track, preferredSourceId, jioDeadlineMs, onAddonLookupFinished), mode)
         }
+
+    private suspend fun resolveBestQualityTrack(track: MusicTrack, preferredSourceId: String? = null,
+        jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null): MusicTrack =
+        resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
+            onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true)
 
     internal suspend fun resolveFastStartUpgrade(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
         stillCurrent: () -> Boolean = { true }, prepare: suspend (MusicTrack) -> Boolean = { true }
     ): MusicTrack? = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+        suspend fun prepareCandidate(candidate: MusicTrack, source: PlaybackSource): Boolean {
+            if (!stillCurrent() || candidate.id != track.id || candidate.audioUrl == track.audioUrl ||
+                !policy.acceptsRemoteTrack(candidate)) return false
+            // Leave the original stream playing while the chosen transport warms at the live position.
+            val preparationBudget = if (source.kind == PlaybackSourceKind.ADDON) 24_000L else 10_000L
+            return kotlinx.coroutines.withTimeoutOrNull(preparationBudget) { prepare(candidate) } == true
+        }
+        if (!manual) {
+            if (!policy.canLookUpFastStartQuality(track.id) || !stillCurrent()) return@withTimeoutOrNull null
+            val activeUri = android.net.Uri.parse(track.audioUrl)
+            val currentSource = SourceTransitionOrigin.sourceId(track.id, activeUri, policy)
+            // The startup transport's Opus pin must not filter out cached lossless candidates.
+            val lookupTrack = if (com.example.data.remote.YouTubeAudioStreamService.isPlaybackUri(track.audioUrl) &&
+                activeUri.getQueryParameter("codec") == "opus") {
+                val query = activeUri.encodedQuery.orEmpty().split('&').filterNot { it == "codec=opus" }.joinToString("&")
+                track.copy(audioUrl = activeUri.buildUpon().encodedQuery(query.ifEmpty { null }).build().toString())
+            } else track
+            val candidate = try { resolveBestQualityTrack(lookupTrack) }
+                catch (_: TrackUnavailableException) { return@withTimeoutOrNull null }
+            val candidateSource = SourceTransitionOrigin.sourceId(candidate.id, android.net.Uri.parse(candidate.audioUrl), policy)
+            // Keep an already playing source when Best Quality lands on that provider or a lower fallback.
+            val replacement = policy.startupSourcesFor(track.id).takeWhile { it.id != currentSource }
+                .firstOrNull { it.id == candidateSource } ?: return@withTimeoutOrNull null
+            return@withTimeoutOrNull candidate.takeIf { prepareCandidate(it, replacement) && stillCurrent() }
+        }
+
+        // Explicit Upgrade Audio retains its existing provider-by-provider preparation.
         for (source in policy.fastStartUpgradeSources(track)) {
             if (!stillCurrent()) return@withTimeoutOrNull null
             val candidate = kotlinx.coroutines.withTimeoutOrNull(16_000L) {
-                if (!manual && source.kind == PlaybackSourceKind.INTERNET_ARCHIVE) {
-                    findLosslessUpgrade(track, automatic = true)?.copy(id = track.id)
-                } else try {
-                    resolvePlayableTrack(track, preferredSourceId = source.id, manualUpgrade = manual,
+                try {
+                    resolvePlayableTrack(track, preferredSourceId = source.id, manualUpgrade = true,
                         retainLosslessLookup = false)
                 } catch (_: TrackUnavailableException) { null }
             } ?: continue
-            if (!stillCurrent()) return@withTimeoutOrNull null
-            if (candidate.id != track.id || candidate.audioUrl == track.audioUrl ||
-                !policy.acceptsRemoteTrack(candidate) || SourceTransitionOrigin.sourceId(
-                    candidate.id, android.net.Uri.parse(candidate.audioUrl), policy) != source.id) continue
-            // A matched URL that cannot resume the song is not an available upgrade.
-            // Allow an add-on to finish its adaptive metadata probe and warm its
-            // init/seek ranges while the original stream continues to play.
-            val preparationBudget = if (source.kind == PlaybackSourceKind.ADDON) 24_000L else 10_000L
-            if (kotlinx.coroutines.withTimeoutOrNull(preparationBudget) { prepare(candidate) } == true) {
-                return@withTimeoutOrNull candidate
-            }
+            if (SourceTransitionOrigin.sourceId(candidate.id, android.net.Uri.parse(candidate.audioUrl), policy) == source.id &&
+                prepareCandidate(candidate, source)) return@withTimeoutOrNull candidate
         }
         null
     }

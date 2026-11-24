@@ -422,8 +422,8 @@ class PlaybackManager(
         val recording = track.copy(audioUrl = uri, durationMs = track.durationMs.takeIf { it > 0L } ?: player.duration)
         when (item.playbackMode) {
             PlaybackMode.FAST_START -> {
-                if (player.canSwitchStartupStream() && policy.fastStartUpgradeSources(recording).isNotEmpty() &&
-                    fastStartUpgrade.claim(key)) reconcileSourcePolicy(policy, force = true, automatic = true)
+                if (player.canSwitchStartupStream() && policy.canLookUpFastStartQuality(track.id) &&
+                    fastStartUpgrade.claim(track.id, policy)) reconcileSourcePolicy(policy, force = true, automatic = true)
                 return
             }
             PlaybackMode.BEST_QUALITY -> return

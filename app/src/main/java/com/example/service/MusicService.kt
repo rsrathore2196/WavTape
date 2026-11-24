@@ -10,7 +10,7 @@ import com.example.playback.PlaybackDiagnostics.StartupStage
 import com.example.playback.PlaybackMode
 import com.example.playback.FastStartUpgrade
 import com.example.playback.canSwitchStartupStream
-import com.example.playback.fastStartUpgradeSources
+import com.example.playback.canLookUpFastStartQuality
 import com.example.playback.prepareFastStartReplacement
 import com.example.playback.playbackMode
 import com.example.playback.putPlaybackMode
@@ -437,8 +437,8 @@ class MusicService : MediaLibraryService() {
         val revision = policyRevision
         when (item.playbackMode) {
             PlaybackMode.FAST_START -> {
-                if (player.canSwitchStartupStream() && policy.fastStartUpgradeSources(track).isNotEmpty() &&
-                    fastStartUpgrade.claim(key)) reconcileHeadlessPolicy(policy, automatic = true)
+                if (player.canSwitchStartupStream() && policy.canLookUpFastStartQuality(track.id) &&
+                    fastStartUpgrade.claim(track.id, policy)) reconcileHeadlessPolicy(policy, automatic = true)
                 return
             }
             PlaybackMode.BEST_QUALITY -> return
