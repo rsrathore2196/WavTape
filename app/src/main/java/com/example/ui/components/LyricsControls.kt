@@ -198,6 +198,7 @@ fun LyricsTextSizePopup(
     PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, _ ->
             val shape = RoundedCornerShape(26.dp)
+            val panelColor = playerPopupSurfaceColor()
             Surface(
                 modifier = Modifier
                     .widthIn(min = 280.dp, max = 340.dp)
@@ -206,8 +207,9 @@ fun LyricsTextSizePopup(
                     .testTag("lyrics_text_size_popup")
                     .playerPopupArtwork(shape),
                 shape = shape,
-                color = playerPopupSurfaceColor(),
-                shadowElevation = 20.dp
+                color = panelColor,
+                // The artwork owns the surface and rim. An elevated transparent Surface can shade the glass itself.
+                shadowElevation = if (panelColor == Color.Transparent) 0.dp else 20.dp
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp),
@@ -299,6 +301,8 @@ fun LyricsProviderSelectionPopup(
     PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, dismiss ->
             val shape = RoundedCornerShape(26.dp)
+            val panelColor = if (usePlayerTheme) playerPopupSurfaceColor()
+                else if (appColors.isAmoled) Color(0xFF141414) else appColors.cardBackground
             Surface(
                 modifier = Modifier
                     .widthIn(min = 300.dp, max = 380.dp)
@@ -308,10 +312,9 @@ fun LyricsProviderSelectionPopup(
                     .testTag("lyrics_provider_popup")
                     .then(if (usePlayerTheme) Modifier.playerPopupArtwork(shape) else Modifier),
                 shape = shape,
-                color = if (usePlayerTheme) playerPopupSurfaceColor()
-                    else if (appColors.isAmoled) Color(0xFF141414) else appColors.cardBackground,
+                color = panelColor,
                 border = if (usePlayerTheme) null else BorderStroke(1.2.dp, appColors.cardBorder.copy(alpha = if (appColors.isDark) 0.5f else 0.7f)),
-                shadowElevation = 20.dp
+                shadowElevation = if (panelColor == Color.Transparent) 0.dp else 20.dp
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)

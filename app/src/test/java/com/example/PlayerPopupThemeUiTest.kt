@@ -141,7 +141,7 @@ class PlayerPopupThemeUiTest {
         if (it % 32 < 16) 0xFFFF482F.toInt() else 0xFF125DFF.toInt()
     }, 32, 32))
 
-    private fun assertArtworkBackground(tag: String) {
+    private fun assertArtworkBackground(tag: String): java.awt.image.BufferedImage {
         val image = capture(tag)
         val mutedLuminance = PlayerGlassPopupColors.textMuted.luminance()
         var warm = 0
@@ -156,6 +156,24 @@ class PlayerPopupThemeUiTest {
         }
         assertTrue("$tag should show readable, warm and cool cover colors (got $warm / $cool)",
             minOf(warm, cool) > image.width * 2)
+        return image
+    }
+
+    private fun assertContinuousLyricsArtwork(tag: String, image: java.awt.image.BufferedImage) {
+        // The cover fixture varies across the center. Its two sides should stay continuous
+        // across the card's content padding, even when text and controls cover some rows.
+        val edge = (image.width * .035f).roundToInt()
+        val inset = (image.width * .08f).roundToInt()
+        val rows = image.height / 7 until image.height * 6 / 7
+        for ((outerX, innerX) in listOf(edge to inset, (image.width - 1 - edge) to (image.width - 1 - inset))) {
+            val matching = rows.count { y ->
+                val outer = Color(image.getRGB(outerX, y))
+                val inner = Color(image.getRGB(innerX, y))
+                maxOf(kotlin.math.abs(outer.red - inner.red), kotlin.math.abs(outer.green - inner.green),
+                    kotlin.math.abs(outer.blue - inner.blue)) <= .035f
+            }
+            assertTrue("$tag should show continuous artwork across the content padding", matching > rows.count() * .6f)
+        }
     }
 
     private fun assertArtworkShowsThroughInset(tag: String) {
@@ -214,8 +232,10 @@ class PlayerPopupThemeUiTest {
             settle()
             compose.onNodeWithTag(tag).assertIsDisplayed()
             val playerGlass = index in listOf(0, 1, 6, 7, 8)
-            if (withArtwork && playerGlass) assertArtworkBackground(tag)
-            else assertBackground(tag, if (playerGlass) Color.Black else background)
+            if (withArtwork && playerGlass) {
+                val image = assertArtworkBackground(tag)
+                if (index == 7 || index == 8) assertContinuousLyricsArtwork(tag, image)
+            } else assertBackground(tag, if (playerGlass) Color.Black else background)
             if (withArtwork && index == 0) {
                 assertArtworkShowsThroughInset("device_row_1")
                 assertArtworkShowsThroughInset("device_output_volume_panel")
@@ -244,6 +264,13 @@ class PlayerPopupThemeUiTest {
                     settle()
                     compose.onNodeWithTag("lyrics_offset_apply_all").assertIsOff()
                     assertFalse(LyricsOffsetManager.usesGlobalOffset(context, track.id))
+                }
+                7 -> {
+                    compose.onNodeWithTag("lyrics_size_slider")
+                        .performSemanticsAction(SemanticsActions.SetProgress) { it(37f) }
+                    settle()
+                    assertEquals(37, size)
+                    compose.onNodeWithText("37 sp").assertIsDisplayed()
                 }
                 8 -> {
                     compose.onNodeWithText("Import Lyrics").assertExists()
