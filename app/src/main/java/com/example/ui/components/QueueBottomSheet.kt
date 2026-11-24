@@ -146,7 +146,7 @@ fun QueueBottomSheet(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
-                            tint = appColors.primaryAccent,
+                            tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -155,13 +155,13 @@ fun QueueBottomSheet(
                                 text = "Now Playing & Queue",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = appColors.textPrimary
+                                    color = Color.White
                                 )
                             )
                             Text(
                                 text = "${displayQueue.size} tracks in queue",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = appColors.textMuted
+                                    color = Color.White
                                 )
                             )
                         }
@@ -174,7 +174,7 @@ fun QueueBottomSheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close Queue",
-                            tint = appColors.textSecondary,
+                            tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -224,7 +224,7 @@ fun QueueBottomSheet(
                                 Icon(
                                     imageVector = Icons.Default.AllInclusive,
                                     contentDescription = null,
-                                    tint = if (isAutoplayEnabled) appColors.primaryAccent else appColors.textMuted,
+                                    tint = Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -234,7 +234,7 @@ fun QueueBottomSheet(
                                     text = "Infinite Autoplay",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = appColors.textPrimary
+                                    color = Color.White
                                 )
                                 Text(
                                     text = if (isAutoplayEnabled && nextRecommendedTrack != null) {
@@ -245,7 +245,7 @@ fun QueueBottomSheet(
                                         "Queue stops when tracks finish"
                                     },
                                     fontSize = 11.sp,
-                                    color = appColors.textSecondary,
+                                    color = Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -276,7 +276,7 @@ fun QueueBottomSheet(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = null,
-                                tint = appColors.textMuted,
+                                tint = Color.White,
                                 modifier = Modifier.size(40.dp)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -284,14 +284,14 @@ fun QueueBottomSheet(
                                 text = "Queue is empty",
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = appColors.textPrimary
+                                    color = Color.White
                                 )
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Play songs or tap 'Add to Queue' to build your list",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = appColors.textSecondary
+                                    color = Color.White
                                 )
                             )
                         }
@@ -355,11 +355,7 @@ fun QueueBottomSheet(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = localizedCatalogText(track.fullTitle),
-                                        color = if (isCurrentlyPlaying) {
-                                            appColors.primaryAccent
-                                        } else {
-                                            appColors.textPrimary
-                                        },
+                                        color = Color.White,
                                         fontWeight = if (isCurrentlyPlaying) FontWeight.Bold else FontWeight.Medium,
                                         fontSize = 14.sp,
                                         maxLines = 1,
@@ -377,7 +373,7 @@ fun QueueBottomSheet(
                                                 text = "PLAYING",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = appColors.primaryAccent,
+                                                color = Color.White,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                             )
                                         }
@@ -394,7 +390,7 @@ fun QueueBottomSheet(
                                                 Icon(
                                                     imageVector = Icons.Default.AutoAwesome,
                                                     contentDescription = null,
-                                                    tint = appColors.primaryAccent,
+                                                    tint = Color.White,
                                                     modifier = Modifier.size(9.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(2.dp))
@@ -402,7 +398,7 @@ fun QueueBottomSheet(
                                                     text = "RECOMMENDED NEXT",
                                                     fontSize = 8.5.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = appColors.primaryAccent
+                                                    color = Color.White
                                                 )
                                             }
                                         }
@@ -417,7 +413,7 @@ fun QueueBottomSheet(
                                                 text = "INFINITE AUTOPLAY",
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = appColors.textMuted,
+                                                color = Color.White,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                             )
                                         }
@@ -429,14 +425,14 @@ fun QueueBottomSheet(
                                         Icon(
                                             imageVector = Icons.Default.Equalizer,
                                             contentDescription = null,
-                                            tint = appColors.primaryAccent,
+                                            tint = Color.White,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                     }
                                     Text(
                                         text = localizedCatalogText(track.artist),
-                                        color = appColors.textSecondary,
+                                        color = Color.White,
                                         fontSize = 12.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -454,7 +450,7 @@ fun QueueBottomSheet(
                                         Icon(
                                             imageVector = Icons.Default.ArrowUpward,
                                             contentDescription = "Move Up",
-                                            tint = appColors.textMuted,
+                                            tint = Color.White,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -467,7 +463,7 @@ fun QueueBottomSheet(
                                         Icon(
                                             imageVector = Icons.Default.ArrowDownward,
                                             contentDescription = "Move Down",
-                                            tint = appColors.textMuted,
+                                            tint = Color.White,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }

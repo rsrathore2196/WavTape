@@ -159,6 +159,13 @@ class PlayerPopupThemeUiTest {
         return image
     }
 
+    private fun assertWhitePopupText(tag: String, text: String) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNode(hasText(text) and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals("$tag uses white text", Color.White, layouts.single().layoutInput.style.color)
+    }
+
     private fun assertContinuousLyricsGlass(tag: String, image: java.awt.image.BufferedImage) {
         // The backdrop should stay continuous
         // across the card's content padding, even when text and controls cover some rows.
@@ -253,6 +260,14 @@ class PlayerPopupThemeUiTest {
                 assertWindowDoesNotDim(tag)
                 val image = assertArtworkGlass(tag)
                 if (index == 7 || index == 8) assertContinuousLyricsGlass(tag, image)
+                val title = when (index) {
+                    0 -> "Audio output"
+                    1 -> "Now Playing & Queue"
+                    6 -> "Audio Pipeline"
+                    7 -> "Lyrics Text Size"
+                    else -> "Lyrics Provider"
+                }
+                assertWhitePopupText(tag, title)
             } else assertBackground(tag, if (playerGlass) Color.Black else background)
             if (withGlass && index == 0) {
                 assertGlassInset("device_row_1")
@@ -325,9 +340,7 @@ class PlayerPopupThemeUiTest {
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
             assertArtworkGlass("player_options_popup")
-            val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText("Sleep Mode").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue(layouts.single().layoutInput.style.color.luminance() < .05f)
+            assertWhitePopupText("player_options_popup", "Sleep Mode")
         } finally {
             TrackPaletteCache.clear()
         }

@@ -224,7 +224,7 @@ fun LyricsTextSizePopup(
                             text = "Lyrics Text Size",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = appColors.textPrimary
+                                color = Color.White
                             )
                         )
                         Surface(
@@ -235,7 +235,7 @@ fun LyricsTextSizePopup(
                                 text = "$currentSizeSp sp",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = appColors.primaryAccent
+                                    color = Color.White
                                 ),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
@@ -266,9 +266,9 @@ fun LyricsTextSizePopup(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("18 sp", style = MaterialTheme.typography.bodySmall.copy(color = appColors.textMuted, fontSize = 11.sp))
-                        Text("Default (32 sp)", style = MaterialTheme.typography.bodySmall.copy(color = appColors.textMuted, fontSize = 11.sp))
-                        Text("44 sp", style = MaterialTheme.typography.bodySmall.copy(color = appColors.textMuted, fontSize = 11.sp))
+                        Text("18 sp", style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 11.sp))
+                        Text("Default (32 sp)", style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 11.sp))
+                        Text("44 sp", style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 11.sp))
                     }
                 }
             }
@@ -297,6 +297,7 @@ fun LyricsProviderSelectionPopup(
     // The shared Settings selector keeps its existing presentation.
     val usePlayerTheme = LocalPlayerPopupColors.current != null || allowImport
     @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) playerGlassPopupColors() else appColors
+    fun textColor(themeColor: Color) = if (usePlayerTheme) Color.White else themeColor
     val selectedFill = if (usePlayerTheme) playerPopupHighlight(0.12f) else appColors.primaryAccent.copy(alpha = 0.12f)
     PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, dismiss ->
@@ -323,14 +324,14 @@ fun LyricsProviderSelectionPopup(
                         text = "Lyrics Provider",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = appColors.textPrimary
+                            color = textColor(appColors.textPrimary)
                         ),
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
                     Text(
                         text = "Tap a provider to apply immediately",
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = appColors.textMuted,
+                            color = textColor(appColors.textMuted),
                             fontSize = 11.5.sp
                         ),
                         modifier = Modifier.padding(bottom = 14.dp)
@@ -378,14 +379,14 @@ fun LyricsProviderSelectionPopup(
                                             text = "Import Lyrics",
                                             style = MaterialTheme.typography.bodyMedium.copy(
                                                 fontWeight = if (isCustomSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isCustomSelected) appColors.primaryAccent else appColors.textPrimary,
+                                                color = textColor(if (isCustomSelected) appColors.primaryAccent else appColors.textPrimary),
                                                 fontSize = 14.sp
                                             )
                                         )
                                         Text(
                                             text = "Import Custom Lyrics .lrc file",
                                             style = MaterialTheme.typography.bodySmall.copy(
-                                                color = appColors.textMuted,
+                                                color = textColor(appColors.textMuted),
                                                 fontSize = 11.sp
                                             )
                                         )
@@ -427,7 +428,7 @@ fun LyricsProviderSelectionPopup(
                                             text = provider,
                                             style = MaterialTheme.typography.bodyMedium.copy(
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) appColors.primaryAccent else appColors.textPrimary,
+                                                color = textColor(if (isSelected) appColors.primaryAccent else appColors.textPrimary),
                                                 fontSize = 14.sp
                                             )
                                         )
@@ -436,7 +437,7 @@ fun LyricsProviderSelectionPopup(
                                             Text(
                                                 text = description,
                                                 style = MaterialTheme.typography.bodySmall.copy(
-                                                    color = appColors.textMuted,
+                                                    color = textColor(appColors.textMuted),
                                                     fontSize = 11.sp
                                                 )
                                             )

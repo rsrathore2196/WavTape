@@ -2989,10 +2989,10 @@ private fun PlayerOptionsMenu(
             ).forEach { (title, icon, action) ->
                 DropdownMenuItem(
                     text = { Text(title, style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.SemiBold, color = appColors.textPrimary)) },
+                        fontWeight = FontWeight.SemiBold, color = Color.White)) },
                     leadingIcon = {
                         Box(Modifier.size(34.dp).clip(CircleShape).background(itemIconBg), contentAlignment = Alignment.Center) {
-                            Icon(icon, contentDescription = null, tint = appColors.primaryAccent, modifier = Modifier.size(18.dp))
+                            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     },
                     onClick = { AppHaptics.performTap(context); onDismissRequest(); action() },
@@ -3009,7 +3009,7 @@ private fun PlayerOptionsMenu(
                         text = "Add to Queue",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = appColors.textPrimary
+                            color = Color.White
                         )
                     )
                 },
@@ -3024,7 +3024,7 @@ private fun PlayerOptionsMenu(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
-                            tint = appColors.primaryAccent,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -3049,7 +3049,7 @@ private fun PlayerOptionsMenu(
                         text = "Add to Playlist",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = appColors.textPrimary
+                            color = Color.White
                         )
                     )
                 },
@@ -3064,7 +3064,7 @@ private fun PlayerOptionsMenu(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
                             contentDescription = null,
-                            tint = appColors.primaryAccent,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -3086,7 +3086,7 @@ private fun PlayerOptionsMenu(
                         com.example.downloads.DownloadStatus.PAUSED, com.example.downloads.DownloadStatus.FAILED -> "Resume download"
                         else -> "Download"
                     }, style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.SemiBold, color = appColors.textPrimary))
+                        fontWeight = FontWeight.SemiBold, color = Color.White))
                 },
                 leadingIcon = {
                     Box(Modifier.size(34.dp).clip(CircleShape).background(itemIconBg)
@@ -3113,7 +3113,7 @@ private fun PlayerOptionsMenu(
                             com.example.downloads.DownloadStatus.COMPLETE -> Icons.Default.DeleteOutline
                             com.example.downloads.DownloadStatus.QUEUED, com.example.downloads.DownloadStatus.DOWNLOADING -> Icons.Default.Pause
                             else -> Icons.Default.Download
-                        }, contentDescription = null, tint = appColors.primaryAccent, modifier = Modifier.size(18.dp))
+                        }, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     }
                 },
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).testTag("player_download_option"),
@@ -3143,7 +3143,7 @@ private fun PlayerOptionsMenu(
                         text = "Share Track",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = appColors.textPrimary
+                            color = Color.White
                         )
                     )
                 },
@@ -3158,7 +3158,7 @@ private fun PlayerOptionsMenu(
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = null,
-                            tint = appColors.primaryAccent,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -3386,13 +3386,13 @@ internal fun SourceUpgradeMenuItem(trackId: String, onDismiss: () -> Unit,
             upgraded -> "Revert to Original"
             else -> "Upgrade Audio"
         },
-            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary) },
+            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White) },
         leadingIcon = {
             Box(Modifier.size(34.dp).clip(CircleShape).background(iconBackground), contentAlignment = Alignment.Center) {
                 if (upgrading) VisibleCircularProgressIndicator(Modifier.size(18.dp).testTag("player_audio_upgrading"),
                     color = colors.primaryAccent, strokeWidth = 2.dp)
                 else Icon(if (upgraded) Icons.AutoMirrored.Filled.Undo else Icons.Default.AutoAwesome, contentDescription = null,
-                    tint = colors.primaryAccent, modifier = Modifier.size(18.dp))
+                    tint = Color.White, modifier = Modifier.size(18.dp))
             }
         },
         enabled = current && !path.sourceTransitionInProgress,

@@ -80,7 +80,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.StrokeCap
-import com.example.ui.theme.onAccentGradient
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -255,9 +254,9 @@ fun SoundOutputDeviceDialog(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Audio output", color = appColors.textPrimary, modifier = Modifier.weight(1f),
+                            Text("Audio output", color = Color.White, modifier = Modifier.weight(1f),
                                 fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                            Text(devices.size.toString(), color = appColors.textSecondary, fontSize = 11.sp,
+                            Text(devices.size.toString(), color = Color.White, fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.playerPopupInsetGlass(RoundedCornerShape(8.dp))
                                     .padding(horizontal = 7.dp, vertical = 3.dp).testTag("output_device_count"))
@@ -267,13 +266,13 @@ fun SoundOutputDeviceDialog(
                             ) {
                                 Box(Modifier.size(32.dp).playerPopupInsetGlass(CircleShape),
                                     contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Close, "Close", tint = appColors.textSecondary, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, "Close", tint = Color.White, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
                         Spacer(Modifier.height(12.dp))
                         if (devices.isEmpty()) {
-                            Text("No audio outputs detected", color = appColors.textSecondary, fontSize = 13.sp,
+                            Text("No audio outputs detected", color = Color.White, fontSize = 13.sp,
                                 modifier = Modifier.padding(vertical = 20.dp, horizontal = 4.dp))
                         } else {
                             LazyColumn(
@@ -298,12 +297,12 @@ fun SoundOutputDeviceDialog(
                                     .clickable { permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }
                             ) {
                                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Bluetooth, null, tint = appColors.primaryAccent, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.Bluetooth, null, tint = Color.White, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(12.dp))
                                     Column {
-                                        Text("Allow Bluetooth access", color = appColors.textPrimary, fontSize = 12.sp,
+                                        Text("Allow Bluetooth access", color = Color.White, fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold)
-                                        Text("Show connected device details", color = appColors.textSecondary, fontSize = 11.sp)
+                                        Text("Show connected device details", color = Color.White, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -327,7 +326,7 @@ fun SoundOutputDeviceDialog(
                                             else -> Icons.AutoMirrored.Filled.VolumeUp
                                         },
                                         if (currentVolume > 0) "Mute" else "Unmute",
-                                        tint = appColors.textSecondary, modifier = Modifier.size(18.dp)
+                                        tint = Color.White, modifier = Modifier.size(18.dp)
                                     )
                                 }
                                 Slider(
@@ -361,7 +360,7 @@ fun SoundOutputDeviceDialog(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text("${(currentVolume.toFloat() / maxVolume * 100).roundToInt()}%",
-                                    color = appColors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                                    color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium,
                                     textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.widthIn(min = 34.dp))
                             }
                         }
@@ -399,19 +398,22 @@ private fun ModernDeviceItemRow(device: SoundOutputDevice, onClick: () -> Unit) 
             Box(Modifier.size(36.dp).playerPopupInsetGlass(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center) {
                 Icon(deviceIcon(device.category), categoryLabel,
-                    tint = if (selected) colors.primaryAccent else colors.textSecondary,
+                    tint = Color.White,
                     modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.width(10.dp))
-            Text(device.name, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            Text(device.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.size(22.dp).then(
-                if (selected) Modifier.background(colors.heroGradient, CircleShape)
-                else Modifier.border(1.5.dp, colors.textMuted.copy(alpha = 0.45f), CircleShape)
+                when {
+                    selected && !colors.isDark -> Modifier.background(colors.heroGradient, CircleShape)
+                    !selected -> Modifier.border(1.5.dp, colors.textMuted.copy(alpha = 0.45f), CircleShape)
+                    else -> Modifier
+                }
             ), contentAlignment = Alignment.Center) {
                 if (selected) Icon(Icons.Default.Check, null,
-                    tint = colors.onAccentGradient,
+                    tint = Color.White,
                     modifier = Modifier.size(14.dp))
             }
         }

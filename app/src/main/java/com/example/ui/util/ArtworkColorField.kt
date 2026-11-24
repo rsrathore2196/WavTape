@@ -125,8 +125,10 @@ internal fun PlayerArtworkSample.blurredPopupPixels(blurFraction: Float): IntArr
     val blurred = IntArray(pixels.size)
     blurPass(pixels, scratch, width, height, radius, horizontal = true)
     blurPass(scratch, blurred, width, height, radius, horizontal = false)
-    blurPass(blurred, scratch, width, height, radius, horizontal = true)
-    blurPass(scratch, blurred, width, height, radius, horizontal = false)
+    repeat(2) {
+        blurPass(blurred, scratch, width, height, radius, horizontal = true)
+        blurPass(scratch, blurred, width, height, radius, horizontal = false)
+    }
     return blurred
 }
 

@@ -3,7 +3,9 @@ package com.example
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.example.data.local.PlayerEffect
+import com.example.ui.util.blurredPopupPixels
 import com.example.ui.util.extractPlayerArtworkColors
+import com.example.ui.util.samplePlayerArtwork
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -123,5 +125,19 @@ class ArtworkColorFieldTest {
             val detail = (field.height / 2) * field.width + 32
             assertTrue(Color(lower[detail]).red > Color(field.pixels[detail]).red)
         }
+    }
+
+    @Test fun popupBlurSoftensTheTransitionAndKeepsTheOriginalEdgeColors() {
+        val warm = 0xfff4b36c.toInt()
+        val cool = 0xff3666e8.toInt()
+        val pixels = IntArray(64 * 64) { if (it % 64 < 32) warm else cool }
+        val texture = samplePlayerArtwork(pixels, 64, 64).blurredPopupPixels(.05f)
+
+        assertEquals(warm, texture.first())
+        assertEquals(cool, texture.last())
+        assertNotEquals(warm, texture[25])
+        val middle = Color(texture[32])
+        assertTrue(middle.red in Color(cool).red..Color(warm).red)
+        assertTrue(middle.blue in Color(warm).blue..Color(cool).blue)
     }
 }

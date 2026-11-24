@@ -101,7 +101,6 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     val effects by AudioEffectsManager.effectsState.collectAsStateWithLifecycle()
     val height = (LocalConfiguration.current.screenHeightDp - 48).coerceAtLeast(120).dp
     val textColor = colors.textPrimary
-    val muted = colors.textSecondary
     val quality = state.quality
     val known = quality.verified
     val dspKnown = state.dspEncoding != C.ENCODING_INVALID && state.dspRateHz > 0
@@ -148,14 +147,14 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                 Box(Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 19.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Audio Pipeline", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = textColor, textAlign = TextAlign.Center)
+                        Text("Audio Pipeline", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center)
                         Text("Live signal path, decoder to output", Modifier.padding(top = 4.dp), fontSize = 13.sp,
-                            lineHeight = 17.sp, color = muted, textAlign = TextAlign.Center)
+                            lineHeight = 17.sp, color = Color.White, textAlign = TextAlign.Center)
                     }
                     FilledTonalIconButton(onClick = onClose,
                         colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = textColor.copy(alpha = 0.08f), contentColor = textColor),
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(28.dp).testTag("pipeline_close")) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close audio pipeline", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Close, contentDescription = "Close audio pipeline", tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                 }
                 Box(Modifier.weight(1f, fill = false).heightIn(max = 420.dp).verticalScroll(rememberScrollState())
@@ -211,17 +210,17 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+                                        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                     }
                                     Spacer(Modifier.width(10.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(title, color = muted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                        Text(title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                             letterSpacing = 0.4.sp, modifier = Modifier.padding(bottom = 8.dp).testTag("pipeline_stage_$index"))
                                         rows.forEach { (label, value) ->
                                             Text(buildAnnotatedString {
                                                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("$label: ") }
                                                 append(value)
-                                            }, color = textColor, fontSize = 13.sp, lineHeight = 19.sp,
+                                            }, color = Color.White, fontSize = 13.sp, lineHeight = 19.sp,
                                                 modifier = Modifier.padding(vertical = 1.dp).testTag("pipeline_${index}_$label"))
                                         }
                                     }
