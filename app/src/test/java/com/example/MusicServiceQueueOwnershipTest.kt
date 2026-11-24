@@ -197,7 +197,7 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(1, requests.get())
     }
 
-    @Test fun automaticFastStartKeepsPlayingWhenBestQualityCannotResume() = runBlocking {
+    @Test fun automaticFastStartKeepsPlayingWhenNoHigherPrioritySourceCanResume() = runBlocking {
         val base = "https://addons.example/fast-start"
         val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Fixture", baseUrl = base)
         val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
@@ -211,7 +211,7 @@ class MusicServiceQueueOwnershipTest {
             false
         }
         assertNull(automatic)
-        assertEquals(listOf(addonAddress), checked)
+        assertEquals(listOf(addonAddress, selected.audioUrl), checked)
 
         monitor.setAudioEnhancer(true, trackId = playing.id)
         until { monitor.sourcePolicy.value.enhancer }
@@ -280,6 +280,29 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(best.track.audioUrl, upgraded.audioUrl)
         assertTrue(upgraded.isLossless)
         assertNull(repository.resolveFastStartUpgrade(upgraded, policy))
+    }
+
+    @Test fun fastStartTriesAnotherHigherPrioritySourceWhenTheBestStreamCannotResume() = runBlocking {
+        val base = "https://addons.example/unseekable"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
+        val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        youtubeAvailable = true
+        val initial = repository.resolvePlaybackStart(selected).track
+        val policy = monitor.sourcePolicy.value
+        val prepared = mutableListOf<String>()
+
+        val upgraded = repository.resolveFastStartUpgrade(initial, policy) { candidate ->
+            val provider = checkNotNull(SourceTransitionOrigin.sourceId(candidate.id, Uri.parse(candidate.audioUrl), policy))
+            prepared.add(provider)
+            provider != addon.id
+        }
+
+        assertEquals(listOf(addon.id, PlaybackSource.jio.id), prepared)
+        assertEquals(selected.id, upgraded?.id)
+        assertEquals(selected.audioUrl, upgraded?.audioUrl)
     }
 
     @Test fun bestQualityQueueResolutionDoesNotPinAnAutomaticFastStartBookmark() = runBlocking {

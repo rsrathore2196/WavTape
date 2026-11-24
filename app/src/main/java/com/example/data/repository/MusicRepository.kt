@@ -519,6 +519,8 @@ class MusicRepository private constructor(
             if (!policy.canLookUpFastStartQuality(track.id) || !stillCurrent()) return@withTimeoutOrNull null
             val activeUri = android.net.Uri.parse(track.audioUrl)
             val currentSource = SourceTransitionOrigin.sourceId(track.id, activeUri, policy)
+            val higherPriority = policy.startupSourcesFor(track.id).takeWhile { it.id != currentSource }
+            if (higherPriority.isEmpty()) return@withTimeoutOrNull null
             // The startup transport's Opus pin must not filter out cached lossless candidates.
             val lookupTrack = if (com.example.data.remote.YouTubeAudioStreamService.isPlaybackUri(track.audioUrl) &&
                 activeUri.getQueryParameter("codec") == "opus") {
@@ -529,9 +531,20 @@ class MusicRepository private constructor(
                 catch (_: TrackUnavailableException) { return@withTimeoutOrNull null }
             val candidateSource = SourceTransitionOrigin.sourceId(candidate.id, android.net.Uri.parse(candidate.audioUrl), policy)
             // Keep an already playing source when Best Quality lands on that provider or a lower fallback.
-            val replacement = policy.startupSourcesFor(track.id).takeWhile { it.id != currentSource }
-                .firstOrNull { it.id == candidateSource } ?: return@withTimeoutOrNull null
-            return@withTimeoutOrNull candidate.takeIf { prepareCandidate(it, replacement) && stillCurrent() }
+            val candidatesInOrder = higherPriority.dropWhile { it.id != candidateSource }
+            val replacement = candidatesInOrder.firstOrNull() ?: return@withTimeoutOrNull null
+            if (prepareCandidate(candidate, replacement) && stillCurrent()) return@withTimeoutOrNull candidate
+
+            // A provider may resolve a valid URL that cannot resume at the live playhead.
+            // Keep playing while trying the remaining providers ranked above the active one.
+            for (source in candidatesInOrder.drop(1)) {
+                if (!stillCurrent()) return@withTimeoutOrNull null
+                val fallback = try { resolveBestQualityTrack(lookupTrack, preferredSourceId = source.id) }
+                    catch (_: TrackUnavailableException) { continue }
+                if (SourceTransitionOrigin.sourceId(fallback.id, android.net.Uri.parse(fallback.audioUrl), policy) == source.id &&
+                    prepareCandidate(fallback, source) && stillCurrent()) return@withTimeoutOrNull fallback
+            }
+            return@withTimeoutOrNull null
         }
 
         // Explicit Upgrade Audio retains its existing provider-by-provider preparation.

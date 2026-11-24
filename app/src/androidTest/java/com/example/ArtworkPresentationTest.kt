@@ -235,8 +235,7 @@ class ArtworkPresentationTest {
         compose.setContent {
             CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true), LocalDynamicGlassEnabled provides true) {
                 Box(Modifier.size(240.dp, 360.dp).testTag("prepared_color_field")) {
-                    PlayerGlassBackground(rememberUpdatedState(colors.topEdgeColor), rememberUpdatedState(colors.bottomEdgeColor),
-                        colorField = rememberUpdatedState(colors.colorField))
+                    PlayerGlassBackground(colorField = rememberUpdatedState(colors.colorField))
                 }
             }
         }
