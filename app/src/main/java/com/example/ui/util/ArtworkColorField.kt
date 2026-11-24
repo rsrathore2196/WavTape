@@ -64,7 +64,12 @@ class PlayerArtworkSample internal constructor(
     internal val pixels: IntArray,
     internal val width: Int,
     internal val height: Int
-)
+) {
+    override fun equals(other: Any?): Boolean = this === other || other is PlayerArtworkSample &&
+        width == other.width && height == other.height && pixels.contentEquals(other.pixels)
+
+    override fun hashCode(): Int = 31 * (31 * width + height) + pixels.contentHashCode()
+}
 
 internal fun samplePlayerArtwork(pixels: IntArray, width: Int, height: Int): PlayerArtworkSample {
     val scale = minOf(1f, 64f / maxOf(width, height))
