@@ -55,6 +55,23 @@ class BitPerfectAudioSink private constructor(
 
     companion object {
         internal const val MIN_SILENCE_US = 1_000_000L
+
+        internal fun nativeSourceEncoding(source: Format, bitPerfect: Boolean): Int {
+            val mime = source.sampleMimeType
+            if (mime != MimeTypes.AUDIO_FLAC && mime != MimeTypes.AUDIO_ALAC && mime != MimeTypes.AUDIO_RAW)
+                return C.ENCODING_INVALID
+            val declared = source.pcmEncoding
+            if (!bitPerfect || mime == MimeTypes.AUDIO_RAW ||
+                declared != C.ENCODING_INVALID && declared != Format.NO_VALUE) return declared
+            // MP4 and DASH can declare a verified FLAC/ALAC depth only in the codec configuration.
+            return when (source.sourceBitDepth()) {
+                16 -> C.ENCODING_PCM_16BIT
+                24 -> C.ENCODING_PCM_24BIT
+                32 -> C.ENCODING_PCM_32BIT
+                else -> declared
+            }
+        }
+
         internal fun silenceProcessor(channels: Int = 2) = androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor(
             // Media3 1.5.1 sizes its silence byte buffer from a frame count.
             // Compensate for bytes/frame to retain the intended ONE second on
@@ -91,15 +108,12 @@ class BitPerfectAudioSink private constructor(
     }
     private val processor = PsychoacousticAudioProcessor()
     private var format = Format.Builder().build()
-    private var sourceEncoding = C.ENCODING_INVALID
     private var sourceFormat: Format? = null
     private var failedDirectFormat: String? = null
     private var bitPerfect = bitPerfectRequested()
 
     fun sourceFormat(source: Format) {
         sourceFormat = source
-        sourceEncoding = source.pcmEncoding.takeIf { source.sampleMimeType in setOf(MimeTypes.AUDIO_FLAC,
-            MimeTypes.AUDIO_ALAC, MimeTypes.AUDIO_RAW) } ?: C.ENCODING_INVALID
     }
     fun preferredPcmEncoding(source: Format): Int? {
         sourceFormat(source)
@@ -109,7 +123,7 @@ class BitPerfectAudioSink private constructor(
                 parameters == PlaybackParameters.DEFAULT && !skipSilence &&
                 !PsychoacousticAudioProcessor.settings.get().isEnabled && !PsychoacousticAudioProcessor.spatialEnabled
         return if (eligible && allowDirect() && Build.VERSION.SDK_INT >= 34 && volume == 1f)
-            NativeUsb.preferredEncoding(context, source, attributes, preferred)
+            NativeUsb.preferredEncoding(context, source, nativeSourceEncoding(source, bypass), attributes, preferred)
                 // A 32-bit USB profile does not imply that the compressed decoder
                 // accepts an explicit PCM32 request. Use PCM32 when it is delivered natively.
                 ?.takeUnless { it == C.ENCODING_PCM_32BIT } else null
@@ -233,12 +247,13 @@ class BitPerfectAudioSink private constructor(
         resetCounters()
         initialFloatSupport = resolveInitialFloatSupport()
         val identityChannels = outputChannels == null || outputChannels.size == inputFormat.channelCount && outputChannels.withIndex().all { it.index == it.value }
+        val source = sourceFormat
+        val sourceEncoding = source?.let { nativeSourceEncoding(it, bitPerfect) } ?: C.ENCODING_INVALID
         // Float is exact for a known 24-bit FLAC/ALAC source. Repack its integer
         // samples without DSP, quantization noise, rate conversion or attenuation.
         val repack24 = inputFormat.pcmEncoding == C.ENCODING_PCM_FLOAT && sourceEncoding == C.ENCODING_PCM_24BIT
         val nativeFormat = if (repack24) inputFormat.buildUpon().setPcmEncoding(C.ENCODING_PCM_24BIT).build() else inputFormat
         val nativeKey = "${inputFormat.pcmEncoding}|${inputFormat.sampleRate}|${inputFormat.channelCount}|${preferred?.id}"
-        val source = sourceFormat
         val sourceDimensionsMatch = source == null || !DolbyAtmosSupport.isAtmosMime(source.sampleMimeType) &&
             (source.sampleRate <= 0 || source.sampleRate == inputFormat.sampleRate) &&
             (source.channelCount <= 0 || source.channelCount == inputFormat.channelCount) &&
@@ -573,8 +588,9 @@ class BitPerfectAudioSink private constructor(
     /** API-34 references are isolated so Android 7–13 always use the shared sink. */
     @RequiresApi(34)
     private object NativeUsb {
-        fun preferredEncoding(context: Context, source: Format, attributes: AudioAttributes, preferred: AudioDeviceInfo?): Int? {
-            if (source.pcmEncoding !in intArrayOf(C.ENCODING_PCM_16BIT, C.ENCODING_PCM_24BIT, C.ENCODING_PCM_32BIT)) return null
+        fun preferredEncoding(context: Context, source: Format, encoding: Int, attributes: AudioAttributes,
+            preferred: AudioDeviceInfo?): Int? {
+            if (encoding !in intArrayOf(C.ENCODING_PCM_16BIT, C.ENCODING_PCM_24BIT, C.ENCODING_PCM_32BIT)) return null
             val manager = context.getSystemService(AudioManager::class.java) ?: return null
             return runCatching {
                 val attrs = attributes.audioAttributesV21.audioAttributes
@@ -583,7 +599,7 @@ class BitPerfectAudioSink private constructor(
                         AudioDeviceInfo.TYPE_USB_ACCESSORY)) return null
                 manager.getSupportedMixerAttributes(device).firstOrNull {
                     it.mixerBehavior == android.media.AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
-                        it.format.encoding == source.pcmEncoding && it.format.sampleRate == source.sampleRate &&
+                        it.format.encoding == encoding && it.format.sampleRate == source.sampleRate &&
                         it.format.channelMask == Util.getAudioTrackChannelConfig(source.channelCount)
                 }?.format?.encoding?.let { if (it == C.ENCODING_PCM_24BIT) C.ENCODING_PCM_FLOAT else it }
             }.getOrNull()

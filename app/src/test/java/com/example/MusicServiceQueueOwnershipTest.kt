@@ -279,6 +279,37 @@ class MusicServiceQueueOwnershipTest {
         assertNull(repository.resolveFastStartUpgrade(upgraded, policy))
     }
 
+    @Test fun bestQualityQueueResolutionDoesNotPinAnAutomaticFastStartBookmark() = runBlocking {
+        val base = "https://addons.example/resume"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Preferred", baseUrl = base)
+        val sources = listOf(addon, PlaybackSource.jio, PlaybackSource.youtube)
+        PlaybackSourcesPreferences.save(app, sources)
+        until { monitor.sourcePolicy.value.upgradeSources == sources }
+        youtubeAvailable = true
+        val current = selected.copy(playlistEntryId = 42L).toMediaItem()
+        val youtube = selected.copy(audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio", source = "YouTube Music")
+        val origin = checkNotNull(SourceTransitionOrigin.capture(youtube, monitor.sourcePolicy.value,
+            automaticFastStart = true))
+        fun queuedItem(bookmark: SourceTransitionOrigin) = current.buildUpon().setMediaMetadata(
+            current.mediaMetadata.buildUpon().setExtras(android.os.Bundle(current.mediaMetadata.extras).apply {
+                SourceTransitionOrigin.write(this, bookmark)
+            }).build()).build()
+
+        val resumed = resolveQueued(queuedItem(origin))
+        assertEquals(PlaybackMode.BEST_QUALITY, resumed.playbackMode)
+        assertEquals(addonAddress, resumed.localConfiguration?.uri.toString())
+        assertEquals(current.mediaId, resumed.mediaId)
+        assertEquals(42L, resumed.mediaMetadata.extras?.getLong("playlist_entry_id"))
+
+        val manual = resolveQueued(queuedItem(origin.copy(automaticFastStart = false)))
+        assertEquals("xtreme-youtube", manual.localConfiguration?.uri?.scheme)
+
+        monitor.setAudioEnhancer(false, returnToYouTube = true, trackId = selected.id)
+        until { monitor.sourcePolicy.value.returnsToYouTube(selected.id) }
+        val reverted = resolveQueued(queuedItem(origin))
+        assertEquals("xtreme-youtube", reverted.localConfiguration?.uri?.scheme)
+    }
+
     @Test fun fastStartServiceSwitchesAnUnseekableYoutubeItemAtTheLivePosition() = runBlocking {
         val sources = listOf(PlaybackSource.jio, PlaybackSource.youtube)
         PlaybackSourcesPreferences.save(app, sources)
@@ -346,7 +377,9 @@ class MusicServiceQueueOwnershipTest {
             assertEquals(starting.mediaId, item.mediaId)
             assertEquals(PlaybackMode.FAST_START, item.playbackMode)
             assertEquals(PlaybackSource.jio.id, item.localConfiguration!!.uri.getQueryParameter("provider"))
-            assertEquals(PlaybackSource.youtube.id, SourceTransitionOrigin.read(item, selected)?.sourceId)
+            val origin = checkNotNull(SourceTransitionOrigin.read(item, selected))
+            assertEquals(PlaybackSource.youtube.id, origin.sourceId)
+            assertTrue(origin.automaticFastStart)
         } finally { cache.removeResource(key) }
     }
 

@@ -375,6 +375,15 @@ internal class StreamResolver(
             candidate.audioUrl !in rejectedUrls && capped(candidate).audioUrl !in rejectedUrls &&
             !isLosslessUrlRejected(candidate.audioUrl)
 
+        suspend fun addon(source: PlaybackSource, timeoutMs: Long): MusicTrack? = attempt(timeoutMs) {
+            // A failed add-on URL can still be in the provider's own resolution cache.
+            // Include the active lossless quarantine when asking for another representation.
+            val excluded = rejectedUrls + listOfNotNull(rejected) + getActiveRejectedUrls()
+            resolveAddon(source, track, policy, excluded)?.takeUnless {
+                it.audioUrl in excluded || isLosslessUrlRejected(it.audioUrl)
+            }
+        }
+
         fun matchedProvider(name: String): MusicTrack? = providerMatches.get("$name:$recordingKey")
             ?.takeIf { it.first > System.currentTimeMillis() }?.second
         fun retainProvider(name: String, match: MusicTrack) {
@@ -550,7 +559,7 @@ internal class StreamResolver(
                 if (track.source.startsWith("Streaming Addon:")) policy.playbackSources
                     .filter { it.kind == PlaybackSourceKind.ADDON &&
                         com.example.data.remote.StreamingAddons.fromSource(track.audioUrl, it.id) }.firstNotNullOfOrNull { source ->
-                        attempt(16_000L) { resolveAddon(source, track, policy, rejectedUrls + listOfNotNull(failedUrl)) }
+                        addon(source, ADDON_STARTUP_TIMEOUT_MS)
                     }
                 else if (archiveTransport(track.audioUrl) && archiveCurrent()) {
                     val excluded = rejectedUrls + listOfNotNull(failedUrl, rejected)
@@ -599,9 +608,8 @@ internal class StreamResolver(
                                 }
                                 direct?.takeIf { it.audioUrl == archiveUrl && usable(it) && supportsLossless(it) }
                             } else archive()
-                            PlaybackSourceKind.ADDON -> attempt(if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS) {
-                                resolveAddon(provider, track, policy, rejectedUrls + listOfNotNull(failedUrl))
-                            }
+                            PlaybackSourceKind.ADDON -> addon(provider,
+                                if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS)
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {

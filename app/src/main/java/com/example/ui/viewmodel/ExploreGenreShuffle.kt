@@ -4,6 +4,8 @@ import com.example.data.model.MusicTrack
 import com.example.data.repository.CatalogDestination
 import com.example.data.repository.SearchResultCategory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.random.Random
 
 internal data class ExploreGenreShufflePool(
@@ -38,8 +40,14 @@ internal suspend fun collectExploreGenreShuffleTracks(
     random: Random = Random.Default,
     targetMinQueueSize: Int = 15,
     maxCollectionsToSample: Int = 2,
+    isSelectionCurrent: () -> Boolean = { true },
     loadCollection: suspend (CatalogDestination) -> CatalogDetailState
 ): ExploreGenreShufflePool {
+    suspend fun ensureCurrentSelection() {
+        currentCoroutineContext().ensureActive()
+        if (!isSelectionCurrent()) throw CancellationException("Genre shuffle selection was replaced")
+    }
+    ensureCurrentSelection()
     val gathered = LinkedHashMap<String, MusicTrack>()
     results.songs.forEach { track ->
         if (track.id.isNotBlank()) {
@@ -61,12 +69,14 @@ internal suspend fun collectExploreGenreShuffleTracks(
         var attempts = 0
         val maxAttempts = maxCollectionsToSample + 2
         for (destination in destinations) {
+            ensureCurrentSelection()
             if (gathered.size >= targetMinQueueSize || loadedCollections >= maxCollectionsToSample || attempts >= maxAttempts) {
                 break
             }
             attempts++
             try {
                 val state = loadCollection(destination)
+                ensureCurrentSelection()
                 if (state.tracks.isNotEmpty()) {
                     loadedCollections++
                     state.tracks.forEach { track ->
@@ -86,6 +96,7 @@ internal suspend fun collectExploreGenreShuffleTracks(
         }
     }
 
+    ensureCurrentSelection()
     val shuffled = buildShuffledGenreQueue(
         tracks = gathered.values.toList(),
         currentTrackId = currentTrackId,

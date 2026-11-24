@@ -10,6 +10,11 @@ import com.example.ui.viewmodel.CatalogDetailState
 import com.example.ui.viewmodel.buildShuffledGenreQueue
 import com.example.ui.viewmodel.collectExploreGenreShuffleTracks
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -116,5 +121,49 @@ class ExploreGenreShuffleTest {
         assertEquals(3, shuffled.size)
         assertTrue(shuffled.first().id != "a")
         assertEquals(setOf("a", "b", "c"), shuffled.map { it.id }.toSet())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun externalSelectionDuringCollectionLookupCancelsTheOldGenreEvenForTheSameTrackId() = runTest {
+        val playlist = CatalogPlaylist("VL_jazz", "Jazz", "", provider = CatalogProvider.YOUTUBE_MUSIC)
+        val gate = CompletableDeferred<Unit>()
+        var selectionRevision = 1L
+        val originalRevision = selectionRevision
+        val currentTrackId = "same-recording"
+        var calls = 0
+        val request = async {
+            collectExploreGenreShuffleTracks(
+                SearchResultCategory(catalogPlaylists = listOf(playlist)), currentTrackId = currentTrackId,
+                isSelectionCurrent = { originalRevision == selectionRevision },
+                loadCollection = { destination ->
+                    calls++
+                    gate.await()
+                    CatalogDetailState(destination, tracks = (1..20).map { track("genre-$it") })
+                }
+            )
+        }
+        runCurrent()
+        // Notification/Bluetooth controls do not replace PlayerViewModel's launch job.
+        // A new occurrence can retain its recording ID while its selection revision changes.
+        selectionRevision++
+        gate.complete(Unit)
+        assertTrue(runCatching { request.await() }.exceptionOrNull() is CancellationException)
+        assertTrue(request.isCancelled)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun aReplacedSelectionDoesNotReturnDirectGenreSongsOrStartCollectionRequests() = runTest {
+        var calls = 0
+        val failure = runCatching {
+            collectExploreGenreShuffleTracks(
+                SearchResultCategory(songs = (1..20).map { track("genre-$it") }),
+                isSelectionCurrent = { false },
+                loadCollection = { calls++; CatalogDetailState(it) }
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertEquals(0, calls)
     }
 }

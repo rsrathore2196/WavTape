@@ -523,7 +523,7 @@ class PlaybackManager(
         val origin = remembered ?: if (enhancerTurnedOn) SourceTransitionOrigin.capture(original, policy) else null
         val returnToYouTube = policy.shouldReturnToYouTube(original, origin?.sourceId)
         val restoring = !policy.enhancer && (returnToYouTube ||
-            startMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin != null)
+            startMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin?.automaticFastStart == false)
         val sameSource = if (onlyAtmosChanged && !returnToYouTube)
             SourceTransitionOrigin.sourceId(original.id, Uri.parse(original.audioUrl), policy)
                 ?.takeIf { id -> policy.playbackSources.any { it.id == id } } else null
@@ -632,7 +632,8 @@ class PlaybackManager(
                 val resume = player.playWhenReady
                 val replacement = original.copy(audioUrl = media.localConfiguration!!.uri.toString(), source = resolved.source,
                     qualityBadge = resolved.qualityBadge, bitrateKbps = resolved.bitrateKbps, isLossless = resolved.isLossless)
-                val targetOrigin = (origin ?: if (automaticFastStart) SourceTransitionOrigin.capture(original, policy) else null)
+                val targetOrigin = (origin ?: if (automaticFastStart)
+                    SourceTransitionOrigin.capture(original, policy, automaticFastStart = true) else null)
                     .takeUnless { restoring || isYoutubeSource(replacement) }?.copy(policyKey = policy.upgradePolicyKey)
                 losslessFallback = LosslessFallback(generation, original, replacement, position, epoch,
                     expectedLossless = resolved.isLossless, expectedOpus = isYoutubeSource(replacement) && resolved.qualityBadge.contains("Opus", true),

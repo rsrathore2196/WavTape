@@ -106,6 +106,34 @@ class SourcePolicyRoutingTest {
         }
     }
 
+    @Test fun failedAddonRepresentationIsQuarantinedForStartupAndPinnedResolution() = runBlocking {
+        val base = "https://addons.example/quarantine"
+        val source = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Library", baseUrl = base)
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(source, PlaybackSource.youtube))
+        val bad = "$base/rejected.flac"
+        val alternate = "$base/replacement.flac"
+        val resolver = StreamResolver(resolveYouTube = { _, _, _, _ -> null }, searchYouTube = { emptyList() },
+            resolveAddon = { addon, requested, selection, excluded ->
+                val address = if (bad in excluded) alternate else bad
+                com.example.data.remote.StreamingAddons.parseStream(
+                    """{"url":"$address","codec":"flac","bitrate":900000}""", base, requested, requested,
+                    selection, addon.id)
+            })
+        val initial = resolver.resolve(song, policy.ceiling.audioQuality, sourcePolicy = policy, bestQualityFirst = true)
+        assertEquals(bad, initial.audioUrl)
+        StreamResolver.rejectLosslessUrl(bad, 60_000L)
+        try {
+            assertEquals(alternate, resolver.resolve(song, policy.ceiling.audioQuality,
+                sourcePolicy = policy, bestQualityFirst = true).audioUrl)
+            assertEquals(alternate, resolver.resolve(song, policy.ceiling.audioQuality,
+                sourcePolicy = policy, preferredSourceId = source.id).audioUrl)
+            assertEquals(alternate, resolver.resolve(initial, policy.ceiling.audioQuality,
+                sourcePolicy = policy, currentSourceOnly = true).audioUrl)
+        } finally {
+            StreamResolver.clearVerifiedLosslessCache()
+        }
+    }
+
     @Test fun automaticFastStartUpgradeUsesEnabledSourceOrderAndRespectsTheConnectionCeiling() {
         val policy = PlaybackSourcePolicy(AudioQualityCeiling.HIGH)
         assertEquals(listOf(PlaybackSource.jio), policy.fastStartUpgradeSources(opus))

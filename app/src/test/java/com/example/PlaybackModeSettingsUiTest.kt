@@ -2,11 +2,17 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AudioQualityPreferences
 import com.example.data.local.ThemePresets
@@ -26,6 +32,22 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PlaybackModeSettingsUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun initialRowShowsTheSavedModeBeforeLifecycleCollectionStarts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        AudioQualityPreferences.setPlaybackMode(context, PlaybackMode.FAST_START)
+        compose.setContent {
+            val stoppedOwner = remember {
+                object : LifecycleOwner {
+                    override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.CREATED }
+                }
+            }
+            MyApplicationTheme(customThemeState = ThemePresets.StudioNight.toCustomThemeState()) {
+                CompositionLocalProvider(LocalLifecycleOwner provides stoppedOwner) { PlaybackModeSetting() }
+            }
+        }
+        compose.onNodeWithText("Fast Start").assertIsDisplayed()
+    }
 
     @Test fun theTwoPlaybackModesAreSelectableAndPersisted() {
         val context = ApplicationProvider.getApplicationContext<Context>()

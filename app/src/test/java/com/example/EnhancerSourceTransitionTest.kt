@@ -212,7 +212,8 @@ class EnhancerSourceTransitionTest {
     @Config(sdk = [28])
     @Test fun sessionDiskCheckpointKeepsTheOriginalProviderAndPosition() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val origin = SourceTransitionOrigin.capture(video, PlaybackSourcePolicy(AudioQualityCeiling.MAX))!!
+        val origin = SourceTransitionOrigin.capture(video, PlaybackSourcePolicy(AudioQualityCeiling.MAX),
+            automaticFastStart = true)!!
         val item = MediaItem.Builder().setMediaId(video.id).setUri(jio.audioUrl)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(video.title).setArtist(video.artist).setExtras(
                 Bundle().apply { SourceTransitionOrigin.write(this, origin) }).build()).build()
@@ -230,7 +231,9 @@ class EnhancerSourceTransitionTest {
         PlaybackSessionStore::class.java.getDeclaredField("latest").apply { isAccessible = true }.set(null, null)
         val restored = withTimeout(5000) { PlaybackSessionStore.restore(app) }!!
         assertEquals(47890L, restored.positionMs); assertEquals(0, restored.index)
-        assertEquals(video.audioUrl, SourceTransitionOrigin.read(restored.items.single(), video)!!.track.audioUrl)
+        val restoredOrigin = checkNotNull(SourceTransitionOrigin.read(restored.items.single(), video))
+        assertEquals(video.audioUrl, restoredOrigin.track.audioUrl)
+        assertTrue(restoredOrigin.automaticFastStart)
     }
     @Test fun verifiedTopSourceIsAutomaticallyEnhancedButCatalogIdentityAndPendingFormatsAreNot() {
         val ordered = listOf(PlaybackSource.jio, PlaybackSource.youtube, PlaybackSource.archive)

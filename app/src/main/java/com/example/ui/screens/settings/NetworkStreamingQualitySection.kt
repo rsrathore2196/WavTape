@@ -169,7 +169,8 @@ internal fun PlaybackModeSetting() {
     val context = LocalContext.current.applicationContext
     val colors = LocalAppColors.current
     val modes = remember(context) { AudioQualityPreferences.observePlaybackMode(context) }
-    val selected by modes.collectAsStateWithLifecycle(initialValue = PlaybackMode.BEST_QUALITY)
+    val initialMode = remember(context) { AudioQualityPreferences.playbackMode(context) }
+    val selected by modes.collectAsStateWithLifecycle(initialValue = initialMode)
     var open by remember { mutableStateOf(false) }
     NetworkQualityRow("Playback Mode", selected.title) { open = true }
     if (open) AlertDialog(

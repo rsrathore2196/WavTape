@@ -1265,6 +1265,10 @@ class PlayerViewModel(
         activePlaybackLaunchJob?.cancel()
         activePlaybackLaunchJob = viewModelScope.launch(Dispatchers.Main.immediate) {
             _isShufflingExploreGenre.value = true
+            val selectionRevision = playbackManager.currentSelectionRevision
+            val selectedTrackId = playbackManager.uiState.value.currentTrack?.id
+            fun current() = selectionRevision == playbackManager.currentSelectionRevision &&
+                selectedTrackId == playbackManager.uiState.value.currentTrack?.id
             try {
                 var results = currentSearch.result
                 if (results.songs.isEmpty() && results.catalogPlaylists.isEmpty() && results.catalogAlbums.isEmpty() && category != null) {
@@ -1272,6 +1276,7 @@ class PlayerViewModel(
                         repository.getExploreCategoryResults(category, forceRefresh = false)
                     }
                     ensureActive()
+                    if (!current()) return@launch
                     _searchState.update { state ->
                         if (state.selectedExploreCategory?.key == category.key) {
                             state.copy(result = results, isSearching = false, genreError = null)
@@ -1282,6 +1287,7 @@ class PlayerViewModel(
                 val collected = collectExploreGenreShuffleTracks(
                     results = results,
                     currentTrackId = playbackManager.uiState.value.currentTrack?.id,
+                    isSelectionCurrent = ::current,
                     loadCollection = { destination -> catalogBrowser.prepareCollectionPlayback(destination) }
                 )
                 ensureActive()
@@ -1304,7 +1310,7 @@ class PlayerViewModel(
                 throw cancelled
             } catch (_: Exception) {
                 val label = genreTitle.ifBlank { category?.title.orEmpty() }.ifBlank { "genre" }
-                _libraryMessages.emit("Couldn't shuffle $label right now. Please try again.")
+                if (current()) _libraryMessages.emit("Couldn't shuffle $label right now. Please try again.")
             } finally {
                 if (genreShuffleGeneration.get() == generation) {
                     _isShufflingExploreGenre.value = false

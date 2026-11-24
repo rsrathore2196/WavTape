@@ -8,13 +8,20 @@ import com.example.data.remote.StreamingAddons
 import com.example.data.remote.YouTubeAudioStreamService
 
 /** A transport bookmark, never a second queue or a replacement catalog identity. */
-internal data class SourceTransitionOrigin(val track: MusicTrack, val sourceId: String, val policyKey: String = "") {
+internal data class SourceTransitionOrigin(
+    val track: MusicTrack,
+    val sourceId: String,
+    val policyKey: String = "",
+    val automaticFastStart: Boolean = false
+) {
     companion object {
+        private const val AUTOMATIC_FAST_START = "enhancer_origin_automatic_fast_start"
         val keys = listOf("enhancer_origin_track", "enhancer_origin_uri", "enhancer_origin_provider",
-            "enhancer_origin_id", "enhancer_origin_bitrate", "enhancer_origin_badge", "enhancer_origin_lossless", "enhancer_origin_policy")
-        fun capture(track: MusicTrack, policy: PlaybackSourcePolicy): SourceTransitionOrigin? {
+            "enhancer_origin_id", "enhancer_origin_bitrate", "enhancer_origin_badge", "enhancer_origin_lossless",
+            "enhancer_origin_policy", AUTOMATIC_FAST_START)
+        fun capture(track: MusicTrack, policy: PlaybackSourcePolicy, automaticFastStart: Boolean = false): SourceTransitionOrigin? {
             val source = sourceId(track.id, Uri.parse(track.audioUrl), policy) ?: return null
-            return SourceTransitionOrigin(track, source, policy.upgradePolicyKey)
+            return SourceTransitionOrigin(track, source, policy.upgradePolicyKey, automaticFastStart)
         }
         fun sourceId(trackId: String, uri: Uri, policy: PlaybackSourcePolicy): String? {
             if (uri.scheme == "xtreme-cached") return uri.getQueryParameter("provider").takeIf {
@@ -38,7 +45,8 @@ internal data class SourceTransitionOrigin(val track: MusicTrack, val sourceId: 
             val source = extras.getString(keys[3]).orEmpty().takeIf { it.isNotBlank() } ?: return null
             return SourceTransitionOrigin(track.copy(audioUrl = uri, source = extras.getString(keys[2]).orEmpty(),
                 bitrateKbps = extras.getInt(keys[4]), qualityBadge = extras.getString(keys[5]).orEmpty(),
-                isLossless = extras.getBoolean(keys[6])), source, extras.getString(keys[7]).orEmpty())
+                isLossless = extras.getBoolean(keys[6])), source, extras.getString(keys[7]).orEmpty(),
+                automaticFastStart = extras.getBoolean(AUTOMATIC_FAST_START))
         }
         fun write(extras: Bundle, origin: SourceTransitionOrigin?) {
             keys.forEach(extras::remove)
@@ -48,6 +56,7 @@ internal data class SourceTransitionOrigin(val track: MusicTrack, val sourceId: 
             extras.putInt(keys[4], origin.track.bitrateKbps); extras.putString(keys[5], origin.track.qualityBadge)
             extras.putBoolean(keys[6], origin.track.isLossless)
             extras.putString(keys[7], origin.policyKey)
+            if (origin.automaticFastStart) extras.putBoolean(AUTOMATIC_FAST_START, true)
         }
     }
 }

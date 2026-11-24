@@ -183,7 +183,9 @@ class MusicService : MediaLibraryService() {
             val policy = networkQuality.sourcePolicySnapshot()
             val origin = com.example.playback.SourceTransitionOrigin.read(item, selected)
             val returnToYouTube = policy.shouldReturnToYouTube(selected, origin?.sourceId)
-            val restoring = !policy.enhancer && (origin != null || returnToYouTube)
+            // An automatic upgrade's bookmark tracks its prior transport. Only a
+            // manual bookmark can pin that provider when resolving a fresh start.
+            val restoring = !policy.enhancer && (origin?.automaticFastStart == false || returnToYouTube)
             val start = app.repository.resolvePlaybackStart(if (restoring && !returnToYouTube) origin!!.track else selected,
                 preferredSourceId = if (returnToYouTube) policy.sourceId(com.example.playback.PlaybackSourceKind.YOUTUBE) else origin?.sourceId.takeIf { restoring })
             val resolved = start.track
@@ -517,7 +519,7 @@ class MusicService : MediaLibraryService() {
         val origin = savedOrigin ?: if (manualUpgrade) com.example.playback.SourceTransitionOrigin.capture(track, policy) else null
         val returnToYouTube = policy.shouldReturnToYouTube(track, origin?.sourceId)
         val restoring = !policy.enhancer && (returnToYouTube ||
-            item.playbackMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin != null)
+            item.playbackMode != PlaybackMode.FAST_START && !onlyAtmosChanged && origin?.automaticFastStart == false)
         val automaticFastStart = automatic && preparedSource == null && item.playbackMode == PlaybackMode.FAST_START
         val fastSwitch = item.playbackMode == PlaybackMode.FAST_START && !restoring && !returnToYouTube &&
             failedUrl == null && (automaticFastStart || manualUpgrade)
@@ -569,7 +571,7 @@ class MusicService : MediaLibraryService() {
             try {
                 if (!automatic) delay(180L)
                 fun targetOrigin(candidate: MusicTrack) = (origin ?: if (automaticFastStart)
-                    com.example.playback.SourceTransitionOrigin.capture(track, policy) else null).takeUnless { restoring ||
+                    com.example.playback.SourceTransitionOrigin.capture(track, policy, automaticFastStart = true) else null).takeUnless { restoring ||
                     YouTubeAudioStreamService.isYouTubeAudio(candidate.id, candidate.audioUrl) }?.copy(policyKey = policy.upgradePolicyKey)
                 fun transitionMedia(candidate: MusicTrack): MediaItem {
                     val replacementExtras = Bundle(extras ?: Bundle()).apply {

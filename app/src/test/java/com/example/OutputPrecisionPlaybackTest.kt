@@ -196,6 +196,31 @@ class OutputPrecisionPlaybackTest {
         } finally { sink.release() }
     }
 
+    @Test fun nativeSourceEncodingUsesVerifiedLosslessContainerDepthOnlyInBitPerfectMode() {
+        val flac = ByteBuffer.allocate(42).apply {
+            put("fLaC".toByteArray(Charsets.US_ASCII)).putInt(0x80000022.toInt())
+            putShort(4096).putShort(4096)
+            position(18)
+            putLong((96_000L shl 44) or (1L shl 41) or (23L shl 36))
+        }.array()
+        val alac = ByteBuffer.allocate(24).apply {
+            putInt(4096)
+            put(5, 24)
+            put(9, 2)
+            putInt(20, 96_000)
+        }.array()
+        for ((mime, config) in listOf(MimeTypes.AUDIO_FLAC to flac, MimeTypes.AUDIO_ALAC to alac)) {
+            val source = Format.Builder().setSampleMimeType(mime).setSampleRate(96_000).setChannelCount(2)
+                .setInitializationData(listOf(config)).build()
+            assertEquals(C.ENCODING_PCM_24BIT, BitPerfectAudioSink.nativeSourceEncoding(source, bitPerfect = true))
+            assertEquals(source.pcmEncoding, BitPerfectAudioSink.nativeSourceEncoding(source, bitPerfect = false))
+            val unknown = source.buildUpon().setInitializationData(listOf(config.copyOf(8))).build()
+            assertEquals(source.pcmEncoding, BitPerfectAudioSink.nativeSourceEncoding(unknown, bitPerfect = true))
+            val declared = source.buildUpon().setPcmEncoding(C.ENCODING_PCM_16BIT).build()
+            assertEquals(C.ENCODING_PCM_16BIT, BitPerfectAudioSink.nativeSourceEncoding(declared, bitPerfect = true))
+        }
+    }
+
     @Test fun bitPerfectKeepsTheDirectRouteWithSavedDspAndSwitchesToSharedWhenMuted() {
         val shared = Probe()
         val sink = BitPerfectAudioSink(app, shared.sink, bitPerfectRequested = { true })
