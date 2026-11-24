@@ -388,7 +388,10 @@ fun AboutPage(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = (updateStatus as? com.example.updater.UpdateStatus.Error)?.message ?: "Check for Update",
+                                    text = (updateStatus as? com.example.updater.UpdateStatus.Error)
+                                        ?.takeIf { it.showNotice }
+                                        ?.message
+                                        ?: "Check for Update",
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     fontSize = 13.sp,

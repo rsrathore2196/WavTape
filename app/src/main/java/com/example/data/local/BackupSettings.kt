@@ -70,11 +70,16 @@ internal object BackupSettings {
             AudioEffectsPreferences.encode(com.example.playback.AudioEffectsManager.effectsState.value)))
 
     fun publish(context: Context, settings: Map<String, Map<String, Any>>) {
-        val raw = settings[AudioEffectsPreferences.STORE]?.get(AudioEffectsPreferences.KEY) as? String ?: return
-        val configuration = AudioEffectsPreferences.decode(raw, com.example.playback.AudioEffectsManager.effectsState.value)
-        com.example.playback.AudioEffectsManager.restoreConfiguration(configuration)
-        // A durable barrier after the in-memory revision supersedes any queued pre-restore edits.
-        AudioEffectsPreferences.write(context, configuration)
+        val raw = settings[AudioEffectsPreferences.STORE]?.get(AudioEffectsPreferences.KEY) as? String
+        if (raw != null) {
+            val configuration = AudioEffectsPreferences.decode(raw, com.example.playback.AudioEffectsManager.effectsState.value)
+            com.example.playback.AudioEffectsManager.restoreConfiguration(configuration)
+            // A durable barrier after the in-memory revision supersedes any queued pre-restore edits.
+            AudioEffectsPreferences.write(context, configuration)
+        }
+        if ("xtreme_backup_preferences" in settings) {
+            com.example.performance.MaintenanceScheduler.updateAutoBackup(context)
+        }
     }
 
     /** Validate the entire section, including native preference types, before any restore writes. */

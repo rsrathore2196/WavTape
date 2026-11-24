@@ -322,39 +322,50 @@ object AppUpdateManager {
                 }
                 if (recovering) return@launch
 
-                // Never hold the download/installer lock while waiting for optional
-                // startup admission. Recovery and manual checks remain immediate.
-                com.example.performance.BackgroundWorkCoordinator.startup(
-                    if (isManual) com.example.performance.BackgroundWorkCoordinator.StartupPriority.CRITICAL
-                    else com.example.performance.BackgroundWorkCoordinator.StartupPriority.MAINTENANCE,
-                    urgent = { manualCheckRequested }
-                ) {
-                    operations.withLock {
-                        if (downloadJob?.isActive == true || session?.ready == true) {
-                            if (manualCheckRequested) _isDismissedForSession.value = false
-                            listeners.complete(_updateStatus.value)
-                            return@withLock
+                // Run automatic checks promptly right after the first frame draws so
+                // users see updates shortly after opening the app instead of waiting
+                // behind heavy deferred/maintenance startup queues. Manual checks run immediately.
+                if (!isManual && !manualCheckRequested) {
+                    com.example.performance.BackgroundWorkCoordinator.awaitFirstFrame()
+                    withTimeoutOrNull(350L) {
+                        while (!manualCheckRequested) {
+                            delay(50L)
                         }
-                        _updateStatus.value = UpdateStatus.Checking
-                        val result = withContext(Dispatchers.IO) { latestRelease() }
-                        _updateStatus.value = result
-                        if (manualCheckRequested && result is UpdateStatus.UpdateAvailable) {
-                            _isDismissedForSession.value = false
-                        }
-                        listeners.complete(result)
                     }
+                }
+                operations.withLock {
+                    if (downloadJob?.isActive == true || session?.ready == true) {
+                        if (manualCheckRequested) _isDismissedForSession.value = false
+                        listeners.complete(_updateStatus.value)
+                        return@withLock
+                    }
+                    _updateStatus.value = UpdateStatus.Checking
+                    val result = withContext(Dispatchers.IO) { latestRelease() }
+                    _updateStatus.value = result
+                    if (manualCheckRequested && result is UpdateStatus.UpdateAvailable) {
+                        _isDismissedForSession.value = false
+                    }
+                    listeners.complete(result)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 val error = UpdateStatus.Error(
-                    message = e.message ?: "Could not check for updates.",
+                    message = friendlyErrorMessage(e, "Could not check for updates."),
                     showNotice = listeners.needsManualErrorNotice()
                 )
                 _updateStatus.value = error
                 listeners.complete(error)
             }
         }
+    }
+
+    internal fun friendlyErrorMessage(error: Exception, fallback: String): String = when (error) {
+        is java.net.UnknownHostException,
+        is java.net.ConnectException -> "No internet connection. Please check your network and try again."
+        is java.net.SocketTimeoutException -> "Update server timed out. Please try again."
+        is javax.net.ssl.SSLException -> "Secure connection to the update server failed. Please try again."
+        else -> error.message?.takeIf { it.isNotBlank() } ?: fallback
     }
 
     private fun get(url: String, maxBytes: Long = 2_000_000, allowNotFound: Boolean = false): String? =
@@ -747,14 +758,14 @@ object AppUpdateManager {
             operations.withLock {
                 if (session?.name == activeSession.name) {
                     downloadJob = null
-                    fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
+                    fail(app, friendlyErrorMessage(e, "Update download failed. Please retry."), retryInfo = info)
                 }
             }
         } catch (e: Exception) {
             operations.withLock {
                 if (session?.name == activeSession.name) {
                     downloadJob = null
-                    fail(app, e.message ?: "Update download failed. Please retry.", retryInfo = info)
+                    fail(app, friendlyErrorMessage(e, "Update download failed. Please retry."), retryInfo = info)
                 }
             }
         }
@@ -979,6 +990,7 @@ object AppUpdateManager {
                 s = s.copy(installRequested = false, waitingPermission = false)
                 session = s
                 persist(app, s)
+                _isDismissedForSession.value = false
                 _updateStatus.value = UpdateStatus.ReadyToInstall(
                     file,
                     s.info,
@@ -989,6 +1001,7 @@ object AppUpdateManager {
             s = s.copy(waitingPermission = true)
             session = s
             persist(app, s)
+            _isDismissedForSession.value = false
             _updateStatus.value = UpdateStatus.ReadyToInstall(
                 file,
                 s.info,
@@ -1004,6 +1017,7 @@ object AppUpdateManager {
                 s = s.copy(installRequested = false, waitingPermission = false)
                 session = s
                 persist(app, s)
+                _isDismissedForSession.value = false
                 _updateStatus.value = UpdateStatus.ReadyToInstall(
                     file,
                     s.info,
@@ -1029,6 +1043,7 @@ object AppUpdateManager {
         try {
             app.startActivity(installIntent)
         } catch (_: ActivityNotFoundException) {
+            _isDismissedForSession.value = false
             _updateStatus.value = UpdateStatus.ReadyToInstall(
                 file,
                 s.info,

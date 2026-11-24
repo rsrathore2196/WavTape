@@ -137,7 +137,14 @@ object BackupRestoreManager {
     internal fun writeBackupDocument(context: Context, uri: Uri, bytes: ByteArray) {
         val resolver = context.contentResolver
         try {
-            val output = resolver.openOutputStream(uri, "wt") ?: throw IOException("Backup destination could not be opened")
+            val output = try {
+                resolver.openOutputStream(uri, "wt")
+            } catch (_: IllegalArgumentException) {
+                null
+            } catch (_: UnsupportedOperationException) {
+                null
+            } ?: resolver.openOutputStream(uri, "w")
+                ?: throw IOException("Backup destination could not be opened")
             output.use { it.write(bytes); it.flush() }
             resolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
                 if (descriptor.length >= 0L) check(descriptor.length == bytes.size.toLong()) { "Incomplete backup write" }
@@ -150,6 +157,9 @@ object BackupRestoreManager {
     }
 
     private fun writeBackupFile(file: File, bytes: ByteArray): String {
+        file.parentFile?.let { parent ->
+            check(parent.isDirectory || parent.mkdirs()) { "Backup folder could not be created" }
+        }
         val storage = AtomicFile(file)
         val output = storage.startWrite()
         try { output.write(bytes); storage.finishWrite(output) }
@@ -162,9 +172,13 @@ object BackupRestoreManager {
         val destination = getAutoBackupLocation(context)
         if (destination.startsWith("content://")) {
             val tree = Uri.parse(destination)
-            val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-            val uri = DocumentsContract.createDocument(context.contentResolver, parent, "application/json", name)
-                ?: throw IOException("The selected backup folder is unavailable")
+            val uri = try {
+                val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                DocumentsContract.createDocument(context.contentResolver, parent, "application/json", name)
+                    ?: throw IOException("The selected backup folder is unavailable")
+            } catch (error: SecurityException) {
+                throw IOException("Backup folder permission expired. Please choose the backup folder again.", error)
+            }
             writeBackupDocument(context, uri, bytes)
             return uri.toString() to uri.toString()
         }
@@ -348,6 +362,7 @@ object BackupRestoreManager {
                     while (cursor.moveToNext()) {
                         val name = cursor.getString(1).orEmpty()
                         if (!name.endsWith(".json", true)) continue
+                        if (resultList.any { it.fileName.equals(name, ignoreCase = true) }) continue
                         val document = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0))
                         val (tracks, playlists) = backupCounts { context.contentResolver.openInputStream(document) } ?: continue
                         val uri = document.toString()
@@ -488,7 +503,7 @@ object BackupRestoreManager {
             encoded to tracksToSave.size
             }
             val timestamp = System.currentTimeMillis()
-            val timeFormatted = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date(timestamp))
+            val timeFormatted = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(timestamp))
             val backupFileName = "WavTape_Backup_$timeFormatted.json"
 
             val bytes = jsonContent.toByteArray(Charsets.UTF_8)

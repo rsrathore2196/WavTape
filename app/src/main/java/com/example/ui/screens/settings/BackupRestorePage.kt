@@ -1,6 +1,7 @@
 package com.example.ui.screens.settings
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -118,24 +120,6 @@ fun BackupRestorePage(
     var selectedRestoreMode by remember { mutableStateOf(BackupRestoreManager.RestoreMode.MERGE) }
     var backupToConfirmReplace by remember { mutableStateOf<BackupRestoreManager.BackupInfo?>(null) }
 
-    val backupFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) coroutineScope.launch {
-            try {
-                withContext(com.example.performance.AppDispatchers.Io) {
-                    context.contentResolver.takePersistableUriPermission(uri,
-                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                }
-                autoBackupLocation = uri.toString()
-                BackupRestoreManager.setAutoBackupLocation(context, autoBackupLocation)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (_: Exception) { statusNotification = "Could not keep access to the selected backup folder. Please choose it again." }
-        }
-    }
-
-    // Storage permission state & flow
-    var showPermissionRationaleDialog by remember { mutableStateOf(false) }
-    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-
     val refreshJob = remember { arrayOfNulls<Job>(1) }
     fun refreshBackups() {
         refreshJob[0]?.cancel()
@@ -145,8 +129,29 @@ fun BackupRestorePage(
             }
             lastBackupInfo = latest
             availableBackups = backups
+            autoBackupEnabled = BackupRestoreManager.isAutoBackupEnabled(context)
+            autoBackupLocation = BackupRestoreManager.getAutoBackupLocation(context)
         }
     }
+
+    val backupFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) coroutineScope.launch {
+            try {
+                withContext(com.example.performance.AppDispatchers.Io) {
+                    context.contentResolver.takePersistableUriPermission(uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                }
+                autoBackupLocation = uri.toString()
+                BackupRestoreManager.setAutoBackupLocation(context, autoBackupLocation)
+                refreshBackups()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { statusNotification = "Could not keep access to the selected backup folder. Please choose it again." }
+        }
+    }
+
+    // Storage permission state & flow
+    var showPermissionRationaleDialog by remember { mutableStateOf(false) }
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -479,7 +484,7 @@ fun BackupRestorePage(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = autoBackupLocation,
+                            text = remember(autoBackupLocation) { formatBackupLocationForDisplay(autoBackupLocation) },
                             fontSize = 12.sp,
                             color = appColors.textPrimary,
                             modifier = Modifier.weight(1f)
@@ -675,11 +680,15 @@ fun BackupRestorePage(
 
         // Status Notification Banner
         if (statusNotification != null) {
+            val isError = statusNotification!!.startsWith("Failed", ignoreCase = true) ||
+                statusNotification!!.startsWith("Could not", ignoreCase = true)
+            val bannerTint = if (isError) MaterialTheme.colorScheme.error else accentColor
+            val bannerIconTint = if (isError) MaterialTheme.colorScheme.error else LiquidGlass.lightContentColor(appColors, accentColor)
             Spacer(modifier = Modifier.height(16.dp))
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = accentColor.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+                color = bannerTint.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, bannerTint.copy(alpha = 0.35f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -687,9 +696,9 @@ fun BackupRestorePage(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector = if (isError) Icons.Default.Warning else Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = LiquidGlass.lightContentColor(appColors, accentColor),
+                        tint = bannerIconTint,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -936,5 +945,23 @@ fun BackupRestorePage(
                 }
             }
         )
+    }
+}
+
+internal fun formatBackupLocationForDisplay(location: String): String {
+    if (!location.startsWith("content://")) return location
+    return try {
+        val uri = Uri.parse(location)
+        val docId = DocumentsContract.getTreeDocumentId(uri)
+        val parts = docId.split(':', limit = 2)
+        if (parts.size == 2) {
+            val volume = if (parts[0].equals("primary", ignoreCase = true)) "Internal Storage" else parts[0]
+            val subPath = parts[1].trim('/')
+            if (subPath.isEmpty()) volume else "$volume/$subPath"
+        } else {
+            docId.ifBlank { location }
+        }
+    } catch (_: Exception) {
+        Uri.decode(location)
     }
 }
