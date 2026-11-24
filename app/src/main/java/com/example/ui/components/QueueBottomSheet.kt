@@ -36,22 +36,27 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -86,13 +91,25 @@ fun QueueBottomSheet(
 ) {
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    var dismissing by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
+    val viewportHeight = remember { mutableIntStateOf(0) }
 
+    fun finishDismiss() {
+        if (dismissed) return
+        dismissed = true
+        latestDismiss()
+    }
     fun dismissSheet() {
+        if (dismissing || dismissed) return
+        dismissing = true
         scope.launch {
-            sheetState.hide()
-        }.invokeOnCompletion {
-            if (!sheetState.isVisible) {
-                onDismiss()
+            try {
+                sheetState.hide()
+                if (!sheetState.isVisible) finishDismiss()
+            } finally {
+                dismissing = false
             }
         }
     }
@@ -102,14 +119,12 @@ fun QueueBottomSheet(
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
     val appColors = PlayerGlassPopupColors
-    val isDark = appColors.isDark
 
     PlayerPopupTheme(appColors) {
         val sheetContent: @Composable () -> Unit = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer()
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
                 Row(
@@ -167,7 +182,7 @@ fun QueueBottomSheet(
                         .clip(RoundedCornerShape(14.dp))
                         .clickable { onToggleAutoplay() },
                     color = if (isAutoplayEnabled) {
-                        appColors.primaryAccent.copy(alpha = if (isDark) 0.16f else 0.10f)
+                        playerPopupHighlight(0.16f)
                     } else {
                         appColors.cardBackgroundElevated
                     },
@@ -295,9 +310,9 @@ fun QueueBottomSheet(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     if (isCurrentlyPlaying) {
-                                        appColors.primaryAccent.copy(alpha = if (isDark) 0.18f else 0.12f)
+                                        playerPopupHighlight(0.18f)
                                     } else if (isUpNext) {
-                                        appColors.primaryAccent.copy(alpha = if (isDark) 0.08f else 0.05f)
+                                        playerPopupHighlight(0.08f)
                                     } else {
                                         appColors.cardBackgroundElevated
                                     }
@@ -344,7 +359,7 @@ fun QueueBottomSheet(
                                     if (isCurrentlyPlaying) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Surface(
-                                            color = appColors.primaryAccent.copy(alpha = 0.2f),
+                                            color = playerPopupHighlight(0.20f),
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
                                             Text(
@@ -358,7 +373,7 @@ fun QueueBottomSheet(
                                     } else if (isUpNext && isAutoplayEnabled) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Surface(
-                                            color = appColors.primaryAccent.copy(alpha = 0.15f),
+                                            color = playerPopupHighlight(0.15f),
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
                                             Row(
@@ -456,17 +471,27 @@ fun QueueBottomSheet(
         }
         val sheetShape = BottomSheetDefaults.ExpandedShape
         ModalBottomSheet(
-            onDismissRequest = onDismiss,
+            onDismissRequest = ::finishDismiss,
             sheetState = sheetState,
             shape = sheetShape,
-            containerColor = playerPopupSurfaceColor(),
+            containerColor = Color.Transparent,
             tonalElevation = 0.dp,
             dragHandle = null,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
-            BackHandler { dismissSheet() }
-            // The artwork must move with the sheet's content, inside Material's drag offset.
-            Column(Modifier.fillMaxWidth().testTag("queue_bottom_sheet").playerPopupArtwork(sheetShape)
+            // The sheet's own offset drives every visual layer during an animation or drag.
+            Column(Modifier.fillMaxWidth()
+                .onGloballyPositioned { viewportHeight.intValue = it.findRootCoordinates().size.height }
+                .graphicsLayer {
+                    val viewport = viewportHeight.intValue.toFloat()
+                    val revealed = if (sheetState.hasExpandedState && viewport > 0f && size.height > 0f) {
+                        ((viewport - sheetState.requireOffset()) / size.height).coerceIn(0f, 1f)
+                    } else 0f
+                    alpha = (revealed * 1.6f).coerceAtMost(1f)
+                    scaleX = .98f + .02f * revealed
+                    transformOrigin = TransformOrigin(.5f, 1f)
+                }
+                .testTag("queue_bottom_sheet").background(playerPopupSurfaceColor(), sheetShape).playerPopupArtwork(sheetShape)
                 .windowInsetsPadding(BottomSheetDefaults.windowInsets)) {
                 Box(Modifier.align(Alignment.CenterHorizontally).semantics {
                     dismiss("Dismiss queue") {

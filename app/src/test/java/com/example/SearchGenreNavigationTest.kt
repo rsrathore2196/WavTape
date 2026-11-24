@@ -2,12 +2,15 @@ package com.example
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import com.example.data.model.MusicTrack
 import com.example.data.repository.*
@@ -286,6 +289,9 @@ class SearchGenreNavigationTest {
         compose.onNodeWithTag("genre_results_page").assertExists()
         compose.onNodeWithTag("search_screen").assertDoesNotExist()
         compose.onNodeWithText("Explore Genres").assertDoesNotExist()
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Pop").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(Typography().titleLarge.fontSize.value * 1.2f, layouts.single().layoutInput.style.fontSize.value, .01f)
         compose.onNodeWithText("Pop Song").performClick()
         compose.runOnIdle { assertEquals(track, played); assertEquals(listOf(track), queue) }
         compose.onNodeWithTag("genre_results_page").performScrollToNode(hasText("Pop Album"))

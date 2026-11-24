@@ -227,7 +227,8 @@ private fun GenreResultsPage(
         item("genre_header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(state.selectedGenre, style = MaterialTheme.typography.titleLarge,
+                val title = MaterialTheme.typography.titleLarge
+                Text(state.selectedGenre, style = title.copy(fontSize = title.fontSize * 1.2f),
                     fontWeight = FontWeight.Bold, color = colors.textPrimary, modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = onShuffleGenre,

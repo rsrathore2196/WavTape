@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -33,7 +33,6 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
@@ -43,8 +42,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import com.example.playback.AudioEffectsManager
@@ -63,12 +60,18 @@ fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackTex
     val path by AudioSignalPath.state.collectAsStateWithLifecycle()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var showPipeline by remember(trackId) { mutableStateOf(false) }
+    val pill = remember { PlayerPopupAnchor() }
+    var origin by remember(trackId) { mutableStateOf<Rect?>(null) }
     val current = path.takeIf { it.trackId == trackId } ?: SignalPathState()
     val label = current.quality.takeIf { it.verified && it.codec.isNotBlank() }?.badgeLabel ?: "Resolving audio"
     val shape = RoundedCornerShape(10.dp)
     Surface(color = Color.Transparent, shape = shape,
         modifier = modifier.playerLiquidGlassButton(LocalAppColors.current, shape)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Show audio pipeline") { showPipeline = true }) {
+            .onGloballyPositioned(pill::update)
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Show audio pipeline") {
+                origin = pill.capture()
+                showPipeline = true
+            }) {
         Row(Modifier.padding(horizontal = if (landscape) 12.dp else 10.dp, vertical = if (landscape) 5.dp else 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(if (landscape) 7.dp else 6.dp).clip(androidx.compose.foundation.shape.CircleShape).background(content))
             Spacer(Modifier.width(if (landscape) 8.dp else 6.dp))
@@ -76,29 +79,13 @@ fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackTex
                 fontWeight = FontWeight.ExtraBold, fontSize = if (landscape) 12.sp else 10.sp, letterSpacing = 0.5.sp), maxLines = 1)
         }
     }
-    if (showPipeline) AudioPipelineDialog(current) { showPipeline = false }
+    if (showPipeline) AudioPipelineDialog(current, origin) { showPipeline = false }
 }
 
 @Composable
-private fun AudioPipelineDialog(state: SignalPathState, onDismiss: () -> Unit) {
-    val visible = remember { MutableTransitionState(false).apply { targetState = true } }
-    val dismiss = { visible.targetState = false }
-    LaunchedEffect(visible.currentState, visible.targetState, visible.isIdle) {
-        if (visible.isIdle && !visible.currentState && !visible.targetState) onDismiss()
-    }
-    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        val view = LocalView.current
-        DisposableEffect(view) {
-            val root = view.rootView
-            val elevation = root.elevation
-            root.elevation = 0f
-            onDispose { root.elevation = elevation }
-        }
-        AnimatedVisibility(visibleState = visible,
-            enter = fadeIn(tween(180)) + scaleIn(tween(220, easing = FastOutSlowInEasing), initialScale = 0.95f),
-            exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.97f)) {
-            SignalPathPopupCard(state, Modifier.padding(16.dp), onClose = dismiss)
-        }
+private fun AudioPipelineDialog(state: SignalPathState, origin: Rect?, onDismiss: () -> Unit) {
+    AnchoredPlayerPopupDialog(origin, onDismiss, dimBackground = true, animated = true) { motion, dismiss ->
+        SignalPathPopupCard(state, Modifier.padding(16.dp).then(motion), onClose = dismiss)
     }
 }
 

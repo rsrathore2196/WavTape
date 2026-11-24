@@ -132,7 +132,6 @@ import com.example.ui.util.ARTWORK_METADATA_PARAMETER
 import com.example.ui.util.ArtworkRequestMetadata
 import com.example.util.AppHaptics
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -493,8 +492,24 @@ fun ExpandedPlayerScreen(
         }
     }
     var showSoundOutputDialog by remember { mutableStateOf(false) }
+    val outputPill = remember { PlayerPopupAnchor() }
+    var outputPopupOrigin by remember { mutableStateOf<Rect?>(null) }
+    val openSoundOutput = {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        outputPopupOrigin = outputPill.capture()
+        showSoundOutputDialog = true
+    }
     var showLyricsTextSizePopup by remember { mutableStateOf(false) }
     var showLyricsProviderPopup by remember { mutableStateOf(false) }
+    var lyricsPopupOrigin by remember { mutableStateOf<Rect?>(null) }
+    val openLyricsSize: (Rect?) -> Unit = { origin ->
+        lyricsPopupOrigin = origin
+        showLyricsTextSizePopup = true
+    }
+    val openLyricsProvider: (Rect?) -> Unit = { origin ->
+        lyricsPopupOrigin = origin
+        showLyricsProviderPopup = true
+    }
     val lyricsPreferences = remember(context) { com.example.data.local.OtherSettingsPreferences.observeLyricsSettings(context) }
     val lyricsSettings by lyricsPreferences.collectAsStateWithLifecycle()
     val displayedLyricsProvider = lyrics?.provider?.takeIf { it.isNotBlank() } ?: lyricsSettings.provider
@@ -1147,7 +1162,7 @@ fun ExpandedPlayerScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     LyricsTextSizeButton(
-                                        onClick = { showLyricsTextSizePopup = true }
+                                        onClick = openLyricsSize
                                     )
                                     LyricsTextTransformButton(
                                         romanize = true, active = lyricsTextState.active == com.example.data.remote.LyricsTextTransformer.Mode.ROMANIZE,
@@ -1158,7 +1173,7 @@ fun ExpandedPlayerScreen(
                                     LyricsProviderPill(
                                         providerName = displayedLyricsProvider,
                                         modifier = Modifier.weight(1f),
-                                        onClick = { showLyricsProviderPopup = true },
+                                        onClick = openLyricsProvider,
                                         isEffectivelyDark = isEffectivelyDark
                                     )
                                     LyricsTextTransformButton(
@@ -1392,10 +1407,7 @@ fun ExpandedPlayerScreen(
                             val landscapeOutputContentColor = appColors.textPrimary
 
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showSoundOutputDialog = true
-                                },
+                                onClick = openSoundOutput,
                                 interactionSource = outputInteractionSource,
                                 shape = RoundedCornerShape(22.dp),
                                 color = Color.Transparent,
@@ -1408,6 +1420,7 @@ fun ExpandedPlayerScreen(
                                         scaleY = outputButtonScale
                                     }
                                     .testTag("sound_output_device_button")
+                                    .onGloballyPositioned(outputPill::update)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Row(
@@ -1485,7 +1498,7 @@ fun ExpandedPlayerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             LyricsTextSizeButton(
-                                onClick = { showLyricsTextSizePopup = true }
+                                onClick = openLyricsSize
                             )
                             LyricsTextTransformButton(
                                 romanize = true, active = lyricsTextState.active == com.example.data.remote.LyricsTextTransformer.Mode.ROMANIZE,
@@ -1496,7 +1509,7 @@ fun ExpandedPlayerScreen(
                             LyricsProviderPill(
                                 providerName = displayedLyricsProvider,
                                 modifier = Modifier.weight(1f),
-                                onClick = { showLyricsProviderPopup = true },
+                                onClick = openLyricsProvider,
                                 isEffectivelyDark = isEffectivelyDark
                             )
                             LyricsTextTransformButton(
@@ -2038,7 +2051,7 @@ fun ExpandedPlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     LyricsTextSizeButton(
-                        onClick = { showLyricsTextSizePopup = true }
+                        onClick = openLyricsSize
                     )
                     LyricsTextTransformButton(
                         romanize = true, active = lyricsTextState.active == com.example.data.remote.LyricsTextTransformer.Mode.ROMANIZE,
@@ -2049,7 +2062,7 @@ fun ExpandedPlayerScreen(
                     LyricsProviderPill(
                         providerName = displayedLyricsProvider,
                         modifier = Modifier.weight(1f),
-                        onClick = { showLyricsProviderPopup = true },
+                        onClick = openLyricsProvider,
                         isEffectivelyDark = isEffectivelyDark
                     )
                     LyricsTextTransformButton(
@@ -2306,10 +2319,7 @@ fun ExpandedPlayerScreen(
                 val outputContentColor = appColors.textPrimary
 
                 Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showSoundOutputDialog = true
-                    },
+                    onClick = openSoundOutput,
                     interactionSource = outputInteractionSource,
                     shape = RoundedCornerShape(22.dp),
                     color = Color.Transparent,
@@ -2323,6 +2333,7 @@ fun ExpandedPlayerScreen(
                             scaleY = outputButtonScale
                         }
                         .testTag("sound_output_device_button")
+                        .onGloballyPositioned(outputPill::update)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
 
@@ -2411,6 +2422,7 @@ fun ExpandedPlayerScreen(
             onSelectDevice = { deviceId ->
                 onSelectAudioDevice(deviceId)
             },
+            origin = outputPopupOrigin,
             onDismiss = { showSoundOutputDialog = false }
         )
     }
@@ -2420,7 +2432,8 @@ fun ExpandedPlayerScreen(
             onSizeChange = { newSize ->
                 com.example.data.local.OtherSettingsPreferences.setLyricsTextSize(context, newSize)
             },
-            onDismissRequest = { showLyricsTextSizePopup = false }
+            onDismissRequest = { showLyricsTextSizePopup = false },
+            origin = lyricsPopupOrigin
         )
     }
     if (showLyricsProviderPopup) {
@@ -2442,6 +2455,7 @@ fun ExpandedPlayerScreen(
                 onRetryLyrics()
             },
             onDismissRequest = { showLyricsProviderPopup = false },
+            origin = lyricsPopupOrigin,
             appColors = appColors,
             allowImport = true,
             isCustomSelected = isCustomSelected,
@@ -2937,13 +2951,10 @@ private fun PlayerOptionsMenu(
 
     PlayerPopupTheme(appColors) {
         val menuShape = RoundedCornerShape(22.dp)
-        DropdownMenu(
+        PlayerOptionsDropdown(
             expanded = expanded,
             onDismissRequest = onDismissRequest,
             shape = menuShape,
-            containerColor = playerPopupSurfaceColor(),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
             modifier = modifier
                 .testTag("player_options_popup")
                 .widthIn(min = 220.dp)
@@ -2971,7 +2982,7 @@ private fun PlayerOptionsMenu(
                 )
             }
 
-            if (expanded) SourceUpgradeMenuItem(track.id, onDismissRequest, itemIconBg, appColors)
+            SourceUpgradeMenuItem(track.id, onDismissRequest, itemIconBg, appColors)
 
             // Action 1: Add to Queue
             DropdownMenuItem(

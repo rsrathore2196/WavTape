@@ -82,12 +82,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import com.example.ui.theme.onAccentGradient
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -120,6 +121,7 @@ fun SoundOutputDeviceDialog(
     devices: List<SoundOutputDevice>,
     isDark: Boolean = LocalAppColors.current.isDark,
     onSelectDevice: (Int) -> Unit,
+    origin: Rect? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -205,25 +207,21 @@ fun SoundOutputDeviceDialog(
     val isPresented = isMounted && !isClosing
     val presentation = updateTransition(isPresented, label = "output_dialog_presentation")
 
-    val scale by presentation.animateFloat(
+    val expansion = presentation.animateFloat(
         transitionSpec = { tween(if (targetState) 300 else 240, easing = FastOutSlowInEasing) },
-        label = "dialog_scale"
-    ) { if (it) 1.0f else 0.96f }
+        label = "output_expansion"
+    ) { if (it) 1f else 0f }
 
-    val alpha by presentation.animateFloat(
+    val opacity = presentation.animateFloat(
         transitionSpec = { tween(if (targetState) 220 else 180, easing = if (targetState) LinearOutSlowInEasing else FastOutLinearInEasing) },
-        label = "dialog_alpha"
+        label = "output_opacity"
     ) { if (it) 1.0f else 0.0f }
-
-    val translateY by presentation.animateFloat(
-        transitionSpec = { tween(if (targetState) 300 else 240, easing = FastOutSlowInEasing) },
-        label = "dialog_translate_y"
-    ) { if (it) 0f else 24f }
 
     val scrimAlpha by presentation.animateFloat(
         transitionSpec = { tween(if (targetState) 240 else 200, easing = if (targetState) LinearOutSlowInEasing else FastOutLinearInEasing) },
         label = "scrim_alpha"
     ) { if (it) 1.0f else 0.0f }
+    val dialogCenter = remember { mutableStateOf(Offset.Unspecified) }
 
     LaunchedEffect(isClosing, presentation) {
         if (isClosing) {
@@ -252,6 +250,7 @@ fun SoundOutputDeviceDialog(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
+                    .onGloballyPositioned { dialogCenter.value = it.centerOnScreen() }
                     .drawBehind {
                         drawRect(if (isDark) Color.Black.copy(alpha = 0.18f * scrimAlpha)
                             else Color(0xFF0F172A).copy(alpha = 0.12f * scrimAlpha))
@@ -268,13 +267,9 @@ fun SoundOutputDeviceDialog(
                         .widthIn(max = 344.dp)
                         .fillMaxWidth()
                         .heightIn(max = (maxHeight - 48.dp).coerceAtLeast(120.dp))
+                        .anchoredPlayerPopupMotion(origin, dialogCenter, expansion, opacity,
+                            fallbackScale = { .96f }, fallbackSlide = 24.dp)
                         .shadow(24.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.24f))
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            this.alpha = alpha
-                            translationY = translateY * density
-                        }
                         .clip(dialogShape)
                         .playerPopupArtwork(dialogShape)
                         .pointerInput(Unit) { detectTapGestures { /* Keep taps inside the dialog. */ } }

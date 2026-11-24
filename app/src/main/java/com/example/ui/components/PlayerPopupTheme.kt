@@ -16,6 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.AppThemeColors
@@ -26,44 +29,58 @@ import com.example.ui.theme.resolveColorScheme
 import com.example.ui.util.ArtworkColorField
 import kotlin.math.roundToInt
 
-// The player itself has a neutral palette. Its dialogs still follow the app's selected mode.
+// Settings-style dialogs use the app palette. Artwork panels share one player palette.
 internal val LocalPlayerPopupColors = compositionLocalOf<AppThemeColors?> { null }
 internal val LocalPlayerPopupArtwork = compositionLocalOf<ArtworkColorField?> { null }
 internal val PlayerGlassPopupColors by lazy {
     playerPopupColors(DarkAppColors.copy(primaryAccent = Color.White, secondaryAccent = Color.White))
-        .copy(textMuted = Color(0xFFB8B8B8))
+        .copy(textSecondary = Color(0xFFFAFAFA), textMuted = Color(0xFFF5F5F5))
 }
 
 @Composable
 internal fun playerPopupSurfaceColor(): Color =
     if (LocalPlayerPopupArtwork.current == null) PlayerGlassPopupColors.cardBackground else Color.Transparent
 
+/** Keep the highlight visible without washing out the labels on bright cover art. */
+@Composable
+internal fun playerPopupHighlight(alpha: Float): Color =
+    Color.White.copy(alpha = if (LocalPlayerPopupArtwork.current == null) alpha else alpha * .25f)
+
 /** Dialog and sheet windows have separate render trees. Reuse the player's already-blurred cover texture. */
 @Composable
 internal fun Modifier.playerPopupArtwork(shape: Shape): Modifier {
     val field = LocalPlayerPopupArtwork.current ?: return this
     val texture = remember(field) {
-        Bitmap.createBitmap(field.pixels, field.width, field.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+        val pixels = IntArray(field.pixels.size) { contrastSafePopupPixel(field.pixels[it]) }
+        Bitmap.createBitmap(pixels, field.width, field.height, Bitmap.Config.ARGB_8888).asImageBitmap()
     }
     val rim = remember {
         Brush.linearGradient(listOf(Color.White.copy(alpha = .49f),
             Color.White.copy(alpha = .08f), Color.White.copy(alpha = .22f)))
     }
     return clip(shape).drawWithCache {
-        val veil = Brush.verticalGradient(
-            0f to Color.Black.copy(alpha = .56f), .46f to Color.Black.copy(alpha = .50f),
-            1f to Color.Black.copy(alpha = .65f)
-        )
         val sheen = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = .035f), .28f to Color.Transparent, 1f to Color.Transparent
+            0f to Color.White.copy(alpha = .024f), .28f to Color.Transparent, 1f to Color.Transparent
         )
         val panel = IntSize(size.width.roundToInt(), size.height.roundToInt())
         onDrawBehind {
             drawImage(texture, dstSize = panel, filterQuality = FilterQuality.Medium)
-            drawRect(veil)
             drawRect(sheen)
         }
     }.border(.8.dp, rim, shape)
+}
+
+private fun contrastSafePopupPixel(pixel: Int): Int {
+    val color = Color(pixel)
+    val luminance = color.luminance()
+    val excess = luminance - .12f
+    if (excess <= 0f) return pixel
+    // Compress bright texels in linear light, preserving their hue and every darker texel.
+    val headroom = .029f
+    val scale = (.12f + headroom * excess / (headroom + excess)) / luminance
+    val linear = color.convert(ColorSpaces.LinearSrgb)
+    return Color(linear.red * scale, linear.green * scale, linear.blue * scale,
+        colorSpace = ColorSpaces.LinearSrgb).toArgb()
 }
 
 internal fun playerPopupColors(source: AppThemeColors): AppThemeColors {

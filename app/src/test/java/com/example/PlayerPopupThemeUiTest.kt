@@ -12,6 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -145,7 +147,7 @@ class PlayerPopupThemeUiTest {
         for (y in 2 until image.height - 2) for (x in 2 until image.width - 2) {
             val pixel = Color(image.getRGB(x, y))
             val luma = pixel.luminance()
-            if (pixel.alpha != 1f || luma >= mutedLuminance ||
+            if (pixel.alpha != 1f || luma < .09f || luma >= mutedLuminance ||
                 (mutedLuminance + .05f) / (luma + .05f) < 4.5f) continue
             if (pixel.red > pixel.blue + .045f) warm++
             if (pixel.blue > pixel.red + .045f) cool++
@@ -249,6 +251,138 @@ class PlayerPopupThemeUiTest {
         } finally {
             TrackPaletteCache.clear()
         }
+    }
+
+    private fun boundsOnScreen(node: SemanticsNodeInteraction): Rect {
+        val semantics = node.fetchSemanticsNode()
+        val location = IntArray(2)
+        compose.runOnIdle { (semantics.root as ViewRootForTest).view.getLocationOnScreen(location) }
+        return semantics.boundsInRoot.translate(Offset(location[0].toFloat(), location[1].toFloat()))
+    }
+
+    private fun advancePopup(milliseconds: Long) {
+        compose.mainClock.advanceTimeBy(milliseconds)
+        compose.waitForIdle()
+    }
+
+    @Test fun playerDialogsTravelFromTheirOwnPillsAndReturnToThem() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                ExpandedPlayerScreen(PlayerUiState(currentTrack = track), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                    onAddToPlaylist = {})
+            }
+        } }
+        settle()
+
+        fun check(trigger: SemanticsNodeInteraction, panelTag: String, close: () -> Unit) {
+            val anchor = boundsOnScreen(trigger)
+            val panel = compose.onNodeWithTag(panelTag)
+            trigger.performClick()
+            advancePopup(48)
+            val first = boundsOnScreen(panel)
+            advancePopup(80)
+            val middle = boundsOnScreen(panel)
+            advancePopup(350)
+            val opened = boundsOnScreen(panel)
+
+            fun distance(bounds: Rect) = (bounds.center - anchor.center).getDistance()
+            assertTrue("$panelTag starts by its pill: $first / $opened / $anchor",
+                distance(first) < distance(opened) * .6f)
+            assertTrue("$panelTag moves monotonically away from the pill", distance(first) < distance(middle) &&
+                distance(middle) < distance(opened))
+            assertTrue("$panelTag zooms as it moves", first.height < middle.height && middle.height < opened.height)
+
+            close()
+            advancePopup(64)
+            val closing = boundsOnScreen(panel)
+            assertTrue("$panelTag closes back toward the pill", distance(closing) < distance(opened))
+            assertTrue(closing.height < opened.height)
+            advancePopup(350)
+            panel.assertDoesNotExist()
+        }
+
+        check(compose.onNodeWithText("Resolving audio"), "signal_path_popup") {
+            compose.onNodeWithTag("pipeline_close").performClick()
+        }
+        check(compose.onNodeWithTag("sound_output_device_button"), "sound_output_devices_dialog") {
+            compose.onNodeWithTag("close_output_devices_dialog").performClick()
+        }
+        compose.onNodeWithTag("player_lyrics_button").performClick()
+        settle()
+        check(compose.onNodeWithTag("lyrics_provider_pill"), "lyrics_provider_popup") {
+            compose.onNode(hasText("Auto") and hasAnyAncestor(hasTestTag("lyrics_provider_popup")),
+                useUnmergedTree = true).performClick()
+        }
+        check(compose.onNodeWithTag("player_lyrics_text_size_button", useUnmergedTree = true), "lyrics_text_size_popup") {
+            compose.onNode(isDialog()).performTouchInput { click(Offset(20f, 20f)) }
+        }
+    }
+
+    @Test fun queueSheetMovesContinuouslyAndCanStillBeSwipedAway() {
+        compose.mainClock.autoAdvance = false
+        var open by mutableStateOf(false)
+        var dismissals = 0
+        compose.setContent { MaterialTheme {
+            Box(Modifier.fillMaxSize()) {
+                if (open) QueueBottomSheet(listOf(track), track, {}, { _, _ -> }, {
+                    dismissals++
+                    open = false
+                })
+            }
+        } }
+        val sheet = compose.onNodeWithTag("queue_bottom_sheet")
+        compose.runOnIdle { open = true }
+        val frames = List(30) {
+            advancePopup(16)
+            runCatching { sheet.fetchSemanticsNode().boundsInRoot }.getOrNull()
+        }.filterNotNull().filter { it.height > 0f }
+        val shown = sheet.fetchSemanticsNode().boundsInRoot
+        assertTrue("The queue must slide and widen across visible frames", frames.first().top > shown.top &&
+            frames.first().width < shown.width)
+        assertTrue("The queue opening should advance without bouncing",
+            frames.zipWithNext().all { (a, b) -> b.top <= a.top + 1f })
+
+        compose.onNodeWithContentDescription("Close Queue").performClick()
+        advancePopup(96)
+        assertTrue(sheet.fetchSemanticsNode().boundsInRoot.top > shown.top)
+        advancePopup(350)
+        sheet.assertDoesNotExist()
+        assertEquals(1, dismissals)
+
+        compose.runOnIdle { open = true }
+        settle()
+        sheet.performTouchInput {
+            swipe(Offset(width * .5f, 12f), Offset(width * .5f, height * .8f))
+        }
+        advancePopup(420)
+        sheet.assertDoesNotExist()
+        assertEquals(2, dismissals)
+    }
+
+    @Test fun playerMenuKeepsItsRowsThroughTheClosingAnimation() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                ExpandedPlayerScreen(PlayerUiState(currentTrack = track), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                    onAddToPlaylist = {}, isScreenVisible = false)
+            }
+        } }
+        settle()
+        compose.onNodeWithTag("player_options_button").performClick()
+        advancePopup(48)
+        val menu = compose.onNodeWithTag("player_options_popup")
+        val opening = menu.fetchSemanticsNode().boundsInRoot
+        advancePopup(280)
+        val opened = menu.fetchSemanticsNode().boundsInRoot
+        assertTrue(opening.width < opened.width)
+        compose.onNodeWithText("Add to Queue").performClick()
+        advancePopup(64)
+        val closing = menu.fetchSemanticsNode().boundsInRoot
+        assertTrue(closing.width < opened.width && closing.height > opened.height * .9f)
+        compose.onNodeWithText("Upgrade Audio").assertExists()
+        advancePopup(240)
+        menu.assertDoesNotExist()
     }
 
     @Test fun actualPlayerMenuStaysDarkAndItsChildDialogUsesTheSelectedAppMode() {
