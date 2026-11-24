@@ -1,5 +1,6 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.accentBackground
 import com.example.ui.theme.LiquidGlass
 
 import androidx.activity.compose.BackHandler
@@ -326,7 +327,7 @@ private fun ProfileOptionItemCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.12f)),
+                    .accentBackground(accentColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

@@ -1,5 +1,7 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.accentBackground
+import com.example.ui.theme.ThemeAccentSurface
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -50,7 +52,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
+import com.example.ui.theme.ThemeAccentButton as Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -584,7 +586,7 @@ fun ThemeCustomizationSection(
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
-                            .background(accentColor.copy(alpha = 0.15f))
+                            .accentBackground(accentColor.copy(alpha = 0.15f))
                             .border(1.dp, accentColor.copy(alpha = 0.35f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
@@ -616,7 +618,7 @@ fun ThemeCustomizationSection(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
-                Surface(
+                ThemeAccentSurface(
                     shape = RoundedCornerShape(12.dp),
                     color = accentColor.copy(alpha = 0.15f),
                     border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
@@ -686,7 +688,7 @@ private fun ThemeExportSuccessDialog(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.15f))
+                        .accentBackground(accentColor.copy(alpha = 0.15f))
                         .border(1.dp, accentColor.copy(alpha = 0.4f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1147,7 +1149,7 @@ private fun ColorSelectionDialog(
                                     .weight(1f)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(9.dp))
-                                    .background(
+                                    .accentBackground(
                                         if (isTabSelected) accentColor else Color.Transparent
                                     )
                                     .clickable {
@@ -1191,7 +1193,7 @@ private fun ColorSelectionDialog(
                             Color.Black
                         }
 
-                        Surface(
+                        ThemeAccentSurface(
                             shape = RoundedCornerShape(14.dp),
                             color = if (isSelected) accentColor.copy(alpha = 0.16f) else cardBg.copy(alpha = 0.70f),
                             border = BorderStroke(
@@ -1262,7 +1264,7 @@ private fun ColorSelectionDialog(
                                         modifier = Modifier
                                             .size(7.dp)
                                             .clip(CircleShape)
-                                            .background(accentColor)
+                                            .accentBackground(accentColor)
                                     )
                                 }
                             }
@@ -1360,7 +1362,7 @@ private fun GradientSelectionDialog(
                                     .weight(1f)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(9.dp))
-                                    .background(
+                                    .accentBackground(
                                         if (isTabSelected) accentColor else Color.Transparent
                                     )
                                     .clickable {

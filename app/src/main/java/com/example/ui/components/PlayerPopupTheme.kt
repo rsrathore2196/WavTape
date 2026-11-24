@@ -89,7 +89,7 @@ internal fun Modifier.playerPopupArtwork(shape: Shape): Modifier {
     }.border(.8.dp, rim, shape)
 }
 
-private fun contrastSafePopupPixel(pixel: Int): Int {
+internal fun contrastSafePopupPixel(pixel: Int): Int {
     val color = Color(pixel)
     val luminance = color.luminance()
     val excess = luminance - .12f

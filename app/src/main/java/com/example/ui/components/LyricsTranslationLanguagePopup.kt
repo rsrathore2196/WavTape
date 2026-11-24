@@ -28,6 +28,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.example.data.local.LyricsTranslationLanguages
 import com.example.performance.AppDispatchers
+import com.example.ui.theme.ThemeAccentSurface
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.theme.LocalAppColors
 import kotlinx.coroutines.withContext
@@ -85,7 +86,7 @@ internal fun LyricsTranslationLanguagePopup(
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp).weight(1f, fill = false)
                         .testTag("lyrics_language_list")) {
                         items(filtered, key = { it.tag }, contentType = { "translation_language" }) { option ->
-                            Surface(onClick = { selected = option.tag }, shape = RoundedCornerShape(16.dp),
+                            ThemeAccentSurface(onClick = { selected = option.tag }, shape = RoundedCornerShape(16.dp),
                                 color = if (selected == option.tag) appColors.primaryAccent.copy(alpha = 0.12f) else Color.Transparent,
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                                     .testTag("lyrics_language_option_${option.tag}")) {

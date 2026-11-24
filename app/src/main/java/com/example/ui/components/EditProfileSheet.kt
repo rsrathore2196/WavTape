@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import com.example.ui.theme.accentBackground
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -217,7 +218,7 @@ fun EditProfileSheet(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(primaryAccent.copy(alpha = 0.12f)),
+                                    .accentBackground(primaryAccent.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -284,7 +285,7 @@ fun EditProfileSheet(
                                     modifier = Modifier
                                         .size(28.dp)
                                         .clip(CircleShape)
-                                        .background(primaryAccent.copy(alpha = 0.12f)),
+                                        .accentBackground(primaryAccent.copy(alpha = 0.12f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -388,7 +389,7 @@ fun EditProfileSheet(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(primaryAccent.copy(alpha = 0.12f)),
+                                    .accentBackground(primaryAccent.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(

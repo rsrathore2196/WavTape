@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AppThemeMode
+import com.example.data.local.OtherSettingsPreferences
 import com.example.data.local.ThemePreferences
 import com.example.data.local.ThemePresets
 import com.example.data.local.ThemeSelection
@@ -25,6 +26,8 @@ import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.util.LocalArtworkRequestsActive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -76,6 +79,23 @@ class PairedAppearanceUiTest {
     private fun back() {
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
+    }
+
+    @Test fun pureLiquidGlassDefaultsOffAndSavesBothSwitchValues() {
+        assertFalse(OtherSettingsPreferences.playerExperienceSettings(context).pureLiquidGlassUi)
+        show()
+        compose.onNodeWithText("Appearance").performScrollTo().performClick()
+        val toggle = compose.onNodeWithTag("switch_pure_liquid_glass_ui").performScrollTo()
+        compose.onNodeWithText("Pure Liquid Glass UI").assertIsDisplayed()
+        compose.onNodeWithText("Makes the Overall UI Elements have the Liquid Glass Effect based on Playing Track Album Art")
+            .assertIsDisplayed()
+
+        toggle.performClick()
+        assertTrue(OtherSettingsPreferences.playerExperienceSettings(context).pureLiquidGlassUi)
+        back()
+        compose.onNodeWithText("Appearance").performScrollTo().performClick()
+        compose.onNodeWithTag("switch_pure_liquid_glass_ui").performScrollTo().performClick()
+        assertFalse(OtherSettingsPreferences.playerExperienceSettings(context).pureLiquidGlassUi)
     }
 
     @Test fun appearanceKeepsOnePresetChooserAndPreservesTheChosenAppearanceMode() {

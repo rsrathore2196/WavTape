@@ -1,5 +1,7 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.accentBackground
+import com.example.ui.theme.ThemeAccentSurface
 import com.example.R
 
 import androidx.compose.ui.res.stringResource
@@ -47,7 +49,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.example.ui.theme.ThemeAccentButton as Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -239,7 +241,7 @@ fun OtherSettingsPage(
                         val chipShape = RoundedCornerShape(14.dp)
                         OtherSettingsPreferences.PERFORMANCE_REFRESH_RATE_OPTIONS.forEach { rate ->
                             val selected = performanceSettings.refreshRateHz == rate
-                            Surface(
+                            ThemeAccentSurface(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(chipShape)
@@ -289,7 +291,7 @@ fun OtherSettingsPage(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(accentColor.copy(alpha = 0.12f)),
+                                .accentBackground(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -610,7 +612,7 @@ fun OtherSettingsPage(
                             modifier = Modifier
                                 .size(30.dp)
                                 .clip(CircleShape)
-                                .background(accentColor.copy(alpha = 0.12f)),
+                                .accentBackground(accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -818,7 +820,7 @@ private fun ProxySettingsCard(
                         modifier = Modifier
                             .size(30.dp)
                             .clip(CircleShape)
-                            .background(accentColor.copy(alpha = 0.12f)),
+                            .accentBackground(accentColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -872,7 +874,7 @@ private fun ProxySettingsCard(
                 ) {
                     listOf("HTTP", "SOCKS5").forEach { type ->
                         val isSelected = proxyType.equals(type, ignoreCase = true)
-                        Surface(
+                        ThemeAccentSurface(
                             shape = RoundedCornerShape(8.dp),
                             color = if (isSelected) accentColor.copy(alpha = 0.18f) else inputBg,
                             border = BorderStroke(1.dp, if (isSelected) accentColor else cardBorder),

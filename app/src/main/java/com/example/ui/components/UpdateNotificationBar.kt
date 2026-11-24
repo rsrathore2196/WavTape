@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import com.example.ui.theme.accentBackground
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -305,7 +306,7 @@ fun UpdateNotificationBar(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(accentColor.copy(alpha = if (appColors.isDark) 0.18f else 0.12f))
+                                .accentBackground(accentColor.copy(alpha = if (appColors.isDark) 0.18f else 0.12f))
                                 .border(
                                     1.dp,
                                     accentColor.copy(alpha = 0.36f),
@@ -510,7 +511,7 @@ fun UpdateNotificationBar(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(accentColor.copy(alpha = if (appColors.isDark) 0.14f else 0.10f))
+                                    .accentBackground(accentColor.copy(alpha = if (appColors.isDark) 0.14f else 0.10f))
                                     .border(1.dp, accentColor.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
                                     .padding(horizontal = 12.dp, vertical = 10.dp)
                             ) {

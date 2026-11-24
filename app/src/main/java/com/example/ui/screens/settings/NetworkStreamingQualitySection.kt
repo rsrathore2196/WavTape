@@ -1,5 +1,6 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.accentBackground
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -122,7 +123,7 @@ internal fun NetworkStreamingQualitySection() {
             shape = RoundedCornerShape(30.dp),
             icon = {
                 Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp))
-                    .background(colors.primaryAccent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                    .accentBackground(colors.primaryAccent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
                     Icon(if (wifi) Icons.Default.Wifi else Icons.Default.SignalCellularAlt,
                         contentDescription = null, tint = colors.primaryAccent, modifier = Modifier.size(25.dp))
                 }
@@ -139,9 +140,13 @@ internal fun NetworkStreamingQualitySection() {
                         val checked = ceiling == selected
                         val shape = RoundedCornerShape(18.dp)
                         Row(Modifier.fillMaxWidth().clip(shape)
-                            .background(Brush.verticalGradient(listOf(
-                                if (checked) colors.primaryAccent.copy(alpha = 0.14f) else colors.cardBackground,
-                                if (checked) colors.primaryAccent.copy(alpha = 0.06f) else colors.cardBackground)))
+                            .background(
+                                colors.artworkGlass?.takeIf { checked }?.brush(colors.textPrimary)
+                                    ?: Brush.verticalGradient(listOf(
+                                        if (checked) colors.primaryAccent.copy(alpha = 0.14f) else colors.cardBackground,
+                                        if (checked) colors.primaryAccent.copy(alpha = 0.06f) else colors.cardBackground
+                                    ))
+                            )
                             .border(1.dp, if (checked) colors.primaryAccent.copy(alpha = 0.7f) else colors.cardBorder, shape)
                             .selectable(selected = checked, role = Role.RadioButton, onClick = {
                                 if (wifi) monitor.setWifiCeiling(ceiling) else monitor.setCellularCeiling(ceiling)
@@ -185,7 +190,7 @@ internal fun PlaybackModeSetting() {
                     val checked = selected == mode
                     val shape = RoundedCornerShape(16.dp)
                     Row(Modifier.fillMaxWidth().clip(shape)
-                        .background(if (checked) colors.primaryAccent.copy(alpha = 0.12f) else colors.cardBackground)
+                        .accentBackground(if (checked) colors.primaryAccent.copy(alpha = 0.12f) else colors.cardBackground)
                         .selectable(selected = checked, role = Role.RadioButton, onClick = {
                             AudioQualityPreferences.setPlaybackMode(context, mode)
                             open = false

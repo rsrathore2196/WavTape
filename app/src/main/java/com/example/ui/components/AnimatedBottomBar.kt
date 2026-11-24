@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.graphicsLayer
@@ -482,10 +483,13 @@ internal class DockSelectionPill(
     private val fill: Brush,
     private val sheen: Brush?,
     private val border: Color,
-    val shadow: Color
+    val shadow: Color,
+    private val artworkFill: Boolean
 ) {
     fun draw(scope: DrawScope, topLeft: Offset, bounds: Size, borderStyle: Stroke) = with(scope) {
-        drawRect(fill, topLeft, bounds)
+        if (artworkFill) withTransform({
+            inset(topLeft.x, topLeft.y, size.width - topLeft.x - bounds.width, size.height - topLeft.y - bounds.height)
+        }) { drawRect(fill) } else drawRect(fill, topLeft, bounds)
         if (sheen != null) drawRect(sheen, topLeft, bounds)
         val stroke = borderStyle.width
         val innerHeight = (bounds.height - stroke).coerceAtLeast(0f)
@@ -497,16 +501,17 @@ internal class DockSelectionPill(
 
 @Composable
 internal fun rememberDockSelectionPill(colors: AppThemeColors): DockSelectionPill =
-    remember(colors.primaryAccent, colors.secondaryAccent, colors.isDark, colors.dynamicGlassEnabled, colors.cardBorder) {
-        val glass = colors.dynamicGlassEnabled
+    remember(colors.primaryAccent, colors.secondaryAccent, colors.isDark, colors.dynamicGlassEnabled, colors.cardBorder, colors.artworkGlass) {
+        val glass = colors.dynamicGlassEnabled || colors.artworkGlass != null
         DockSelectionPill(
             fill = colors.accentBrush(),
             sheen = if (glass) Brush.verticalGradient(
                 listOf(Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.26f), Color.Transparent),
                 startY = 0f, endY = 22f) else null,
             border = if (glass) Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.40f) else colors.cardBorder,
-            shadow = if (glass) colors.primaryAccent.copy(alpha = if (colors.isDark) 0.50f else 0.30f)
-                else Color.Black.copy(alpha = 0.15f)
+            shadow = if (glass && colors.artworkGlass == null) colors.primaryAccent.copy(alpha = if (colors.isDark) 0.50f else 0.30f)
+                else Color.Black.copy(alpha = 0.15f),
+            artworkFill = colors.artworkGlass != null
         )
     }
 

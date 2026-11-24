@@ -1,5 +1,6 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.accentBackground
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -371,7 +372,7 @@ private fun ProfileAttributeCard(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(accentColor.copy(alpha = if (appColors.isDark) 0.16f else 0.10f)),
+                    .accentBackground(accentColor.copy(alpha = if (appColors.isDark) 0.16f else 0.10f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

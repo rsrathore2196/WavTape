@@ -1,5 +1,6 @@
 package com.example.ui.screens.settings
 
+import com.example.ui.theme.ThemeAccentSurface
 import com.example.ui.theme.LiquidGlass
 
 import androidx.compose.foundation.BorderStroke
@@ -44,7 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -506,7 +506,7 @@ fun EditRecommendationLanguagesSubPage(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Surface(
+            ThemeAccentSurface(
                 shape = RoundedCornerShape(8.dp),
                 color = accentColor.copy(alpha = 0.15f)
             ) {
@@ -554,7 +554,7 @@ fun EditRecommendationLanguagesSubPage(
         ) {
             availableLanguages.forEach { lang ->
                 val isSelected = selectedLanguages.contains(lang)
-                Surface(
+                ThemeAccentSurface(
                     shape = RoundedCornerShape(10.dp),
                     color = if (isSelected) {
                         accentColor.copy(alpha = if (isDarkMode) 0.2f else 0.15f)

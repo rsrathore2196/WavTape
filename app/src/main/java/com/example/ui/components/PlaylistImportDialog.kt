@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import com.example.ui.theme.accentBackground
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
@@ -1037,7 +1038,7 @@ private fun TrackMatchRow(item: MatchResult, retrying: Boolean, retryMessage: St
                         Spacer(Modifier.width(4.dp))
                         Box(
                             Modifier.size(28.dp).clip(CircleShape)
-                                .background(appColors.primaryAccent.copy(alpha = if (isDark) 0.16f else 0.10f))
+                                .accentBackground(appColors.primaryAccent.copy(alpha = if (isDark) 0.16f else 0.10f))
                                 .border(1.dp, appColors.primaryAccent.copy(alpha = 0.3f), CircleShape)
                                 .semantics { contentDescription = if (retrying) "Searching YouTube Music" else
                                     "Search YouTube Music for ${item.original.originalTitle}" }
