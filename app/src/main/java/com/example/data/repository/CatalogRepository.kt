@@ -149,28 +149,85 @@ class CatalogRepository(context: Context? = null,
         }
     }
     suspend fun exploreCategory(category: ExploreCategory, countryCode: String = "US", languageCode: String = "en",
-        forceRefresh: Boolean = false): CatalogPage {
+        forceRefresh: Boolean = false, fillMissingShelves: Boolean = false): CatalogPage {
         if (category.provider != CatalogProvider.YOUTUBE_MUSIC || category.browseId.isBlank())
             throw IOException("Music category is unavailable")
-        return youtubeBrowse(category.browseId, category.params, countryCode, languageCode, null, false, forceRefresh)
+        val first = youtubeBrowse(category.browseId, category.params, countryCode, languageCode, null,
+            collectionOnly = false, forceRefresh = forceRefresh, exploreShelves = fillMissingShelves)
+        if (!fillMissingShelves || first.tracks.isNotEmpty() && first.albums.isNotEmpty()) return first
+
+        var result = first
+        var continuation = first.browseContinuation
+        fun needsMedia() = result.tracks.isEmpty() || result.albums.isEmpty()
+        fun merge(page: CatalogPage) {
+            result = result.copy(
+                tracks = (result.tracks + page.tracks).distinctBy { it.id },
+                albums = (result.albums + page.albums).distinctBy { CatalogDestination.Album(it).key },
+                playlists = (result.playlists + page.playlists).distinctBy { CatalogDestination.Playlist(it).key },
+                exploreShelfLinks = (result.exploreShelfLinks + page.exploreShelfLinks).distinct())
+        }
+        suspend fun supplemental(load: suspend () -> CatalogPage): CatalogPage? = try { load() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+
+        // Follow the provider's own recommendations for this genre, with a bound on
+        // both the number of requests and the time spent filling missing shelves.
+        withTimeoutOrNull(7_000L) {
+            repeat(2) {
+                val cursor = continuation ?: return@repeat
+                if (!needsMedia()) return@repeat
+                val page = supplemental {
+                    youtubeBrowse(category.browseId, category.params, countryCode, languageCode, cursor,
+                        collectionOnly = false, forceRefresh = forceRefresh, exploreShelves = true)
+                }
+                continuation = page?.browseContinuation
+                page?.let(::merge)
+            }
+            for (link in result.exploreShelfLinks.filterNot {
+                it.browseId == category.browseId && it.params.orEmpty() == category.params.orEmpty()
+            }.take(2)) {
+                if (!needsMedia()) break
+                supplemental {
+                    youtubeBrowse(link.browseId, link.params, countryCode, languageCode, null,
+                        collectionOnly = false, forceRefresh = forceRefresh, exploreShelves = true)
+                }?.let(::merge)
+            }
+            for (playlist in result.playlists.filterNot { it.isAppLikedSongs() }.take(2)) {
+                if (!needsMedia()) break
+                val id = playlist.id.let { if (it.startsWith("VL")) it else "VL$it" }
+                supplemental {
+                    youtubeBrowse(id, playlist.browseParams, countryCode, languageCode, null,
+                        collectionOnly = true, forceRefresh = forceRefresh, exploreShelves = true)
+                }?.let(::merge)
+            }
+        }
+        return result.copy(browseContinuation = continuation, nextPage = continuation?.page)
     }
     private suspend fun youtubeBrowse(id: String, params: String?, countryCode: String, languageCode: String,
         continuation: CatalogBrowseContinuation?, collectionOnly: Boolean, forceRefresh: Boolean = false,
-        isAlbumCollection: Boolean = false): CatalogPage {
+        isAlbumCollection: Boolean = false, exploreShelves: Boolean = false): CatalogPage {
         val (country, language) = locale(countryCode, languageCode)
         if (continuation != null && (continuation.browseId != id || continuation.params != params ||
                 continuation.countryCode != country || continuation.languageCode != language))
             throw IOException("Music continuation does not belong to this collection")
-        val key = browseCacheKey(if (collectionOnly) "collection" else "category", country, language, id, params, continuation?.token)
+        val kind = when {
+            exploreShelves && collectionOnly -> "explore-playlist"
+            exploreShelves -> "explore-shelves"
+            collectionOnly -> "collection"
+            else -> "category"
+        }
+        val key = browseCacheKey(kind, country, language, id, params, continuation?.token)
         val page = cachedBrowse(key, TimeUnit.MINUTES.toMillis(30), forceRefresh,
             { YouTubeExploreParser.decodePage(it, country, language) }, YouTubeExploreParser::encodePage,
-            cacheable = { it.tracks.isNotEmpty() || it.albums.isNotEmpty() || it.playlists.isNotEmpty() || it.browseContinuation != null }) {
+            cacheable = { it.tracks.isNotEmpty() || it.albums.isNotEmpty() || it.playlists.isNotEmpty() ||
+                it.browseContinuation != null || it.exploreShelfLinks.isNotEmpty() }) {
             val body = DiscoveryRequestCoordinator.network(essential = true) {
                 browseLoader(id, params, continuation?.token, country, language)
             }
             withContext(AppDispatchers.CpuBounded) {
                 val job = currentCoroutineContext()
-                YouTubeExploreParser.page(JSONObject(body), country, language, collectionOnly, isAlbumCollection) { job.ensureActive() }
+                YouTubeExploreParser.page(JSONObject(body), country, language, collectionOnly, isAlbumCollection,
+                    exploreShelves) { job.ensureActive() }
             }
         }
         val seen = continuation?.seenTokens.orEmpty() + listOfNotNull(continuation?.token)

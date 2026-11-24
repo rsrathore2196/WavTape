@@ -319,7 +319,7 @@ private fun GenreResultsPage(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                 ) {
                     if (albums.isNotEmpty()) {
-                        items(albums, key = { "genre_album:${it.id.ifBlank { it.title }}" },
+                        items(albums, key = { "genre_album:${com.example.data.repository.CatalogDestination.Album(it).key}" },
                             contentType = { "catalog_entity" }) { album ->
                             ShelfContentCard(
                                 title = album.title,

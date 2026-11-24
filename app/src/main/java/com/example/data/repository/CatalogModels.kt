@@ -42,6 +42,8 @@ internal fun CatalogDestination.isAppLikedSongs(): Boolean =
 data class CatalogBrowseContinuation(val browseId: String, val params: String?, val token: String,
     val countryCode: String = "US", val languageCode: String = "en",
     val seenTokens: Set<String> = emptySet(), val page: Int = 2)
+/** Provider's browse target for opening a full Explore shelf. */
+data class ExploreShelfLink(val browseId: String, val params: String?)
 /** Independent Songs/Videos cursors and results waiting for the next ten rows. */
 data class TrackSearchContinuation(
     val query: String, val standardPage: Int? = null,
@@ -60,7 +62,8 @@ data class CatalogPage(
     val artistContinuation: ArtistCatalogContinuation? = null,
     val resolvedArtist: CatalogArtist? = null,
     val browseContinuation: CatalogBrowseContinuation? = null,
-    val artistProfile: CatalogArtistProfile? = null
+    val artistProfile: CatalogArtistProfile? = null,
+    val exploreShelfLinks: List<ExploreShelfLink> = emptyList()
 )
 sealed interface CatalogDestination {
     val key: String

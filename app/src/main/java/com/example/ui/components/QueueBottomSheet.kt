@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.dismiss
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -96,28 +101,11 @@ fun QueueBottomSheet(
         if (queue.isEmpty() && currentTrack != null) listOf(currentTrack) else queue
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
-    val appColors = rememberPlayerPopupColors()
+    val appColors = PlayerGlassPopupColors
     val isDark = appColors.isDark
 
     PlayerPopupTheme(appColors) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = appColors.cardBackground,
-            tonalElevation = 0.dp,
-            dragHandle = {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 12.dp)
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(appColors.cardBorder)
-                )
-            },
-            modifier = Modifier.testTag("queue_bottom_sheet")
-        ) {
-            BackHandler { dismissSheet() }
+        val sheetContent: @Composable () -> Unit = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -464,6 +452,30 @@ fun QueueBottomSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+        val sheetShape = BottomSheetDefaults.ExpandedShape
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = sheetShape,
+            containerColor = playerPopupSurfaceColor(),
+            tonalElevation = 0.dp,
+            dragHandle = null,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
+        ) {
+            BackHandler { dismissSheet() }
+            // The artwork must move with the sheet's content, inside Material's drag offset.
+            Column(Modifier.fillMaxWidth().testTag("queue_bottom_sheet").playerPopupArtwork(sheetShape)
+                .windowInsetsPadding(BottomSheetDefaults.windowInsets)) {
+                Box(Modifier.align(Alignment.CenterHorizontally).semantics {
+                    dismiss("Dismiss queue") {
+                        dismissSheet()
+                        true
+                    }
+                }.padding(vertical = 12.dp).width(40.dp).height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(appColors.cardBorder))
+                sheetContent()
             }
         }
     }

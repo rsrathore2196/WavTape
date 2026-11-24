@@ -125,7 +125,7 @@ fun SoundOutputDeviceDialog(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val latestDismiss by rememberUpdatedState(onDismiss)
-    val appColors = rememberPlayerPopupColors()
+    val appColors = PlayerGlassPopupColors
     @Suppress("NAME_SHADOWING") val isDark = appColors.isDark
 
     // Audio Manager & Volume Management
@@ -262,7 +262,7 @@ fun SoundOutputDeviceDialog(
                 val dialogShape = RoundedCornerShape(24.dp)
                 Surface(
                     shape = dialogShape,
-                    color = appColors.cardBackground,
+                    color = playerPopupSurfaceColor(),
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
                         .widthIn(max = 344.dp)
@@ -276,6 +276,7 @@ fun SoundOutputDeviceDialog(
                             translationY = translateY * density
                         }
                         .clip(dialogShape)
+                        .playerPopupArtwork(dialogShape)
                         .pointerInput(Unit) { detectTapGestures { /* Keep taps inside the dialog. */ } }
                         .testTag("sound_output_devices_dialog")
                 ) {

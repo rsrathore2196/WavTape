@@ -343,10 +343,15 @@ internal object YouTubeExploreParser {
     }
 
     private fun twoRowTrack(value: JSONObject): MusicTrack? {
-        val id = value.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId")
-            ?: value.optJSONObject("overlay")?.optJSONObject("musicItemThumbnailOverlayRenderer")
-                ?.optJSONObject("content")?.optJSONObject("musicPlayButtonRenderer")?.optJSONObject("playNavigationEndpoint")
-                ?.optJSONObject("watchEndpoint")?.optString("videoId") ?: return null
+        val playButton = value.optJSONObject("overlay")?.optJSONObject("musicItemThumbnailOverlayRenderer")
+            ?.optJSONObject("content")?.optJSONObject("musicPlayButtonRenderer")
+        val commands = listOf(value.optJSONObject("navigationEndpoint"), playButton?.optJSONObject("playNavigationEndpoint")) +
+            runs(title(value)).map { it.optJSONObject("navigationEndpoint") }
+        val id = commands.firstNotNullOfOrNull { command ->
+            val watch = command?.optJSONObject("watchEndpoint")
+                ?: command?.optJSONObject("innertubeCommand")?.optJSONObject("watchEndpoint")
+            watch?.let { nullable(it, "videoId") }?.takeIf(YouTubeAudioStreamService::isVideoId)
+        } ?: return null
         val name = text(title(value))
         if (!YouTubeAudioStreamService.isVideoId(id) || name.isBlank()) return null
         val credits = artists(value).map { it.name }
@@ -362,7 +367,7 @@ internal object YouTubeExploreParser {
             val data = row?.optJSONObject("nextContinuationData") ?: row?.optJSONObject("reloadContinuationData")
             data?.let { nullable(it, "continuation") }?.let { return it }
         }
-        val contents = value.optJSONArray("contents") ?: value.optJSONArray("continuationItems")
+        val contents = value.optJSONArray("contents") ?: value.optJSONArray("items") ?: value.optJSONArray("continuationItems")
         for (index in 0 until (contents?.length() ?: 0)) {
             val row = contents?.optJSONObject(index)?.optJSONObject("continuationItemRenderer") ?: continue
             val target = row.optJSONObject("continuationEndpoint")
@@ -372,8 +377,40 @@ internal object YouTubeExploreParser {
         return null
     }
 
+    private fun exploreShelfLink(shelf: JSONObject): ExploreShelfLink? {
+        val header = shelf.optJSONObject("header")
+        val renderer = header?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+            ?: header?.optJSONObject("gridHeaderRenderer")
+        val button = (renderer?.optJSONObject("moreContentButton") ?: shelf.optJSONObject("moreContentButton"))
+            ?.optJSONObject("buttonRenderer")
+        val target = endpoint(shelf.optJSONObject("bottomEndpoint"))
+            ?: endpoint(button?.optJSONObject("navigationEndpoint"))
+            ?: endpoint(button?.optJSONObject("command")) ?: return null
+        val id = nullable(target, "browseId")?.takeIf { it.startsWith("FEmusic_") } ?: return null
+        return ExploreShelfLink(id, nullable(target, "params"))
+    }
+
+    private fun trackAlbum(value: JSONObject, country: String, language: String): CatalogAlbum? {
+        val columns = value.optJSONArray("flexColumns")
+        val labels = runs(value.optJSONObject("subtitle")) + (1 until (columns?.length() ?: 0)).flatMap {
+            runs(columns?.optJSONObject(it)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text"))
+        }
+        for (label in labels) {
+            val target = endpoint(label.optJSONObject("navigationEndpoint")) ?: continue
+            val id = string(target, "browseId")
+            val name = string(label, "text")
+            if (name.isNotBlank() && (id.startsWith("MPRE") || id.startsWith("OLAK5uy_") ||
+                    id.isNotBlank() && pageType(target) == "MUSIC_PAGE_TYPE_ALBUM")) {
+                return CatalogAlbum(id, name, emptyList(),
+                    thumbnail(value, squareOnly = true), "", CatalogProvider.YOUTUBE_MUSIC,
+                    nullable(target, "params"), country, language)
+            }
+        }
+        return null
+    }
+
     fun page(root: JSONObject, country: String, language: String, collectionOnly: Boolean = false,
-        isAlbumCollection: Boolean = false, checkpoint: () -> Unit = {}): CatalogPage {
+        isAlbumCollection: Boolean = false, exploreShelves: Boolean = false, checkpoint: () -> Unit = {}): CatalogPage {
         validate(root)
         val headerArtists = if (collectionOnly) albumHeaderArtists(root, isAlbumCollection) else emptyList()
         val headerArtistText = headerArtists.joinToString(", ") { it.name }
@@ -381,8 +418,13 @@ internal object YouTubeExploreParser {
             .distinctBy(CatalogNames::normalize)
         val tracks = linkedMapOf<String, MusicTrack>()
         val albums = linkedMapOf<String, CatalogAlbum>()
+        val linkedAlbums = linkedMapOf<String, CatalogAlbum>()
         val playlists = linkedMapOf<String, CatalogPlaylist>()
+        val shelfLinks = linkedSetOf<ExploreShelfLink>()
         var continuation: String? = null
+        var shelfContinuation: String? = null
+        val shelves = listOf("musicCarouselShelfRenderer", "musicCarouselShelfContinuation",
+            "musicShelfRenderer", "musicShelfContinuation", "gridRenderer", "gridContinuation")
         val roots = listOf("contents", "continuationContents", "onResponseReceivedActions",
             "onResponseReceivedCommands", "onResponseReceivedEndpoints")
         roots.forEach { key -> walk(root.opt(key), checkpoint) { node ->
@@ -393,16 +435,21 @@ internal object YouTubeExploreParser {
             if (continuation == null) for (name in containers) node.optJSONObject(name)?.let {
                 continuation = containerToken(it)
             }
+            if (exploreShelves && !collectionOnly) for (name in shelves) node.optJSONObject(name)?.let { shelf ->
+                if (shelfContinuation == null) shelfContinuation = containerToken(shelf)
+                exploreShelfLink(shelf)?.let(shelfLinks::add)
+            }
             val item = node.optJSONObject("musicTwoRowItemRenderer") ?: node.optJSONObject("musicResponsiveListItemRenderer")
-            if (item != null && !collectionOnly) {
-                when (val destination = collection(item, country, language)) {
+            val destination = if (item != null && !collectionOnly) collection(item, country, language) else null
+            if (destination != null) {
+                when (destination) {
                     is CatalogDestination.Album -> destination.album.let { albums.putIfAbsent("${it.id}|${it.browseParams.orEmpty()}", it) }
                     is CatalogDestination.Playlist -> destination.playlist.let { playlists.putIfAbsent("${it.id}|${it.browseParams.orEmpty()}", it) }
                     else -> Unit
                 }
             }
-            val parsedSong = YouTubeMusicApiService.parseAnyRenderer(node)
-                ?: node.optJSONObject("musicTwoRowItemRenderer")?.let(::twoRowTrack)
+            val parsedSong = if (exploreShelves && destination != null) null else
+                YouTubeMusicApiService.parseAnyRenderer(node) ?: node.optJSONObject("musicTwoRowItemRenderer")?.let(::twoRowTrack)
             if (parsedSong != null) {
                 val resolvedSong = if (headerArtistText.isNotBlank() && isUnknownArtist(parsedSong.artist)) {
                     parsedSong.copy(
@@ -411,13 +458,17 @@ internal object YouTubeExploreParser {
                     )
                 } else parsedSong
                 tracks.putIfAbsent(resolvedSong.id, resolvedSong.copy(audioUrl = "", bitrateKbps = 0, qualityBadge = ""))
+                if (exploreShelves && item != null) trackAlbum(item, country, language)?.let {
+                    linkedAlbums.putIfAbsent(it.id, it)
+                }
             }
             // A renderer's inner metadata can contain the same endpoint again.
             !(node.has("musicResponsiveListItemRenderer") || node.has("musicTwoRowItemRenderer") ||
                 node.has("playlistVideoRenderer") || node.has("playlistPanelVideoRenderer"))
         } }
-        return CatalogPage(tracks.values.toList(), albums.values.toList(), playlists = playlists.values.toList(),
-            browseContinuation = continuation?.let { CatalogBrowseContinuation("", null, it, country, language) })
+        return CatalogPage(tracks.values.toList(), albums.values.ifEmpty { linkedAlbums.values }.toList(),
+            playlists = playlists.values.toList(), exploreShelfLinks = shelfLinks.toList(),
+            browseContinuation = (continuation ?: shelfContinuation)?.let { CatalogBrowseContinuation("", null, it, country, language) })
     }
 
     /** Artist identity is verified before this response is parsed. Only its own
@@ -631,11 +682,14 @@ internal object YouTubeExploreParser {
             .put("artists", JSONArray(album.artists.map { JSONObject().put("id", it.id).put("name", it.name) })) }))
         .put("playlists", JSONArray(page.playlists.map { playlist -> JSONObject().put("id", playlist.id)
             .put("title", playlist.title).put("image", playlist.image).put("params", playlist.browseParams) }))
-        .put("token", page.browseContinuation?.token).toString()
+        .put("exploreShelfLinks", JSONArray(page.exploreShelfLinks.map { link ->
+            JSONObject().put("id", link.browseId).put("params", link.params)
+        })).put("token", page.browseContinuation?.token).toString()
     fun decodePage(body: String, country: String, language: String): CatalogPage {
         val root = JSONObject(body)
         val albums = root.optJSONArray("albums")
         val playlists = root.optJSONArray("playlists")
+        val links = root.optJSONArray("exploreShelfLinks")
         return CatalogPage(tracks = RecommendationTrackCodec.decode(root.optJSONArray("tracks")?.toString() ?: "[]", maxTracks = Int.MAX_VALUE),
             albums = (0 until (albums?.length() ?: 0)).mapNotNull { index -> albums?.optJSONObject(index)?.let { row ->
                 val artists = row.optJSONArray("artists")
@@ -645,6 +699,9 @@ internal object YouTubeExploreParser {
             } }, playlists = (0 until (playlists?.length() ?: 0)).mapNotNull { index -> playlists?.optJSONObject(index)?.let { row ->
                 CatalogPlaylist(string(row, "id"), string(row, "title"), string(row, "image"), CatalogProvider.YOUTUBE_MUSIC,
                     nullable(row, "params"), country, language)
-            } }, browseContinuation = nullable(root, "token")?.let { CatalogBrowseContinuation("", null, it, country, language) })
+            } }, browseContinuation = nullable(root, "token")?.let { CatalogBrowseContinuation("", null, it, country, language) },
+            exploreShelfLinks = (0 until (links?.length() ?: 0)).mapNotNull { index -> links?.optJSONObject(index)?.let { row ->
+                nullable(row, "id")?.let { ExploreShelfLink(it, nullable(row, "params")) }
+            } })
     }
 }

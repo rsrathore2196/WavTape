@@ -723,24 +723,22 @@ fun MainNavigationScaffold(
                 onOpenGenre = { genre ->
                     isPlayerExpanded = false
                     viewModel.openGenre(genre)
+                },
+                queueContent = {
+                    if (isQueueOpen) PlayerPresentationHost(viewModel) { playerUiState ->
+                        QueueBottomSheet(
+                            queue = playerUiState.queue,
+                            currentTrack = playerUiState.currentTrack,
+                            onTrackClick = viewModel::playQueuedTrack,
+                            onMoveTrack = { from, to -> viewModel.reorderQueue(from, to) },
+                            onDismiss = { isQueueOpen = false },
+                            isAutoplayEnabled = playerUiState.isAutoplayEnabled,
+                            nextRecommendedTrack = playerUiState.nextRecommendedTrack,
+                            onToggleAutoplay = { viewModel.toggleAutoplay() }
+                        )
+                    }
                 }
             )
-        }
-
-        // QUEUE BOTTOM SHEET
-        if (isQueueOpen) {
-          PlayerPresentationHost(viewModel) { playerUiState ->
-            QueueBottomSheet(
-                queue = playerUiState.queue,
-                currentTrack = playerUiState.currentTrack,
-                onTrackClick = viewModel::playQueuedTrack,
-                onMoveTrack = { from, to -> viewModel.reorderQueue(from, to) },
-                onDismiss = { isQueueOpen = false },
-                isAutoplayEnabled = playerUiState.isAutoplayEnabled,
-                nextRecommendedTrack = playerUiState.nextRecommendedTrack,
-                onToggleAutoplay = { viewModel.toggleAutoplay() }
-            )
-          }
         }
 
         // EQUALIZER DIALOG

@@ -194,10 +194,9 @@ internal fun lyricsProviderDisplayName(providerName: String): String =
 fun LyricsTextSizePopup(
     currentSizeSp: Int,
     onSizeChange: (Int) -> Unit,
-    onDismissRequest: () -> Unit,
-    appColors: AppThemeColors = LocalAppColors.current
+    onDismissRequest: () -> Unit
 ) {
-    @Suppress("NAME_SHADOWING") val appColors = rememberPlayerPopupColors(appColors)
+    val appColors = PlayerGlassPopupColors
     PlayerPopupTheme(appColors) {
         Dialog(
             onDismissRequest = onDismissRequest,
@@ -224,17 +223,19 @@ fun LyricsTextSizePopup(
                     ),
                 contentAlignment = Alignment.Center
             ) {
+                val shape = RoundedCornerShape(26.dp)
                 Surface(
                     modifier = Modifier
                         .widthIn(min = 280.dp, max = 340.dp)
                         .padding(20.dp)
                         .testTag("lyrics_text_size_popup")
+                        .playerPopupArtwork(shape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* Consume taps inside card */ },
-                    shape = RoundedCornerShape(26.dp),
-                    color = appColors.cardBackground,
+                    shape = shape,
+                    color = playerPopupSurfaceColor(),
                     shadowElevation = 20.dp
                 ) {
                     Column(
@@ -322,8 +323,7 @@ fun LyricsProviderSelectionPopup(
 ) {
     // The shared Settings selector keeps its existing presentation.
     val usePlayerTheme = LocalPlayerPopupColors.current != null || allowImport
-    val popupColors = rememberPlayerPopupColors(appColors)
-    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) popupColors else appColors
+    @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) PlayerGlassPopupColors else appColors
     PlayerPopupTheme(appColors) {
         Dialog(
             onDismissRequest = onDismissRequest,
@@ -350,18 +350,21 @@ fun LyricsProviderSelectionPopup(
                     ),
                 contentAlignment = Alignment.Center
             ) {
+                val shape = RoundedCornerShape(26.dp)
                 Surface(
                     modifier = Modifier
                         .widthIn(min = 300.dp, max = 380.dp)
                         .fillMaxWidth(0.88f)
                         .padding(20.dp)
                         .testTag("lyrics_provider_popup")
+                        .then(if (usePlayerTheme) Modifier.playerPopupArtwork(shape) else Modifier)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* Consume taps */ },
-                    shape = RoundedCornerShape(26.dp),
-                    color = if (usePlayerTheme) appColors.cardBackground else if (appColors.isAmoled) Color(0xFF141414) else appColors.cardBackground,
+                    shape = shape,
+                    color = if (usePlayerTheme) playerPopupSurfaceColor()
+                        else if (appColors.isAmoled) Color(0xFF141414) else appColors.cardBackground,
                     border = if (usePlayerTheme) null else BorderStroke(1.2.dp, appColors.cardBorder.copy(alpha = if (appColors.isDark) 0.5f else 0.7f)),
                     shadowElevation = 20.dp
                 ) {

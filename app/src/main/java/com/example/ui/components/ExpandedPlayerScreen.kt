@@ -55,6 +55,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -380,6 +382,7 @@ fun ExpandedPlayerScreen(
     onOpenAlbum: (com.example.data.repository.CatalogAlbum) -> Unit = {},
     onOpenAlbumByName: (String, String) -> Unit = { _, _ -> },
     onOpenGenre: (String) -> Unit = {},
+    queueContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val track = uiState.currentTrack ?: return
@@ -689,11 +692,16 @@ fun ExpandedPlayerScreen(
     )
 
     val playerBackdrop = rememberLiquidGlassBackdrop()
+    val popupArtwork = cachedColors?.colorField.takeIf { LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow }
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
-        LocalPlayerPopupColors provides themeColors) {
+        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork) {
     Surface(
         modifier = modifier
             .fillMaxSize()
+            .swipeDownToMinimizePlayer(
+                enabled = { isScreenVisible && !showLyrics && !lyricsContentAnimating && !expandedLyricsVisible },
+                onMinimize = onMinimize
+            )
             .pointerInput(Unit) {
                 // Intercept and consume all touch and gesture events so underlying screens never move
                 detectTapGestures { }
@@ -1056,9 +1064,7 @@ fun ExpandedPlayerScreen(
                                     onAddToPlaylist = onAddToPlaylist,
                                     onOpenEqualizer = onOpenEqualizer,
                                     onOpenSleepTimer = { isSleepTimerOpen = true },
-                                    onOpenLyricsOffset = { isLyricsOffsetOpen = true },
-                                    isDark = isDark,
-                                    appColors = appColors
+                                    onOpenLyricsOffset = { isLyricsOffsetOpen = true }
                                 )
                             }
                         }
@@ -1635,9 +1641,7 @@ fun ExpandedPlayerScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenEqualizer = onOpenEqualizer,
                         onOpenSleepTimer = { isSleepTimerOpen = true },
-                        onOpenLyricsOffset = { isLyricsOffsetOpen = true },
-                        isDark = isDark,
-                        appColors = appColors
+                        onOpenLyricsOffset = { isLyricsOffsetOpen = true }
                     )
                 }
             }
@@ -2389,6 +2393,7 @@ fun ExpandedPlayerScreen(
         }
     }
 
+    queueContent()
     // Sound Output Devices Popup Dialog
     if (isSleepTimerOpen) {
         SleepTimerDialog(onDismiss = { isSleepTimerOpen = false })
@@ -2415,8 +2420,7 @@ fun ExpandedPlayerScreen(
             onSizeChange = { newSize ->
                 com.example.data.local.OtherSettingsPreferences.setLyricsTextSize(context, newSize)
             },
-            onDismissRequest = { showLyricsTextSizePopup = false },
-            appColors = appColors
+            onDismissRequest = { showLyricsTextSizePopup = false }
         )
     }
     if (showLyricsProviderPopup) {
@@ -2455,6 +2459,42 @@ fun ExpandedPlayerScreen(
     }
 }
 
+}
+
+@Composable
+private fun Modifier.swipeDownToMinimizePlayer(enabled: () -> Boolean, onMinimize: () -> Unit): Modifier {
+    val canMinimize by rememberUpdatedState(enabled)
+    val minimize by rememberUpdatedState(onMinimize)
+    return pointerInput("swipe_down_to_minimize_player") {
+        val dismissDistance = 72.dp.toPx()
+        val touchSlop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (!canMinimize()) return@awaitEachGesture
+            var dragging = false
+            while (true) {
+                val event = awaitPointerEvent()
+                if (!canMinimize()) break
+                val change = event.changes.singleOrNull()?.takeIf { it.id == down.id } ?: break
+                val delta = change.position - down.position
+                if (!change.pressed) {
+                    if (dragging && !change.isConsumed && delta.y >= dismissDistance) {
+                        change.consume()
+                        minimize()
+                    }
+                    break
+                }
+                // Child sliders and scroll containers get first refusal in the Main pass.
+                if (change.isConsumed) break
+                val horizontal = kotlin.math.abs(delta.x)
+                if (!dragging && (horizontal > touchSlop || kotlin.math.abs(delta.y) > touchSlop)) {
+                    if (delta.y <= horizontal) break
+                    dragging = true
+                }
+                if (dragging) change.consume()
+            }
+        }
+    }
 }
 
 /** Keep the original two-pane bounds at rest; read expansion only during measurement. */
@@ -2883,13 +2923,10 @@ private fun PlayerOptionsMenu(
     onOpenEqualizer: () -> Unit,
     onOpenSleepTimer: () -> Unit,
     onOpenLyricsOffset: () -> Unit = {},
-    isDark: Boolean,
-    appColors: com.example.ui.theme.AppThemeColors = LocalAppColors.current,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    @Suppress("NAME_SHADOWING") val appColors = rememberPlayerPopupColors(appColors)
-    @Suppress("NAME_SHADOWING") val isDark = appColors.isDark
+    val appColors = PlayerGlassPopupColors
 
     val downloadScope = rememberCoroutineScope()
     val downloads = remember(context) { com.example.downloads.OfflineDownloads.get(context) }
@@ -2899,20 +2936,22 @@ private fun PlayerOptionsMenu(
     LaunchedEffect(expanded) { if (expanded) runCatching { downloads.load() } }
 
     PlayerPopupTheme(appColors) {
+        val menuShape = RoundedCornerShape(22.dp)
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = onDismissRequest,
-            shape = RoundedCornerShape(22.dp),
-            containerColor = appColors.cardBackground,
+            shape = menuShape,
+            containerColor = playerPopupSurfaceColor(),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
             modifier = modifier
                 .testTag("player_options_popup")
                 .widthIn(min = 220.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .clip(menuShape)
+                .playerPopupArtwork(menuShape)
                 .padding(vertical = 4.dp, horizontal = 4.dp)
         ) {
-            val itemIconBg = if (appColors.isAmoled) Color(0xFF141414) else if (isDark) appColors.cardBorder.copy(alpha = 0.35f) else appColors.chipBackground
+            val itemIconBg = appColors.cardBorder.copy(alpha = 0.35f)
 
             listOf(
                 Triple("Sleep Mode", Icons.Default.Timer, onOpenSleepTimer),

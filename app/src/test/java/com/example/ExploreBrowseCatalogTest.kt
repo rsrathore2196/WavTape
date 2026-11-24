@@ -164,6 +164,65 @@ class ExploreBrowseCatalogTest {
             CatalogDestination.Playlist(CatalogPlaylist("VLjazz", "Jazz Essentials", "")).key)
     }
 
+    @Test fun exploreFollowsAGridContinuationForMissingTracksAndAlbums() = runBlocking {
+        val requests = mutableListOf<List<String?>>()
+        val cursor = JSONObject().put("continuationItemRenderer", JSONObject().put("continuationEndpoint",
+            JSONObject().put("continuationCommand", JSONObject().put("token", "opaque-grid-token"))))
+        val first = JSONObject().put("contents", grid("Playlists",
+            collection("Jazz Essentials", "VLjazz", "playlist-params", "MUSIC_PAGE_TYPE_PLAYLIST"), cursor)).toString()
+        val continuation = JSONObject().put("continuationContents", JSONObject().put("gridContinuation",
+            JSONObject().put("items", JSONArray()
+                .put(song("abcdefghijk", "Jazz Recording"))
+                .put(collection("Jazz Album", "MPREjazz", "album-params", "MUSIC_PAGE_TYPE_ALBUM"))
+                .put(cursor)))).toString()
+        val repository = CatalogRepository(browseLoader = { id, params, token, country, language ->
+            requests.add(listOf(id, params, token, country, language))
+            if (token == null) first else continuation
+        })
+        val category = ExploreCategory("Jazz", "FEmusic_genre", "opaque-jazz", ExploreCategoryKind.GENRE)
+        val result = repository.exploreCategory(category, "IN", "hi", fillMissingShelves = true)
+        assertEquals(listOf("yt_abcdefghijk"), result.tracks.map { it.id })
+        assertEquals("album-params", result.albums.single().browseParams)
+        assertEquals("VLjazz", result.playlists.single().id)
+        assertNull(result.browseContinuation)
+        assertEquals(listOf(
+            listOf("FEmusic_genre", "opaque-jazz", null, "IN", "hi"),
+            listOf("FEmusic_genre", "opaque-jazz", "opaque-grid-token", "IN", "hi")
+        ), requests)
+        assertEquals(result, repository.exploreCategory(category, "IN", "hi", fillMissingShelves = true))
+        assertEquals(2, requests.size)
+    }
+
+    @Test fun exploreUsesTheGenresOwnShelfLinksAndPlaylistAlbumCredits() = runBlocking {
+        val requests = mutableListOf<Pair<String, String?>>()
+        val playlist = collection("Jazz Essentials", "VLjazz", "playlist-params", "MUSIC_PAGE_TYPE_PLAYLIST")
+        val more = JSONObject().put("bottomEndpoint", JSONObject().put("browseEndpoint", JSONObject()
+            .put("browseId", "FEmusic_genre_songs").put("params", "songs-params")))
+        val initial = JSONObject().put("contents", JSONObject().put("sectionListRenderer",
+            JSONObject().put("contents", JSONArray().put(playlist).put(JSONObject().put("musicShelfRenderer", more)))))
+        val row = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
+            .put("playlistItemData", JSONObject().put("videoId", "bcdefghijkl"))
+            .put("flexColumns", JSONArray().put(flexColumn(runText("Official playlist track")))
+                .put(flexColumn(runText("Jazz Artist", "UCjazz", "MUSIC_PAGE_TYPE_ARTIST"),
+                    runText(" • "), runText("Linked Jazz Album", "MPREjazz", "MUSIC_PAGE_TYPE_ALBUM")))))
+        val repository = CatalogRepository(browseLoader = { id, params, _, _, _ ->
+            requests.add(id to params)
+            when (id) {
+                "FEmusic_genre" -> initial.toString()
+                "FEmusic_genre_songs" -> page("abcdefghijk", null)
+                "VLjazz" -> JSONObject().put("contents", JSONObject().put("musicPlaylistShelfRenderer",
+                    JSONObject().put("contents", JSONArray().put(row)))).toString()
+                else -> error("Unexpected genre request: $id")
+            }
+        })
+        val result = repository.exploreCategory(ExploreCategory("Jazz", "FEmusic_genre"), fillMissingShelves = true)
+        assertEquals(listOf("yt_abcdefghijk", "yt_bcdefghijkl"), result.tracks.map { it.id })
+        assertTrue(result.tracks.all { it.audioUrl.isEmpty() })
+        assertEquals("MPREjazz", result.albums.single().id)
+        assertEquals("Linked Jazz Album", result.albums.single().title)
+        assertEquals(listOf("FEmusic_genre" to null, "FEmusic_genre_songs" to "songs-params", "VLjazz" to "playlist-params"), requests)
+    }
+
     @Test fun youtubeCollectionsLoadOnePageAtATimeWithImmutableProgressAndLoopProtection() = runBlocking {
         val calls = mutableListOf<List<String?>>()
         val repository = CatalogRepository(browseLoader = { id, params, token, country, language ->

@@ -109,9 +109,8 @@ private fun encoding(value: Int): String = SignalPathState.pcmEncodingLabel(valu
 @Composable
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, onClose: () -> Unit = {}) {
-    val colors = rememberPlayerPopupColors()
+    val colors = PlayerGlassPopupColors
     val effects by AudioEffectsManager.effectsState.collectAsStateWithLifecycle()
-    val cardColor = colors.cardBackground
     val height = (LocalConfiguration.current.screenHeightDp - 48).coerceAtLeast(120).dp
     val textColor = colors.textPrimary
     val muted = colors.textSecondary
@@ -152,8 +151,10 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
         tween(if (state.playbackStatus == "Playing") 450 else 320), label = "pipeline_power")
 
     PlayerPopupTheme(colors) {
-        Surface(shape = RoundedCornerShape(26.dp), color = cardColor, tonalElevation = 0.dp, shadowElevation = 0.dp,
-            modifier = modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = height).testTag("signal_path_popup")) {
+        val shape = RoundedCornerShape(26.dp)
+        Surface(shape = shape, color = playerPopupSurfaceColor(), tonalElevation = 0.dp, shadowElevation = 0.dp,
+            modifier = modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = height)
+                .testTag("signal_path_popup").playerPopupArtwork(shape)) {
             Column {
                 Box(Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 19.dp),
@@ -198,7 +199,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
                             }
                             points.forEach { point ->
                                 val activation = (1f - abs(headY - point.y) / 24.dp.toPx()).coerceIn(0f, 1f) * fade
-                                drawCircle(cardColor, radius, point)
+                                drawCircle(colors.cardBackground, radius, point)
                                 drawCircle(Brush.radialGradient(listOf(textColor.copy(alpha = 0.07f + activation * 0.23f), Color.Transparent),
                                     point, radius + 5.dp.toPx()), radius + 5.dp.toPx(), point)
                                 drawCircle(textColor.copy(alpha = 0.35f + activation * 0.55f), radius, point, style = Stroke(1.dp.toPx()))

@@ -697,7 +697,7 @@ class MusicRepository private constructor(
         forceRefresh: Boolean = false): SearchResultCategory = withContext(AppDispatchers.Io) {
         val preferences = homeProfile(profile)
         val page = catalogBrowser.exploreCategory(category, preferences.countryCode.ifBlank { "US" },
-            browseLanguage(), forceRefresh)
+            browseLanguage(), forceRefresh = forceRefresh, fillMissingShelves = true)
         // Provider identity, browse parameters and continuation belong to each collection.
         SearchResultCategory(matchedGenreOrType = category.title, songs = page.tracks,
             catalogAlbums = page.albums, catalogPlaylists = page.playlists)

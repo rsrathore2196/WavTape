@@ -29,7 +29,10 @@ import com.example.playback.*
 import com.example.ui.components.*
 import com.example.ui.theme.*
 import com.example.ui.util.LocalArtworkRequestsActive
+import com.example.ui.util.TrackPaletteCache
+import com.example.ui.util.extractPlayerArtworkColors
 import com.example.ui.util.playerAppearanceColors
+import com.example.ui.util.playerPreviewPaletteKey
 import com.example.ui.viewmodel.PlaylistImportUiState
 import com.github.takahirom.roborazzi.*
 import kotlinx.coroutines.CoroutineScope
@@ -125,11 +128,34 @@ class PlayerPopupThemeUiTest {
         assertEquals("$tag outer border", background.toArgb(), image.getRGB(1, middle))
     }
 
-    @Test fun playerPopupsFollowLightModeEvenInsideTheNeutralDarkPlayer() = checkPopups(LightAppColors)
-    @Test fun playerPopupsUsePureBlackAndReadableControlsInDarkMode() = checkPopups(DarkAppColors)
+    @Test fun ordinaryPopupsFollowLightModeWhilePlayerGlassStaysDark() = checkPopups(LightAppColors)
+    @Test fun playerPopupsUseReadableControlsInDarkMode() = checkPopups(DarkAppColors)
+    @Test fun playerArtworkGlassIsVisibleInDarkMode() = checkPopups(DarkAppColors, withArtwork = true)
+    @Test fun playerArtworkGlassIsVisibleInLightMode() = checkPopups(LightAppColors, withArtwork = true)
 
-    private fun checkPopups(source: AppThemeColors) {
-        captureSuffix = if (source.isDark) "-dark" else "-light"
+    private val artwork = checkNotNull(extractPlayerArtworkColors(IntArray(32 * 32) {
+        if (it % 32 < 16) 0xFFFF482F.toInt() else 0xFF125DFF.toInt()
+    }, 32, 32))
+
+    private fun assertArtworkBackground(tag: String) {
+        val image = capture(tag)
+        val mutedLuminance = PlayerGlassPopupColors.textMuted.luminance()
+        var warm = 0
+        var cool = 0
+        for (y in 2 until image.height - 2) for (x in 2 until image.width - 2) {
+            val pixel = Color(image.getRGB(x, y))
+            val luma = pixel.luminance()
+            if (pixel.alpha != 1f || luma >= mutedLuminance ||
+                (mutedLuminance + .05f) / (luma + .05f) < 4.5f) continue
+            if (pixel.red > pixel.blue + .045f) warm++
+            if (pixel.blue > pixel.red + .045f) cool++
+        }
+        assertTrue("$tag should show readable, warm and cool cover colors (got $warm / $cool)",
+            minOf(warm, cool) > image.width * 2)
+    }
+
+    private fun checkPopups(source: AppThemeColors, withArtwork: Boolean = false) {
+        captureSuffix = (if (source.isDark) "-dark" else "-light") + if (withArtwork) "-artwork" else ""
         var popup by mutableIntStateOf(0)
         var size by mutableIntStateOf(32)
         var enabled by mutableStateOf(true)
@@ -141,6 +167,7 @@ class PlayerPopupThemeUiTest {
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalAppColors provides playerAppearanceColors(original),
                 LocalPlayerPopupColors provides original, LocalArtworkRequestsActive provides false,
+                LocalPlayerPopupArtwork provides artwork.colorField.takeIf { withArtwork },
                 LocalVisualEffectsActive provides false) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF708090))) {
                     when (popup) {
@@ -169,7 +196,14 @@ class PlayerPopupThemeUiTest {
             compose.runOnIdle { popup = index }
             settle()
             compose.onNodeWithTag(tag).assertIsDisplayed()
-            assertBackground(tag, background)
+            val playerGlass = index in listOf(0, 1, 6, 7, 8)
+            if (withArtwork && playerGlass) assertArtworkBackground(tag)
+            else assertBackground(tag, if (playerGlass) Color.Black else background)
+            if (index == 1) {
+                val surfaceTop = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top
+                val titleTop = compose.onNodeWithText("Now Playing & Queue").fetchSemanticsNode().boundsInRoot.top
+                assertTrue("The sheet artwork starts just above its header", titleTop - surfaceTop in 0f..75f)
+            }
             when (index) {
                 3 -> {
                     compose.onNodeWithTag("equalizer_master_switch").assertIsOn().performClick()
@@ -196,7 +230,28 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    @Test fun actualPlayerMenuAndItsChildDialogUseTheSelectedAppMode() {
+    @Test fun actualPlayerMenuUsesTheCachedCoverArtwork() {
+        val coveredTrack = track.copy(coverUrl = "https://lh3.googleusercontent.com/popup-cover")
+        TrackPaletteCache.put(playerPreviewPaletteKey(coveredTrack), artwork)
+        try {
+            captureSuffix = "-actual-artwork"
+            compose.setContent { MaterialTheme {
+                CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
+                    LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                    ExpandedPlayerScreen(PlayerUiState(currentTrack = coveredTrack), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                        onAddToPlaylist = {})
+                }
+            } }
+            settle()
+            compose.onNodeWithTag("player_options_button").performClick()
+            settle()
+            assertArtworkBackground("player_options_popup")
+        } finally {
+            TrackPaletteCache.clear()
+        }
+    }
+
+    @Test fun actualPlayerMenuStaysDarkAndItsChildDialogUsesTheSelectedAppMode() {
         var colors by mutableStateOf(LightAppColors.copy(dynamicGlassEnabled = false))
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
@@ -209,7 +264,7 @@ class PlayerPopupThemeUiTest {
         settle()
         compose.onNodeWithTag("player_options_button").performClick()
         settle()
-        assertBackground("player_options_popup", Color.White)
+        assertBackground("player_options_popup", Color.Black)
         assertDownloadRow("Download")
         compose.onNodeWithText("Sleep Mode").performClick()
         settle()
@@ -279,7 +334,7 @@ class PlayerPopupThemeUiTest {
         settle()
         assertProgress(.73f)
         captureSuffix = "-progress-light"
-        assertBackground("player_options_popup", Color.White)
+        assertBackground("player_options_popup", Color.Black)
         runBlocking { downloads.update(progressTrack.id) { it.copy(status = DownloadStatus.DOWNLOADING, bytes = 850) } }
         settle()
         assertDownloadRow("Pause download")

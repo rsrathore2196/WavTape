@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -119,6 +120,39 @@ class PlayerExpansionMotionUiTest {
     @Test fun compactDockReturnsToItsActualSmallerSurfaceAndArtwork() = checkRoundTrip(compact = true)
     @Test @Config(qualifiers = "w891dp-h411dp-land")
     fun landscapeTargetsTheActualNarrowMiniPlayer() = checkRoundTrip()
+
+    @Test fun downwardSwipeUsesThePlayerMorphOnlyWhileLyricsAreClosed() {
+        show()
+        compose.onNodeWithTag("mini_player_container").performClick()
+        advanceUntil { visible.isIdle && visible.currentState }
+        val stage = compose.onNodeWithTag("expanded_player_transition")
+        fun pullDown() = stage.performTouchInput {
+            swipe(Offset(width * .5f, height * .1f), Offset(width * .5f, height * .65f))
+        }
+        stage.performTouchInput { swipeUp() }
+        compose.onNodeWithTag("player_scrub_slider", useUnmergedTree = true).performTouchInput { swipeRight() }
+        assertTrue(visible.targetState)
+
+        val lyrics = compose.onNodeWithTag("player_lyrics_button")
+        lyrics.performClick()
+        compose.mainClock.advanceTimeBy(1_000L)
+        compose.waitForIdle()
+        val lyricsControls = compose.onNodeWithTag("player_lyrics_text_size_button", useUnmergedTree = true)
+        lyricsControls.assertIsDisplayed()
+        pullDown()
+        assertTrue("A downward drag must stay in the lyrics view", visible.targetState)
+
+        lyrics.performClick()
+        compose.mainClock.advanceTimeBy(1_000L)
+        compose.waitForIdle()
+        lyricsControls.assertDoesNotExist()
+        pullDown()
+        assertFalse(visible.targetState)
+        advanceUntil { motion.fraction > .0001f }
+        assertTrue("The swipe starts the same transition as the minimize button", motion.fraction in .0001f..0.9999f)
+        advanceUntil { visible.isIdle && !visible.currentState }
+        compose.onNodeWithTag("mini_player_container").assertIsDisplayed()
+    }
 
     @Test fun miniCoverPreparesTheOpeningReflectionWithoutLoadingAnotherImage() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
