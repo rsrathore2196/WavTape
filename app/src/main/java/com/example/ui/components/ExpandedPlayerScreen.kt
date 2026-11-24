@@ -719,12 +719,17 @@ fun ExpandedPlayerScreen(
     )
 
     val playerBackdrop = rememberLiquidGlassBackdrop()
+    val popupBackdrop = rememberPlayerPopupBackdrop(isScreenVisible && prepareArtworkBackdrop)
     val popupArtwork = rememberPlayerPopupArtwork(cachedColors?.popupSample, isScreenVisible && prepareArtworkBackdrop)
+    val popupSource = if (popupBackdrop == null) Modifier
+        else Modifier.onGloballyPositioned { popupBackdrop.source = it }
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
-        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork) {
+        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork,
+        LocalPlayerPopupBackdrop provides popupBackdrop) {
     Surface(
         modifier = modifier
             .fillMaxSize()
+            .then(popupSource)
             .swipeDownToMinimizePlayer(
                 enabled = { isScreenVisible && !showLyrics && !lyricsContentAnimating && !expandedLyricsVisible },
                 onMinimize = onMinimize

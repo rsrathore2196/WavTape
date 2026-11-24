@@ -508,7 +508,8 @@ fun QueueBottomSheet(
                     scaleX = .98f + .02f * revealed
                     transformOrigin = TransformOrigin(.5f, 1f)
                 }
-                .testTag("queue_bottom_sheet").background(playerPopupSurfaceColor(), sheetShape).playerPopupGlass(sheetShape)
+                .testTag("queue_bottom_sheet").background(playerPopupSurfaceColor(), sheetShape)
+                .playerPopupGlass(sheetShape, onMotion = { reveal.value })
                 .windowInsetsPadding(BottomSheetDefaults.windowInsets)) {
                 Box(Modifier.align(Alignment.CenterHorizontally).semantics {
                     dismiss("Dismiss queue") {

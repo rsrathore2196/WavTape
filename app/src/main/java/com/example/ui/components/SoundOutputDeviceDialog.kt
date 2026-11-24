@@ -248,7 +248,7 @@ fun SoundOutputDeviceDialog(
                         .then(if (glassEnabled) Modifier else Modifier.shadow(
                             24.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.24f)))
                         .clip(dialogShape)
-                        .playerPopupGlass(dialogShape)
+                        .playerPopupGlass(dialogShape, onMotion = { expansion.value; dialogCenter.value })
                         .pointerInput(Unit) { detectTapGestures { /* Keep taps inside the dialog. */ } }
                         .testTag("sound_output_devices_dialog")
                 ) {

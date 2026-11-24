@@ -6,9 +6,15 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.media.AudioDeviceInfo
+import android.os.Handler
+import android.view.PixelCopy
+import android.view.Window
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,8 +27,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -60,13 +70,16 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalRoborazziApi::class, ExperimentalComposeUiApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31], application = Application::class, qualifiers = "w411dp-h891dp-port")
+@Config(sdk = [31], application = Application::class, qualifiers = "w411dp-h891dp-port",
+    shadows = [PlayerWindowCopyShadow::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PlayerPopupThemeUiTest {
     @get:Rule val compose = createComposeRule()
@@ -177,14 +190,14 @@ class PlayerPopupThemeUiTest {
             Color(image.getRGB(centerX, belowControl)).luminance() < .85f)
     }
 
-    private fun assertArtworkGlass(tag: String): java.awt.image.BufferedImage {
+    private fun assertArtworkGlass(tag: String, expected: Color = coverColor): java.awt.image.BufferedImage {
         val image = capture(tag)
         var cover = 0
         for (y in 2 until image.height - 2) for (x in 2 until image.width - 2) {
             val pixel = Color(image.getRGB(x, y))
-            if (pixel.alpha > .9f && kotlin.math.abs(pixel.red - coverColor.red) < .055f &&
-                kotlin.math.abs(pixel.green - coverColor.green) < .055f &&
-                kotlin.math.abs(pixel.blue - coverColor.blue) < .055f) cover++
+            if (pixel.alpha > .9f && kotlin.math.abs(pixel.red - expected.red) < .055f &&
+                kotlin.math.abs(pixel.green - expected.green) < .055f &&
+                kotlin.math.abs(pixel.blue - expected.blue) < .055f) cover++
         }
         assertTrue("$tag should retain the original album-art tone ($cover pixels)",
             cover > image.width * image.height / 4)
@@ -363,13 +376,15 @@ class PlayerPopupThemeUiTest {
         try {
             captureSuffix = "-actual-glass"
             var prepared = false
+            var windowBackdrop: PlayerPopupBackdrop? = null
             compose.setContent { MaterialTheme {
                 CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
                     LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
                     ExpandedPlayerScreen(PlayerUiState(currentTrack = coveredTrack), {}, {}, {}, {}, {}, {}, {}, {}, {},
                         onAddToPlaylist = {}, queueContent = {
                             val ready = LocalPlayerPopupArtwork.current != null
-                            SideEffect { prepared = ready }
+                            val backdrop = LocalPlayerPopupBackdrop.current
+                            SideEffect { prepared = ready; windowBackdrop = backdrop }
                         })
                 }
             } }
@@ -377,11 +392,67 @@ class PlayerPopupThemeUiTest {
             compose.waitUntil(5_000) { prepared }
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
-            assertArtworkGlass("player_options_popup")
+            compose.waitUntil(5_000) { windowBackdrop?.frame != null }
+            assertArtworkGlass("player_options_popup", Color(PlayerWindowCopyShadow.PLAYER_FRAME_COLOR))
             assertWhitePopupText("player_options_popup", "Sleep Mode")
         } finally {
             TrackPaletteCache.clear()
         }
+    }
+
+    @Test fun popupUsesOneScreenAlignedFrameUntilItCloses() {
+        var open by mutableStateOf(false)
+        var firstColor by mutableStateOf(Color.Red)
+        var horizontalShift by mutableFloatStateOf(0f)
+        var sourceWidth by mutableFloatStateOf(1f)
+        var captureCount = 0
+        lateinit var backdrop: PlayerPopupBackdrop
+        compose.setContent {
+            val scope = rememberCoroutineScope()
+            backdrop = remember(scope) {
+                PlayerPopupBackdrop(scope) { source ->
+                    captureCount++
+                    val still = Bitmap.createBitmap(IntArray(8 * 8) { index ->
+                        if (index % 8 < 4) firstColor.toArgb() else Color.Blue.toArgb()
+                    }, 8, 8, Bitmap.Config.ARGB_8888).asImageBitmap()
+                    PlayerPopupFrame(still, source.localToScreen(Offset.Zero), source.size, needsForegroundContrast = false)
+                }
+            }
+            CompositionLocalProvider(LocalPlayerPopupBackdrop provides backdrop) {
+                Box(Modifier.fillMaxWidth(sourceWidth).fillMaxHeight().onGloballyPositioned { backdrop.source = it })
+                if (open) AnchoredPlayerPopupDialog(null, { open = false }) { _, _ ->
+                    Box(Modifier.fillMaxWidth(.55f).height(72.dp)
+                        .graphicsLayer { translationX = horizontalShift }
+                        .playerPopupGlass(RectangleShape, onMotion = { horizontalShift })
+                        .testTag("screen_aligned_popup"))
+                }
+            }
+        }
+        settle()
+        assertEquals(0, captureCount)
+        compose.runOnIdle { open = true }
+        settle()
+
+        fun middlePixel(part: Float): Color {
+            val image = capture("screen_aligned_popup")
+            return Color(image.getRGB((image.width * part).roundToInt(), image.height / 2))
+        }
+        assertTrue(middlePixel(.25f).red > .95f)
+        assertTrue(middlePixel(.74f).blue > .95f)
+        compose.runOnIdle { firstColor = Color.Green; horizontalShift = 65f }
+        settle()
+        assertTrue("The fixed image moves left relative to a popup shifted right", middlePixel(.45f).blue > .85f)
+        assertEquals(1, captureCount)
+
+        compose.runOnIdle { open = false; horizontalShift = 0f }
+        settle()
+        compose.runOnIdle { assertNull(backdrop.frame); open = true }
+        settle()
+        assertTrue(middlePixel(.25f).green > .95f)
+        assertEquals(2, captureCount)
+        compose.runOnIdle { sourceWidth = .9f }
+        settle()
+        assertEquals("A resize requires a single fresh frame", 3, captureCount)
     }
 
     private fun boundsOnScreen(node: SemanticsNodeInteraction): Rect {
@@ -673,5 +744,23 @@ class PlayerPopupThemeUiTest {
         compose.runOnIdle { colors = DarkAppColors.copy(dynamicGlassEnabled = false) }
         settle()
         assertLabel()
+    }
+}
+
+// Robolectric's default window copy redraws the View on the caller thread. Model the platform's
+// surface-buffer copy so the test can exercise the production request from its worker thread.
+@Implements(PixelCopy::class)
+class PlayerWindowCopyShadow {
+    companion object {
+        const val PLAYER_FRAME_COLOR = 0xFF6CA9DD.toInt()
+
+        @JvmStatic
+        @Implementation
+        @Suppress("UNUSED_PARAMETER")
+        fun request(window: Window, bounds: android.graphics.Rect, destination: Bitmap,
+            listener: PixelCopy.OnPixelCopyFinishedListener, handler: Handler) {
+            destination.eraseColor(PLAYER_FRAME_COLOR)
+            handler.post { listener.onPixelCopyFinished(PixelCopy.SUCCESS) }
+        }
     }
 }

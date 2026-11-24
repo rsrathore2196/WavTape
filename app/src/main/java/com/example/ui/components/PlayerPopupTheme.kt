@@ -7,9 +7,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
@@ -18,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -29,8 +32,13 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
@@ -46,7 +54,7 @@ import com.example.ui.util.blurredPopupPixels
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-// Settings-style dialogs use the app palette. The six glass panels share one prepared cover.
+// Settings-style dialogs use the app palette. The prepared cover is the first-frame fallback.
 internal val LocalPlayerPopupColors = compositionLocalOf<AppThemeColors?> { null }
 internal val LocalPlayerPopupArtwork = compositionLocalOf<PlayerPopupArtwork?> { null }
 
@@ -77,7 +85,8 @@ internal val PlayerGlassPopupColors by lazy {
 
 @Composable
 internal fun needsPopupForegroundContrast() =
-    LocalDynamicGlassEnabled.current && LocalPlayerPopupArtwork.current?.needsForegroundContrast == true
+    LocalDynamicGlassEnabled.current && (LocalPlayerPopupArtwork.current?.needsForegroundContrast == true ||
+        LocalPlayerPopupBackdrop.current?.frame?.needsForegroundContrast == true)
 
 /** Cast a short, fading shadow beneath the mark, leaving the surrounding glass as drawn. */
 @Composable
@@ -122,7 +131,8 @@ internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): 
 
 @Composable
 internal fun playerPopupSurfaceColor(): Color =
-    if (LocalDynamicGlassEnabled.current && LocalPlayerPopupArtwork.current != null) Color.Transparent
+    if (LocalDynamicGlassEnabled.current &&
+        (LocalPlayerPopupArtwork.current != null || LocalPlayerPopupBackdrop.current != null)) Color.Transparent
     else PlayerGlassPopupColors.cardBackground
 
 /** Keep inset highlights subtle over the live glass. */
@@ -148,24 +158,56 @@ internal fun Modifier.playerPopupInsetGlass(shape: Shape, emphasized: Boolean = 
     return background(sheen, shape).border(.8.dp, rim, shape)
 }
 
-/** One bitmap draw per panel. Animating a popup never captures or filters the player window. */
+/** The already frosted image stays in screen space as the panel moves over it. */
 @Composable
-internal fun Modifier.playerPopupGlass(shape: Shape): Modifier {
+internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = LocalPlayerPopupMotion.current): Modifier {
     if (!LocalDynamicGlassEnabled.current) return this
-    val texture = LocalPlayerPopupArtwork.current?.texture ?: return this
+    val texture = LocalPlayerPopupArtwork.current?.texture
+    val backdrop = LocalPlayerPopupBackdrop.current
+    if (texture == null && backdrop == null) return this
+    if (backdrop != null) DisposableEffect(backdrop) {
+        backdrop.retain()
+        onDispose { backdrop.release() }
+    }
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null, neverEqualPolicy()) }
     val rim = remember {
         Brush.linearGradient(listOf(Color.White.copy(alpha = .49f),
             Color.White.copy(alpha = .08f), Color.White.copy(alpha = .22f)))
     }
-    return clip(shape).drawWithCache {
+    val positioning = if (backdrop != null) Modifier.onGloballyPositioned { coordinates = it } else Modifier
+    // Keep the rows' display list separate so remapping the still does not redraw their glyphs.
+    val foreground = if (backdrop != null) Modifier.graphicsLayer() else Modifier
+    return clip(shape).then(positioning).drawWithCache {
         val sheen = Brush.verticalGradient(0f to Color.White.copy(alpha = .035f), .28f to Color.Transparent)
-        // Retain the full range of album colors even in a shallow popup.
         val panel = IntSize(size.width.roundToInt(), size.height.roundToInt())
         onDrawBehind {
-            drawImage(texture, dstSize = panel, filterQuality = FilterQuality.Medium)
+            val frame = backdrop?.frame
+            if (frame != null) onMotion?.invoke()
+            if (frame == null || !drawPlayerFrame(frame, coordinates)) {
+                if (texture != null) drawImage(texture, dstSize = panel, filterQuality = FilterQuality.Medium)
+                else drawRect(PlayerGlassPopupColors.cardBackground)
+            }
             drawRect(sheen)
         }
-    }.border(.8.dp, rim, shape)
+    }.border(.8.dp, rim, shape).then(foreground)
+}
+
+private fun DrawScope.drawPlayerFrame(frame: PlayerPopupFrame, coordinates: LayoutCoordinates?): Boolean {
+    if (coordinates?.isAttached != true) return false
+    val topLeft = coordinates.screenToLocal(frame.originOnScreen)
+    val bottomRight = coordinates.screenToLocal(frame.originOnScreen +
+        Offset(frame.screenSize.width.toFloat(), frame.screenSize.height.toFloat()))
+    if (!topLeft.isSpecified || !bottomRight.isSpecified) return false
+    val width = bottomRight.x - topLeft.x
+    val height = bottomRight.y - topLeft.y
+    if (!width.isFinite() || !height.isFinite() || width <= 0f || height <= 0f) return false
+    withTransform({
+        translate(topLeft.x, topLeft.y)
+        scale(width / frame.image.width, height / frame.image.height, pivot = Offset.Zero)
+    }) {
+        drawImage(frame.image, srcSize = IntSize(frame.image.width, frame.image.height), filterQuality = FilterQuality.Medium)
+    }
+    return true
 }
 
 internal fun playerPopupColors(source: AppThemeColors): AppThemeColors {

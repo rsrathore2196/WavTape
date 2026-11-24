@@ -20,9 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -51,6 +53,8 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+
+internal val LocalPlayerPopupMotion = compositionLocalOf<(() -> Unit)?> { null }
 
 /** Capture the clicked pill once. Screen coordinates also work across the new dialog window. */
 internal class PlayerPopupAnchor {
@@ -115,6 +119,7 @@ internal fun AnchoredPlayerPopupDialog(
         tween(if (targetState) 180 else 120)
     }, label = "pill_popup_opacity") { if (it) 1f else 0f }
     val center = remember { mutableStateOf(Offset.Unspecified) }
+    val readMotion: () -> Unit = remember(expansion, center) { { expansion?.value; center.value } }
     if (animated) LaunchedEffect(visible.currentState, visible.targetState, visible.isIdle) {
         if (visible.isIdle && !visible.currentState && !visible.targetState) dismissAction.value()
     }
@@ -137,7 +142,9 @@ internal fun AnchoredPlayerPopupDialog(
         ) {
             val cardMotion = if (expansion != null && opacity != null) Modifier.anchoredPlayerPopupMotion(origin, center, expansion, opacity,
                 fallbackScale = { if (visible.targetState) .95f else .97f }) else Modifier
-            content(cardMotion.pointerInput(Unit) { detectTapGestures { /* Keep taps inside the card. */ } }, dismiss)
+            CompositionLocalProvider(LocalPlayerPopupMotion provides readMotion) {
+                content(cardMotion.pointerInput(Unit) { detectTapGestures { /* Keep taps inside the card. */ } }, dismiss)
+            }
         }
     }
 }
@@ -188,7 +195,7 @@ internal fun PlayerOptionsDropdown(
                 scaleY = scale.value
                 alpha = opacity.value
                 transformOrigin = pivot.value
-            }.playerPopupGlass(shape),
+            }.playerPopupGlass(shape, onMotion = { scale.value; pivot.value }),
             shape = shape,
             color = playerPopupSurfaceColor()
         ) {

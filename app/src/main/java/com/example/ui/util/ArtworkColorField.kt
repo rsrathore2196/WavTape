@@ -120,6 +120,10 @@ internal fun artworkColorField(sample: PlayerArtworkSample): ArtworkColorField {
 /** Apply the popup blur at texture resolution, with no color or luminance adjustment. */
 internal fun PlayerArtworkSample.blurredPopupPixels(blurFraction: Float): IntArray {
     val radius = (maxOf(width, height) * blurFraction).roundToInt()
+    return blurPopupPixels(pixels, width, height, radius)
+}
+
+internal fun blurPopupPixels(pixels: IntArray, width: Int, height: Int, radius: Int): IntArray {
     if (radius <= 0) return pixels
     val scratch = IntArray(pixels.size)
     val blurred = IntArray(pixels.size)
@@ -148,19 +152,31 @@ private fun softenReflectionHighlights(pixel: Int): Int {
 
 private fun blurPass(source: IntArray, target: IntArray, width: Int, height: Int, radius: Int, horizontal: Boolean) {
     val count = 2 * radius + 1
-    for (y in 0 until height) for (x in 0 until width) {
+    val length = if (horizontal) width else height
+    val lines = if (horizontal) height else width
+    val stride = if (horizontal) 1 else width
+    val lineStride = if (horizontal) width else 1
+    // Sliding sums keep the blur linear in pixel count, including a screen-sized still.
+    for (line in 0 until lines) {
+        val start = line * lineStride
+        val end = length - 1
         var red = 0
         var green = 0
         var blue = 0
         for (offset in -radius..radius) {
-            val sx = if (horizontal) (x + offset).coerceIn(0, width - 1) else x
-            val sy = if (horizontal) y else (y + offset).coerceIn(0, height - 1)
-            val pixel = source[sy * width + sx]
+            val pixel = source[start + offset.coerceIn(0, end) * stride]
             red += pixel ushr 16 and 255
             green += pixel ushr 8 and 255
             blue += pixel and 255
         }
-        target[y * width + x] = opaqueRgb(red / count, green / count, blue / count)
+        for (position in 0 until length) {
+            target[start + position * stride] = opaqueRgb(red / count, green / count, blue / count)
+            val leaving = source[start + (position - radius).coerceAtLeast(0) * stride]
+            val entering = source[start + (position + radius + 1).coerceAtMost(end) * stride]
+            red += (entering ushr 16 and 255) - (leaving ushr 16 and 255)
+            green += (entering ushr 8 and 255) - (leaving ushr 8 and 255)
+            blue += (entering and 255) - (leaving and 255)
+        }
     }
 }
 
