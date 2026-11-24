@@ -119,7 +119,7 @@ fun QueueBottomSheet(
     }
     val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
     val appColors = PlayerGlassPopupColors
-    val hasArtwork = LocalPlayerPopupArtwork.current != null
+    val glassEnabled = LocalDynamicGlassEnabled.current
 
     PlayerPopupTheme(appColors) {
         val sheetContent: @Composable () -> Unit = {
@@ -184,7 +184,7 @@ fun QueueBottomSheet(
                         .clickable { onToggleAutoplay() },
                     color = if (isAutoplayEnabled) {
                         playerPopupHighlight(0.16f)
-                    } else if (hasArtwork) {
+                    } else if (glassEnabled) {
                         playerPopupHighlight(0.06f)
                     } else {
                         appColors.cardBackgroundElevated
@@ -317,7 +317,7 @@ fun QueueBottomSheet(
                                         playerPopupHighlight(0.18f)
                                     } else if (isUpNext) {
                                         playerPopupHighlight(0.08f)
-                                    } else if (hasArtwork) {
+                                    } else if (glassEnabled) {
                                         playerPopupHighlight(0.06f)
                                     } else {
                                         appColors.cardBackgroundElevated
@@ -404,7 +404,7 @@ fun QueueBottomSheet(
                                     } else if (isUpcomingAutoplay && isAutoplayEnabled) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Surface(
-                                            color = if (hasArtwork) playerPopupHighlight(0.12f)
+                                            color = if (glassEnabled) playerPopupHighlight(0.12f)
                                                 else appColors.cardBorder.copy(alpha = 0.5f),
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
@@ -498,7 +498,7 @@ fun QueueBottomSheet(
                     scaleX = .98f + .02f * revealed
                     transformOrigin = TransformOrigin(.5f, 1f)
                 }
-                .testTag("queue_bottom_sheet").background(playerPopupSurfaceColor(), sheetShape).playerPopupArtwork(sheetShape)
+                .testTag("queue_bottom_sheet").background(playerPopupSurfaceColor(), sheetShape).playerPopupGlass(sheetShape)
                 .windowInsetsPadding(BottomSheetDefaults.windowInsets)) {
                 Box(Modifier.align(Alignment.CenterHorizontally).semantics {
                     dismiss("Dismiss queue") {

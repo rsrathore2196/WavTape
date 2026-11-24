@@ -270,7 +270,7 @@ fun SoundOutputDeviceDialog(
                             fallbackScale = { .96f }, fallbackSlide = 24.dp)
                         .shadow(24.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.24f))
                         .clip(dialogShape)
-                        .playerPopupArtwork(dialogShape)
+                        .playerPopupGlass(dialogShape)
                         .pointerInput(Unit) { detectTapGestures { /* Keep taps inside the dialog. */ } }
                         .testTag("sound_output_devices_dialog")
                 ) {

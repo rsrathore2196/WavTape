@@ -143,7 +143,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
         val shape = RoundedCornerShape(26.dp)
         Surface(shape = shape, color = playerPopupSurfaceColor(), tonalElevation = 0.dp, shadowElevation = 0.dp,
             modifier = modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = height)
-                .testTag("signal_path_popup").playerPopupArtwork(shape)) {
+                .testTag("signal_path_popup").playerPopupGlass(shape)) {
             Column {
                 Box(Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 19.dp),

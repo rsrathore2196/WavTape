@@ -707,9 +707,9 @@ fun ExpandedPlayerScreen(
     )
 
     val playerBackdrop = rememberLiquidGlassBackdrop()
-    val popupArtwork = cachedColors?.colorField.takeIf { LocalDynamicGlassEnabled.current && appColors.dynamicAlbumGlow }
+    val popupBackdrop = rememberPlayerPopupBackdrop()
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
-        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork) {
+        LocalPlayerPopupColors provides themeColors, LocalPlayerPopupBackdrop provides popupBackdrop) {
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -729,7 +729,7 @@ fun ExpandedPlayerScreen(
         color = if (appColors.isAmoled) Color(0xFF000000) else appColors.scaffoldBackground // 100% OPAQUE base inheriting Canvas Color
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().playerPopupBackdropSource(popupBackdrop),
             contentAlignment = Alignment.TopCenter
         ) {
             PlayerGlassBackground(
@@ -2959,7 +2959,6 @@ private fun PlayerOptionsMenu(
                 .testTag("player_options_popup")
                 .widthIn(min = 220.dp)
                 .clip(menuShape)
-                .playerPopupArtwork(menuShape)
                 .padding(vertical = 4.dp, horizontal = 4.dp)
         ) {
             val itemIconBg = appColors.cardBorder.copy(alpha = 0.35f)

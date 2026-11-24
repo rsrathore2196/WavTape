@@ -104,6 +104,18 @@ object SmartCacheManager {
 
     internal fun audioBudget(quota: Long): Long = normalizeQuota(quota) - ARTWORK_CACHE_MAX_BYTES
 
+    internal fun optimizationMediaLimit(quota: Long, mediaBytes: Long, totalSpace: Long, usableSpace: Long): Long {
+        // Leave headroom below the warning threshold, even when automatic quota eviction has not started.
+        val quotaTarget = if (mediaBytes >= quota * 85L / 100L) quota * 3L / 4L else quota
+        if (totalSpace <= 0L || usableSpace > totalSpace / 10L) return quotaTarget
+        // This only trims WavTape's disposable media cache. Reclaim a quarter at most per pass
+        // unless the device also needs a small absolute reserve for ordinary app writes.
+        val shortfall = (totalSpace / 8L - usableSpace).coerceAtLeast(0L)
+        val minimumReserve = (256L * 1024 * 1024 - usableSpace).coerceAtLeast(0L)
+        val reclaim = minOf(shortfall, maxOf(mediaBytes / 4L, minimumReserve))
+        return minOf(quotaTarget, (mediaBytes - reclaim).coerceAtLeast(0L))
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + AppDispatchers.Io)
     private val maintenanceMutex = Mutex()
     private suspend fun <T> maintainCache(action: suspend () -> T): T = withContext(AppDispatchers.Io) {
@@ -283,11 +295,15 @@ object SmartCacheManager {
     }
 
     /** Audio pressure must not wipe every cover before audio itself is trimmed. */
-    private suspend fun enforceMediaQuota(context: Context, configuredQuota: Long): Long {
-        val quota = configuredQuota.coerceAtLeast(0L)
+    private suspend fun enforceMediaQuota(context: Context, configuredQuota: Long, optimize: Boolean = false): Long {
         val audioOwner = MusicCache.getSimpleCache(context)
         val images = calculateImageCacheBytes(context)
-        if (audioOwner.cacheSpace + images <= quota) return 0L
+        val mediaBytes = audioOwner.cacheSpace + images
+        val quota = if (optimize) {
+            val volume = context.noBackupFilesDir
+            optimizationMediaLimit(configuredQuota, mediaBytes, volume.totalSpace, volume.usableSpace)
+        } else configuredQuota.coerceAtLeast(0L)
+        if (mediaBytes <= quota) return 0L
         val artworkReserve = minOf(images, quota / 3, ARTWORK_CACHE_MAX_BYTES)
         var freed = 0L
         val audioTarget = quota - artworkReserve
@@ -365,20 +381,16 @@ object SmartCacheManager {
                 }
             }
 
-            // 2. Prune complete HTTP entries through OkHttp's journal-aware API.
-            val httpMusicCache = File(ctx.cacheDir, "http_music_cache")
-            if (httpMusicCache.exists()) {
-                freed += OnlineMusicApiService.trimNetworkCache((OnlineMusicApiService.peekNetworkCacheSize() ?: getFolderSize(httpMusicCache)) * 2 / 3)
-            }
+            // Open the existing HTTP cache through its owner, including before the first provider request.
+            freed += OnlineMusicApiService.optimizeExistingNetworkCache(ctx)
 
-            // 3/4. Preserve reusable covers unless the actual media quota is exceeded.
-            val quota = configuredQuota(ctx)
-            freed += enforceMediaQuota(ctx, quota)
+            freed += enforceMediaQuota(ctx, configuredQuota(ctx), optimize = true)
 
             // 5. Clear stale metadata cache & in-memory search tokens
             repositoryRef?.clearSearchCache()
 
-            refreshStats()
+            // Publish the actual owner sizes before reporting completion to Settings.
+            reconcileStats(ctx)
             Pair(freed, if (freed > 0L) "Cache optimized. Freed ${formatBytes(freed)}." else "Storage already optimized. No files needed removal.")
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Log.e(TAG, "smartOptimize error: ${e.message}")
@@ -450,6 +462,7 @@ object SmartCacheManager {
     private suspend fun scanCheckpoint() {
         currentCoroutineContext().ensureActive()
         yield()
+        if (currentCoroutineContext()[com.example.performance.CriticalWork] != null) return
         BackgroundWorkCoordinator.yieldToInteraction(bypass = { !BackgroundWorkCoordinator.uiForeground.value })
     }
 

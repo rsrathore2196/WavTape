@@ -83,6 +83,15 @@ object OnlineMusicApiService {
     fun peekNetworkCacheSize(): Long? = if (httpClientDelegate.isInitialized())
         runCatching { httpClient.cache?.size() }.getOrNull() else null
 
+    internal fun optimizeExistingNetworkCache(app: Context): Long {
+        if (!httpClientDelegate.isInitialized()) {
+            if (!java.io.File(app.cacheDir, "http_music_cache").isDirectory) return 0L
+            initialize(app.applicationContext)
+        }
+        val size = peekNetworkCacheSize() ?: return 0L
+        return if (size > 0L) trimNetworkCache(size * 2L / 3L) else 0L
+    }
+
     /** Maintenance stays with OkHttp, including open responses and the disk journal. */
     fun trimNetworkCache(targetBytes: Long): Long {
         if (!httpClientDelegate.isInitialized()) return 0L

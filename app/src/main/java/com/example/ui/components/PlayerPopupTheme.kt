@@ -1,38 +1,59 @@
 package com.example.ui.components
 
-import android.graphics.Bitmap
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.colorspace.ColorSpaces
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.example.ui.components.backdrop.BackdropEffectScope
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.theme.DarkAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.resolveColorScheme
-import com.example.ui.util.ArtworkColorField
-import kotlin.math.roundToInt
+import com.example.ui.components.backdrop.backdrops.LayerBackdrop
+import com.example.ui.components.backdrop.backdrops.layerBackdrop
+import com.example.ui.components.backdrop.backdrops.rememberLayerBackdrop
+import com.example.ui.components.backdrop.drawBackdrop
+import com.example.ui.components.backdrop.effects.blur
+import com.example.ui.components.backdrop.effects.colorControls
 
-// Settings-style dialogs use the app palette. Artwork panels share one player palette.
+// Settings-style dialogs use the app palette. Player glass reads the player window underneath.
 internal val LocalPlayerPopupColors = compositionLocalOf<AppThemeColors?> { null }
-internal val LocalPlayerPopupArtwork = compositionLocalOf<ArtworkColorField?> { null }
+internal val LocalPlayerPopupBackdrop = compositionLocalOf<PlayerPopupBackdrop?> { null }
+
+internal class PlayerPopupBackdrop(val layer: LayerBackdrop) {
+    private var readers by mutableIntStateOf(0)
+    val inUse: Boolean get() = readers > 0
+    fun addReader() { readers++ }
+    fun removeReader() { readers-- }
+}
+
+@Composable
+internal fun rememberPlayerPopupBackdrop(): PlayerPopupBackdrop {
+    val layer = rememberLayerBackdrop(screenCoordinates = true)
+    return remember(layer) { PlayerPopupBackdrop(layer) }
+}
+
+@Composable
+internal fun Modifier.playerPopupBackdropSource(backdrop: PlayerPopupBackdrop): Modifier =
+    if (backdrop.inUse) layerBackdrop(backdrop.layer) else this
+
 internal val PlayerGlassPopupColors by lazy {
     playerPopupColors(DarkAppColors.copy(primaryAccent = Color.White, secondaryAccent = Color.White))
         .copy(textSecondary = Color(0xFFFAFAFA), textMuted = Color(0xFFF5F5F5))
@@ -40,14 +61,14 @@ internal val PlayerGlassPopupColors by lazy {
 
 @Composable
 internal fun playerPopupSurfaceColor(): Color =
-    if (LocalPlayerPopupArtwork.current == null) PlayerGlassPopupColors.cardBackground else Color.Transparent
+    if (LocalDynamicGlassEnabled.current) Color.Transparent else PlayerGlassPopupColors.cardBackground
 
-/** Keep the highlight visible without washing out the labels on bright cover art. */
+/** Keep inset highlights subtle over the live glass. */
 @Composable
 internal fun playerPopupHighlight(alpha: Float): Color =
-    Color.White.copy(alpha = if (LocalPlayerPopupArtwork.current == null) alpha else alpha * .25f)
+    Color.White.copy(alpha = if (LocalDynamicGlassEnabled.current) alpha * .25f else alpha)
 
-/** Frost an inset over the artwork already drawn by its parent panel. */
+/** Frost an inset over the glass drawn by its parent panel. */
 @Composable
 internal fun Modifier.playerPopupInsetGlass(shape: Shape, emphasized: Boolean = false): Modifier {
     val sheen = remember(emphasized) {
@@ -65,41 +86,38 @@ internal fun Modifier.playerPopupInsetGlass(shape: Shape, emphasized: Boolean = 
     return background(sheen, shape).border(.8.dp, rim, shape)
 }
 
-/** Dialog and sheet windows have separate render trees. Reuse the player's already-blurred cover texture. */
+/** Frost the actual player behind this panel. Foreground controls stay sharp. */
 @Composable
-internal fun Modifier.playerPopupArtwork(shape: Shape): Modifier {
-    val field = LocalPlayerPopupArtwork.current ?: return this
-    val texture = remember(field) {
-        val pixels = IntArray(field.pixels.size) { contrastSafePopupPixel(field.pixels[it]) }
-        Bitmap.createBitmap(pixels, field.width, field.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+internal fun Modifier.playerPopupGlass(shape: Shape): Modifier {
+    if (!LocalDynamicGlassEnabled.current) return this
+    val profile = LocalLiquidGlassProfile.current
+    val scale = profile.backdropSampleScale
+    val radius = with(LocalDensity.current) { profile.blurRadius(24.dp, false).toPx() } * scale
+    val scene = LocalPlayerPopupBackdrop.current.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && radius > 0f }
+    if (scene != null) DisposableEffect(scene) {
+        scene.addReader()
+        onDispose { scene.removeReader() }
     }
     val rim = remember {
         Brush.linearGradient(listOf(Color.White.copy(alpha = .49f),
             Color.White.copy(alpha = .08f), Color.White.copy(alpha = .22f)))
     }
-    return clip(shape).drawWithCache {
-        val sheen = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = .024f), .28f to Color.Transparent, 1f to Color.Transparent
-        )
-        val panel = IntSize(size.width.roundToInt(), size.height.roundToInt())
-        onDrawBehind {
-            drawImage(texture, dstSize = panel, filterQuality = FilterQuality.Medium)
-            drawRect(sheen)
+    val sheen = remember {
+        Brush.verticalGradient(0f to Color.White.copy(alpha = .024f), .28f to Color.Transparent)
+    }
+    val sampledBackdrop = if (scene != null) {
+        val outline = remember(shape) { { shape } }
+        val effects: BackdropEffectScope.() -> Unit = remember(radius) {
+            { blur(radius); colorControls(saturation = 0f) }
         }
-    }.border(.8.dp, rim, shape)
-}
-
-private fun contrastSafePopupPixel(pixel: Int): Int {
-    val color = Color(pixel)
-    val luminance = color.luminance()
-    val excess = luminance - .12f
-    if (excess <= 0f) return pixel
-    // Compress bright texels in linear light, preserving their hue and every darker texel.
-    val headroom = .029f
-    val scale = (.12f + headroom * excess / (headroom + excess)) / luminance
-    val linear = color.convert(ColorSpaces.LinearSrgb)
-    return Color(linear.red * scale, linear.green * scale, linear.blue * scale,
-        colorSpace = ColorSpaces.LinearSrgb).toArgb()
+        Modifier.drawBackdrop(backdrop = scene.layer, shape = outline, backdropScale = scale,
+            effects = effects, highlight = null, shadow = null)
+    } else Modifier
+    // A neutral transparent fill keeps the original white labels legible on bright artwork or controls.
+    return clip(shape).then(sampledBackdrop)
+        .background(Color.Black.copy(alpha = .58f))
+        .background(sheen)
+        .border(.8.dp, rim, shape)
 }
 
 internal fun playerPopupColors(source: AppThemeColors): AppThemeColors {

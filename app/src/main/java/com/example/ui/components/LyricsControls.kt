@@ -205,10 +205,10 @@ fun LyricsTextSizePopup(
                     .padding(20.dp)
                     .then(motion)
                     .testTag("lyrics_text_size_popup")
-                    .playerPopupArtwork(shape),
+                    .playerPopupGlass(shape),
                 shape = shape,
                 color = panelColor,
-                // The artwork owns the surface and rim. An elevated transparent Surface can shade the glass itself.
+                // The glass owns the surface and rim. An elevated transparent Surface can shade the glass itself.
                 shadowElevation = if (panelColor == Color.Transparent) 0.dp else 20.dp
             ) {
                 Column(
@@ -310,7 +310,7 @@ fun LyricsProviderSelectionPopup(
                     .padding(20.dp)
                     .then(motion)
                     .testTag("lyrics_provider_popup")
-                    .then(if (usePlayerTheme) Modifier.playerPopupArtwork(shape) else Modifier),
+                    .then(if (usePlayerTheme) Modifier.playerPopupGlass(shape) else Modifier),
                 shape = shape,
                 color = panelColor,
                 border = if (usePlayerTheme) null else BorderStroke(1.2.dp, appColors.cardBorder.copy(alpha = if (appColors.isDark) 0.5f else 0.7f)),

@@ -183,7 +183,7 @@ internal fun PlayerOptionsDropdown(
                 scaleY = scale.value
                 alpha = opacity.value
                 transformOrigin = pivot.value
-            },
+            }.playerPopupGlass(shape),
             shape = shape,
             color = playerPopupSurfaceColor()
         ) {

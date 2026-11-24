@@ -35,17 +35,19 @@ private val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
 @Composable
 fun rememberLayerBackdrop(
     graphicsLayer: GraphicsLayer = rememberGraphicsLayer(),
+    screenCoordinates: Boolean = false,
     onDraw: ContentDrawScope.() -> Unit = DefaultOnDraw
 ): LayerBackdrop {
-    return remember(graphicsLayer, onDraw) {
-        LayerBackdrop(graphicsLayer, onDraw)
+    return remember(graphicsLayer, screenCoordinates, onDraw) {
+        LayerBackdrop(graphicsLayer, onDraw, screenCoordinates)
     }
 }
 
 @Stable
 class LayerBackdrop internal constructor(
     val graphicsLayer: GraphicsLayer,
-    internal val onDraw: ContentDrawScope.() -> Unit
+    internal val onDraw: ContentDrawScope.() -> Unit,
+    private val screenCoordinates: Boolean = false
 ) : Backdrop {
 
     override val isCoordinatesDependent: Boolean = true
@@ -62,6 +64,22 @@ class LayerBackdrop internal constructor(
     internal fun removeDrawListener(listener: () -> Unit) { drawListeners.remove(listener) }
     internal fun notifyContentChanged() { contentVersion++; drawListeners.forEach { it() } }
     private val sourceToSurface = Matrix()
+    private val screenToSurface = Matrix()
+
+    internal fun transformToSurface(coordinates: LayoutCoordinates, result: Matrix) {
+        val source = checkNotNull(layerCoordinates)
+        result.reset()
+        if (screenCoordinates) {
+            // A dialog or popup has its own local origin. Compose both transforms in screen space.
+            screenToSurface.reset()
+            coordinates.transformToScreen(screenToSurface)
+            screenToSurface.invert()
+            source.transformToScreen(result)
+            result *= screenToSurface
+        } else {
+            coordinates.transformFrom(source, result)
+        }
+    }
 
     private var inverseLayerScope: InverseLayerScope? = null
 
@@ -77,9 +95,8 @@ class LayerBackdrop internal constructor(
             // Translation alone cannot map a source through the dock's ancestor
             // scale/press/morph layers. Use the complete source-to-surface matrix,
             // retaining fractional pixels rather than snapping the sampling phase.
-            sourceToSurface.reset()
             try {
-                coordinates.transformFrom(layerCoordinates, sourceToSurface)
+                transformToSurface(coordinates, sourceToSurface)
             } catch (_: Exception) {
                 // Separate window/lookahead coordinate trees keep the previous
                 // window-position fallback instead of breaking their controls.

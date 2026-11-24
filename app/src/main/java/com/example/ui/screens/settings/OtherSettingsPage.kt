@@ -465,14 +465,15 @@ fun OtherSettingsPage(
                             isOptimizingCache = true
                             cacheClearedMessage = false
                             coroutineScope.launch {
-                                kotlinx.coroutines.delay(500)
-                                val result = SmartCacheManager.smartOptimize(context)
-                                SmartCacheManager.refreshStats()
-                                isOptimizingCache = false
-                                cacheFeedbackText = result.second
-                                cacheClearedMessage = true
-                                com.example.util.AppHaptics.performTap(context)
-                                android.widget.Toast.makeText(context, result.second, android.widget.Toast.LENGTH_SHORT).show()
+                                try {
+                                    val (_, message) = SmartCacheManager.smartOptimize(context)
+                                    cacheFeedbackText = message
+                                    cacheClearedMessage = true
+                                    com.example.util.AppHaptics.performTap(context)
+                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isOptimizingCache = false
+                                }
                             }
                         },
                         shape = RoundedCornerShape(10.dp),

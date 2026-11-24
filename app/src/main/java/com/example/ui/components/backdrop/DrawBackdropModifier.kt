@@ -363,8 +363,7 @@ private class DrawBackdropNode(
         // still recorded once, and source-only changes reuse the effect chain.
         val cacheable = source != null && layerBlock == null && onDrawBackdrop === DefaultOnDrawBackdrop &&
             try {
-                samplingTransform.reset()
-                coordinates.transformFrom(checkNotNull(source.layerCoordinates), samplingTransform)
+                source.transformToSurface(coordinates, samplingTransform)
                 true
             } catch (_: Exception) { false }
         if (!cacheable || !sampleCache.matches(source!!.contentVersion, raster, padding, samplingTransform.values)) {

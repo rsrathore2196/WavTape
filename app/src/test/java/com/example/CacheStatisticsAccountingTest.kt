@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.cache.CacheStats
 import com.example.data.cache.SmartCacheManager
@@ -12,8 +13,10 @@ import com.example.downloads.DownloadStatus
 import com.example.downloads.OfflineDownloads
 import com.example.downloads.OfflineJson
 import com.example.downloads.downloadKey
+import com.example.service.MusicCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -21,7 +24,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowSystemClock
 import java.io.File
+import java.io.RandomAccessFile
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -36,6 +41,56 @@ class CacheStatisticsAccountingTest {
         assertEquals(7, stats.audioTrackCount)
         assertEquals(2, stats.completeAudioTrackCount)
         assertEquals(500, stats.totalBytes)
+    }
+
+    @Test fun manualOptimizationRespondsToBothQuotaAndDevicePressure() {
+        val megabyte = 1024L * 1024L
+        val quota = 512 * megabyte
+        assertEquals(384 * megabyte, SmartCacheManager.optimizationMediaLimit(quota, 450 * megabyte,
+            64_000 * megabyte, 10_000 * megabyte))
+        assertEquals(150 * megabyte, SmartCacheManager.optimizationMediaLimit(quota, 200 * megabyte,
+            64_000 * megabyte, 6_400 * megabyte))
+        assertEquals(quota, SmartCacheManager.optimizationMediaLimit(quota, 200 * megabyte,
+            64_000 * megabyte, 10_000 * megabyte))
+    }
+
+    @Test @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun smartOptimizeReclaimsOldAudioBeforeTheQuotaAndPublishesUpdatedStats() = runBlocking(Dispatchers.IO) {
+        val owner = MusicCache::class.java.getDeclaredField("simpleCacheInstance").apply { isAccessible = true }
+        (owner.get(null) as? SimpleCache)?.release()
+        owner.set(null, null)
+        val cache = MusicCache.getSimpleCache(context)
+        val megabyte = 1024L * 1024L
+        val savedDownload = File(context.noBackupFilesDir, "offline_audio/smart-optimize-test/audio.bin").apply {
+            parentFile!!.mkdirs()
+            writeText("saved audio")
+        }
+        fun writeCacheEntry(key: String, size: Long) {
+            val hole = cache.startReadWrite(key, 0, size)
+            try {
+                val file = cache.startFile(key, 0, size)
+                RandomAccessFile(file, "rw").use { it.setLength(size) }
+                cache.commitFile(file, size)
+            } finally { cache.releaseHoleSpan(hole) }
+        }
+        try {
+            writeCacheEntry("old", 180 * megabyte)
+            ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1))
+            writeCacheEntry("recent", 260 * megabyte)
+            assertEquals(440 * megabyte, cache.cacheSpace)
+
+            val (freed, message) = withTimeout(10_000) { SmartCacheManager.smartOptimize(context) }
+            assertEquals(180 * megabyte, freed)
+            assertTrue(message.contains("Freed"))
+            assertFalse(cache.isCached("old", 0, 180 * megabyte))
+            assertTrue(cache.isCached("recent", 0, 260 * megabyte))
+            assertEquals(cache.cacheSpace, SmartCacheManager.stats.value.audioBytes)
+            assertEquals("saved audio", savedDownload.readText())
+        } finally {
+            cache.release()
+            owner.set(null, null)
+            savedDownload.parentFile!!.deleteRecursively()
+        }
     }
 
     @Test fun metadataScanDoesNotCountSeparatelyOwnedLyricsHttpArtworkOrLegacyAudioAgain() = runBlocking(Dispatchers.IO) {
