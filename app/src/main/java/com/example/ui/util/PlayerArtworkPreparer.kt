@@ -26,6 +26,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import com.example.performance.AppDispatchers
 import com.example.performance.BackgroundWorkCoordinator
+import com.example.performance.LiquidGlassDeviceCapability
 import com.example.ui.theme.AppThemeColors
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
@@ -202,7 +203,8 @@ private suspend fun cachePlayerBackdrop(context: Context, track: MusicTrack, art
     fullRequest: ImageRequest?, urgent: () -> Boolean = { false }) {
     if (!OtherSettingsPreferences.isDynamicGlassEnabled(context)) return
     val appearance = OtherSettingsPreferences.playerExperienceSettings(context)
-    if (!appearance.dynamicAlbumGlow) return
+    if (!appearance.dynamicAlbumGlow || !LiquidGlassDeviceCapability.resolveEffectiveProfile(
+            context, OtherSettingsPreferences.getLiquidGlassProfile(context)).supportsDynamicGlass) return
     val effect = appearance.playerEffect
     fun key(url: String) = playerEffectPaletteKey(playerPaletteKey(track, true, Color.White, Color.Black, url), effect)
     try {

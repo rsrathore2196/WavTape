@@ -47,6 +47,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.LyricsOffsetManager
 import com.example.data.model.MusicTrack
+import com.example.performance.LiquidGlassProfile
 import com.example.playback.*
 import com.example.ui.components.*
 import com.example.ui.theme.*
@@ -156,8 +157,11 @@ class PlayerPopupThemeUiTest {
 
     @Test fun ordinaryPopupsFollowLightModeWhilePlayerGlassStaysDark() = checkPopups(LightAppColors)
     @Test fun playerPopupsUseReadableControlsInDarkMode() = checkPopups(DarkAppColors)
-    @Test fun playerGlassUsesUntintedCoverInDarkMode() = checkPopups(DarkAppColors, withGlass = true)
-    @Test fun playerGlassUsesUntintedCoverInLightMode() = checkPopups(LightAppColors, withGlass = true)
+    @Test fun playerGlassUsesUntintedCoverInDarkMode() = checkPopups(DarkAppColors,
+        requestedGlass = true, profile = LiquidGlassProfile.PREMIUM)
+    @Test fun playerGlassUsesUntintedCoverInLightMode() = checkPopups(LightAppColors, requestedGlass = true)
+    @Test fun fastProfileUsesTheOpaquePlayerPopupSurfaces() = checkPopups(DarkAppColors,
+        requestedGlass = true, profile = LiquidGlassProfile.PERFORMANCE)
 
     private val coverColor = Color(0xFFF2BD73)
     private val coverPixels = IntArray(32 * 32) { coverColor.toArgb() }
@@ -249,7 +253,9 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    private fun checkPopups(source: AppThemeColors, withGlass: Boolean = false) {
+    private fun checkPopups(source: AppThemeColors, requestedGlass: Boolean = false,
+        profile: LiquidGlassProfile = LiquidGlassProfile.BALANCED) {
+        val withGlass = requestedGlass && profile.supportsDynamicGlass
         captureSuffix = (if (source.isDark) "-dark" else "-light") + if (withGlass) "-glass" else ""
         var popup by mutableIntStateOf(-1)
         var size by mutableIntStateOf(32)
@@ -260,8 +266,8 @@ class PlayerPopupThemeUiTest {
         val original = source.copy(primaryAccent = if (source.isDark) Color.White else Color.Yellow)
         var glassReady = false
         compose.mainClock.autoAdvance = false
-        compose.setContent { MaterialTheme {
-            val preparedArtwork = rememberPlayerPopupArtwork(artwork.popupSample.takeIf { withGlass }, playerVisible = true)
+        compose.setContent { MaterialTheme { CompositionLocalProvider(LocalLiquidGlassProfile provides profile) {
+            val preparedArtwork = rememberPlayerPopupArtwork(artwork.popupSample.takeIf { requestedGlass }, playerVisible = true)
             SideEffect { glassReady = preparedArtwork != null }
             CompositionLocalProvider(LocalAppColors provides playerAppearanceColors(original),
                 LocalPlayerPopupColors provides original, LocalArtworkRequestsActive provides false,
@@ -293,7 +299,7 @@ class PlayerPopupThemeUiTest {
                     }
                 }
             }
-        } }
+        } } }
         if (withGlass) {
             compose.mainClock.autoAdvance = true
             compose.waitUntil(5_000) { glassReady }
@@ -400,16 +406,18 @@ class PlayerPopupThemeUiTest {
         }
     }
 
-    @Test fun actualPlayerPreparesAlbumArtworkBeforeOpeningTheMenu() {
+    @Test fun actualPlayerPreparesMenuGlassAndUpdatesItWhenTheRenderProfileChanges() {
         val coveredTrack = track.copy(coverUrl = "https://lh3.googleusercontent.com/popup-cover")
         TrackPaletteCache.put(playerPreviewPaletteKey(coveredTrack), artwork)
         try {
             captureSuffix = "-actual-glass"
             var prepared = false
             var windowBackdrop: PlayerPopupBackdrop? = null
+            var profile by mutableStateOf(LiquidGlassProfile.PREMIUM)
             compose.setContent { MaterialTheme {
                 CompositionLocalProvider(LocalAppColors provides DarkAppColors.copy(dynamicAlbumGlow = true),
-                    LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false) {
+                    LocalArtworkRequestsActive provides false, LocalVisualEffectsActive provides false,
+                    LocalLiquidGlassProfile provides profile, LocalDynamicGlassEnabled provides profile.supportsDynamicGlass) {
                     ExpandedPlayerScreen(PlayerUiState(currentTrack = coveredTrack), {}, {}, {}, {}, {}, {}, {}, {}, {},
                         onAddToPlaylist = {}, queueContent = {
                             val ready = LocalPlayerPopupArtwork.current != null
@@ -427,6 +435,15 @@ class PlayerPopupThemeUiTest {
             compose.waitUntil(5_000) { windowBackdrop?.frame != null }
             assertArtworkGlass("player_options_popup", Color(PlayerWindowCopyShadow.PLAYER_FRAME_COLOR))
             assertWhitePopupText("player_options_popup", "Sleep Mode")
+            compose.runOnIdle { profile = LiquidGlassProfile.PERFORMANCE }
+            settle()
+            assertFalse(prepared)
+            assertEquals(null, windowBackdrop)
+            assertBackground("player_options_popup", Color.Black)
+            compose.runOnIdle { profile = LiquidGlassProfile.BALANCED }
+            compose.waitUntil(5_000) { prepared }
+            settle()
+            assertArtworkGlass("player_options_popup")
         } finally {
             TrackPaletteCache.clear()
         }

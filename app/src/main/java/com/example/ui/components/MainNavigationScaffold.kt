@@ -141,11 +141,12 @@ fun MainNavigationScaffold(
     val selectedPlaylistWithTracks by viewModel.selectedPlaylistTracks.collectAsStateWithLifecycle()
     val isDarkMode = LocalAppColors.current.isDark
     val importDialogOpen by viewModel.isImportDialogOpen.collectAsStateWithLifecycle()
-    val isDynamicGlassEnabled by viewModel.isDynamicGlassEnabled.collectAsStateWithLifecycle()
+    val dynamicGlassRequested by viewModel.isDynamicGlassEnabled.collectAsStateWithLifecycle()
     val liquidGlassProfileSetting by viewModel.liquidGlassProfile.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val effectiveGlassProfile = rememberEffectiveLiquidGlassProfile(liquidGlassProfileSetting)
+    val isDynamicGlassEnabled = dynamicGlassRequested && effectiveGlassProfile.supportsDynamicGlass
     val messageLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(viewModel, context, messageLifecycle) {
         messageLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -456,7 +457,7 @@ fun MainNavigationScaffold(
                                     isDarkMode = isDarkMode,
                                     themeMode = themeSelection.mode,
                                     userProfile = userProfile,
-                                    isDynamicGlassEnabled = isDynamicGlassEnabled,
+                                    isDynamicGlassEnabled = dynamicGlassRequested,
                                     onToggleDynamicGlass = { viewModel.setDynamicGlassEnabled(it) },
                                     liquidGlassProfile = liquidGlassProfileSetting,
                                     onSelectLiquidGlassProfile = { viewModel.setLiquidGlassProfile(it) },
@@ -864,7 +865,7 @@ private fun ImportDialogHost(viewModel: PlayerViewModel, isDarkMode: Boolean) {
  * Explicit user-selected profiles remain stable and do not register unnecessary observers.
  */
 @Composable
-private fun rememberEffectiveLiquidGlassProfile(
+internal fun rememberEffectiveLiquidGlassProfile(
     setting: com.example.performance.LiquidGlassProfileSetting
 ): com.example.performance.LiquidGlassProfile {
     val context = LocalContext.current

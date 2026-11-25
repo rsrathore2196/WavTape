@@ -106,6 +106,6 @@ internal class StartupSettingsCache(private val context: Context) : AutoCloseabl
     }
 
     private companion object {
-        val appearanceKeys = setOf("text_size_index", "ui_size_index", "dynamic_glass_enabled")
+        val appearanceKeys = setOf("text_size_index", "ui_size_index", "dynamic_glass_enabled", "liquid_glass_profile")
     }
 }

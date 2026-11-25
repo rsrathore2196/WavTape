@@ -160,6 +160,7 @@ private fun ThemesAppUiOverview(
     val cardBorder = appColors.cardBorder
     val accentColor = appColors.primaryAccent
     val dividerColor = appColors.dividerColor
+    val dynamicGlassAvailable = com.example.ui.components.LocalLiquidGlassProfile.current.supportsDynamicGlass
 
     val settingsContext = androidx.compose.ui.platform.LocalContext.current
     val playerExperienceFlow = remember(settingsContext) {
@@ -554,20 +555,25 @@ private fun ThemesAppUiOverview(
                             color = appColors.textPrimary
                         )
                         Text(
-                            text = "Dynamic AGSL lens distortion & backdrop blur on Mini Player and bottom bar. Toggle off for low-end hardware.",
+                            text = if (dynamicGlassAvailable) {
+                                "Live backdrop blur on the mini player, bottom bar, and player pop-ups."
+                            } else {
+                                "Paused while Fast rendering or Battery Saver is active."
+                            },
                             fontSize = 11.sp,
                             color = appColors.textMuted
                         )
                     }
                     com.example.ui.theme.AccentSwitch(
-                        checked = isDynamicGlassEnabled,
+                        checked = isDynamicGlassEnabled && dynamicGlassAvailable,
                         onCheckedChange = onToggleDynamicGlass,
+                        enabled = dynamicGlassAvailable,
                         colors = liquidGlassSwitchColors(appColors),
                         modifier = Modifier.testTag("switch_dynamic_glass")
                     )
                 }
 
-                if (isDynamicGlassEnabled) {
+                if (isDynamicGlassEnabled || !dynamicGlassAvailable) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         text = "Rendering Profile",
@@ -576,7 +582,7 @@ private fun ThemesAppUiOverview(
                         color = appColors.textPrimary
                     )
                     Text(
-                        text = "Adjust blur depth, lens refraction, and shader complexity",
+                        text = "Premium uses deeper blur and richer glass. Balanced uses lighter blur. Fast uses static surfaces.",
                         fontSize = 11.sp,
                         color = appColors.textMuted
                     )

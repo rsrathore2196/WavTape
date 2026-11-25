@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.*
+import com.example.performance.LiquidGlassProfileSetting
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -66,6 +67,16 @@ class StartupSettingsReuseTest {
             shadowOf(Looper.getMainLooper()).idle()
             assertNull(cache.peek())
             assertEquals(AppThemeMode.DARK, cache.load().themeMode)
+        }
+    }
+
+    @Test fun renderingProfileEditsInvalidateTheRetainedSettings() = runBlocking {
+        StartupSettingsCache(context).use { cache ->
+            cache.load()
+            OtherSettingsPreferences.setLiquidGlassProfile(context, LiquidGlassProfileSetting.PERFORMANCE)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(cache.peek())
+            assertEquals(LiquidGlassProfileSetting.PERFORMANCE, cache.load().liquidGlassProfile)
         }
     }
 }

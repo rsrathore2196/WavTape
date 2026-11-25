@@ -13,6 +13,7 @@ import android.view.Window
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.performance.AppDispatchers
 import com.example.performance.BackgroundWorkCoordinator
+import com.example.performance.LiquidGlassProfile
 import com.example.ui.util.blurPopupPixels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -132,19 +134,22 @@ internal class PlayerPopupBackdrop(
 
 @Composable
 internal fun rememberPlayerPopupBackdrop(enabled: Boolean): PlayerPopupBackdrop? {
-    if (!enabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+    val profile = LocalLiquidGlassProfile.current
+    if (!enabled || !profile.supportsDynamicGlass || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
     val context = LocalContext.current
     val window = remember(context) {
         generateSequence(context) { (it as? ContextWrapper)?.baseContext }.filterIsInstance<Activity>()
             .firstOrNull()?.window
     } ?: return null
     val view = LocalView.current
-    val scope = rememberCoroutineScope()
-    val profile = LocalLiquidGlassProfile.current
-    val scale = minOf(.25f, profile.backdropSampleScale)
+    // Keep the existing Premium capture budget and scale Balanced down proportionally.
+    val scale = .25f * (profile.backdropSampleScale / LiquidGlassProfile.PREMIUM.backdropSampleScale)
     val radius = with(LocalDensity.current) { (profile.blurRadius(30.dp, false).toPx() * scale).roundToInt() }
-    return remember(window, view, scope, scale, radius) {
-        PlayerPopupBackdrop(scope) { coordinates -> capturePlayerWindow(window, view, coordinates, scale, radius) }
+    return key(window, view, scale, radius) {
+        val scope = rememberCoroutineScope()
+        remember(scope) {
+            PlayerPopupBackdrop(scope) { coordinates -> capturePlayerWindow(window, view, coordinates, scale, radius) }
+        }
     }
 }
 

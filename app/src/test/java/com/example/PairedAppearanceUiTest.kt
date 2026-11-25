@@ -1,13 +1,20 @@
 package com.example
 
 import android.app.Application
+import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.os.PowerManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,10 +25,15 @@ import com.example.data.local.AppThemeMode
 import com.example.data.local.ThemePreferences
 import com.example.data.local.ThemePresets
 import com.example.data.local.ThemeSelection
+import com.example.performance.LiquidGlassDeviceCapability
+import com.example.performance.LiquidGlassProfileSetting
 import com.example.playback.AudioEffectsState
 import com.example.ui.components.LocalDynamicGlassEnabled
+import com.example.ui.components.LocalLiquidGlassProfile
 import com.example.ui.components.LocalVisualEffectsActive
+import com.example.ui.components.rememberEffectiveLiquidGlassProfile
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.settings.ThemesAppUiPage
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.util.LocalArtworkRequestsActive
 import org.junit.Assert.assertEquals
@@ -30,6 +42,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -110,5 +123,43 @@ class PairedAppearanceUiTest {
             compose.onNodeWithTag("choose_theme_preset_card").assertIsDisplayed()
             compose.onNodeWithText("Tonal Themes").assertDoesNotExist()
         }
+    }
+
+    @Test fun fastAndAutoBatterySaverSuspendGlassWithoutChangingTheSavedSwitch() {
+        var selected by mutableStateOf(LiquidGlassProfileSetting.PREMIUM)
+        var savedGlass by mutableStateOf(true)
+        val power = context.getSystemService(PowerManager::class.java)
+        shadowOf(context.getSystemService(ActivityManager::class.java)).setMemoryClass(512)
+        shadowOf(power).setIsPowerSaveMode(false)
+        val autoSupportsGlass = LiquidGlassDeviceCapability.resolveEffectiveProfile(context,
+            LiquidGlassProfileSetting.AUTO).supportsDynamicGlass
+        fun setBatterySaver(enabled: Boolean) = compose.runOnIdle {
+            shadowOf(power).setIsPowerSaveMode(enabled)
+            context.sendBroadcast(Intent(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
+        }
+        compose.setContent {
+            val profile = rememberEffectiveLiquidGlassProfile(selected)
+            CompositionLocalProvider(LocalLiquidGlassProfile provides profile,
+                LocalDynamicGlassEnabled provides (savedGlass && profile.supportsDynamicGlass)) {
+                ThemesAppUiPage(true, AppThemeMode.DARK, {}, customThemeState = selection.palette,
+                    isDynamicGlassEnabled = savedGlass, onToggleDynamicGlass = { savedGlass = it },
+                    liquidGlassProfile = selected, onSelectLiquidGlassProfile = { selected = it })
+            }
+        }
+        val glass = compose.onNodeWithTag("switch_dynamic_glass")
+        glass.performScrollTo().assertIsEnabled().assertIsOn()
+        compose.onNodeWithText("Fast").performScrollTo().performClick()
+        glass.assertIsNotEnabled().assertIsOff()
+        compose.onNodeWithText("Auto").performScrollTo().performClick()
+        if (autoSupportsGlass) glass.assertIsEnabled().assertIsOn()
+        setBatterySaver(true)
+        glass.assertIsNotEnabled().assertIsOff()
+        setBatterySaver(false)
+        if (autoSupportsGlass) glass.assertIsEnabled().assertIsOn()
+        setBatterySaver(true)
+        compose.onNodeWithText("Balanced").performScrollTo().performClick()
+        glass.assertIsEnabled().assertIsOn()
+        setBatterySaver(false)
+        glass.assertIsEnabled().assertIsOn()
     }
 }

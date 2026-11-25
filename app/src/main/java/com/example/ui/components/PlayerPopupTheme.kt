@@ -62,6 +62,7 @@ internal class PlayerPopupArtwork(val texture: ImageBitmap, val needsForegroundC
 @Composable
 internal fun rememberPlayerPopupArtwork(sample: PlayerArtworkSample?, playerVisible: Boolean): PlayerPopupArtwork? {
     val profile = LocalLiquidGlassProfile.current
+    if (!profile.supportsDynamicGlass) return null
     val configuration = LocalConfiguration.current
     val shortSide = minOf(configuration.screenWidthDp, configuration.screenHeightDp).coerceAtLeast(240)
     val blurFraction = profile.blurRadius(30.dp, false).value / shortSide
@@ -84,25 +85,38 @@ internal val PlayerGlassPopupColors by lazy {
 }
 
 @Composable
-internal fun needsPopupForegroundContrast(): Boolean {
+private fun popupArtworkForPresentation(): PlayerPopupArtwork? {
     val artwork = LocalPlayerPopupArtwork.current
     val backdrop = LocalPlayerPopupBackdrop.current
-    return LocalDynamicGlassEnabled.current && remember(backdrop) {
-        artwork?.needsForegroundContrast == true || backdrop?.frameForPresentation()?.needsForegroundContrast == true
-    }
+    val profile = LocalLiquidGlassProfile.current
+    val openingBackdrop = remember { backdrop }
+    val openingProfile = remember { profile }
+    val openingArtwork = remember { artwork }
+    // Freeze a normal opening. If Auto replaces the renderer while the popup is open,
+    // let the matching fallback arrive without forcing the popup to close and reopen.
+    return if (backdrop !== openingBackdrop || profile != openingProfile) artwork else openingArtwork
+}
+
+@Composable
+internal fun needsPopupForegroundContrast(): Boolean {
+    val artwork = popupArtworkForPresentation()
+    val backdrop = LocalPlayerPopupBackdrop.current
+    return LocalDynamicGlassEnabled.current && (artwork?.needsForegroundContrast == true ||
+        remember(backdrop) { backdrop?.frameForPresentation()?.needsForegroundContrast == true })
 }
 
 /** Cast a short, fading shadow beneath the mark, leaving the surrounding glass as drawn. */
 @Composable
 internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): Modifier {
     if (!needsPopupForegroundContrast()) return this
+    val fullShadow = LocalLiquidGlassProfile.current.shadowElevationMultiplier >= 1f
     return drawWithCache {
         val bounds = Rect(Offset.Zero, size)
         val near = Paint().apply { colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .7f)) }
-        val far = Paint().apply { colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .22f)) }
+        val far = if (fullShadow) Paint().apply { colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .22f)) } else null
         val nearOffset = .8.dp.toPx()
         val farOffset = 1.6.dp.toPx()
-        val shadowBounds = bounds.copy(bottom = bounds.bottom + farOffset)
+        val shadowBounds = bounds.copy(bottom = bounds.bottom + if (fullShadow) farOffset else nearOffset)
         val shadowLayer = Paint()
         val removeFill = if (translucent) Paint().apply {
             blendMode = BlendMode.DstOut
@@ -112,7 +126,7 @@ internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): 
         onDrawWithContent {
             val canvas = drawContext.canvas
             if (removeFill != null) canvas.saveLayer(shadowBounds, shadowLayer)
-            translate(top = farOffset) {
+            if (far != null) translate(top = farOffset) {
                 canvas.saveLayer(bounds, far)
                 this@onDrawWithContent.drawContent()
                 canvas.restore()
@@ -135,9 +149,9 @@ internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): 
 
 @Composable
 internal fun playerPopupSurfaceColor(): Color {
-    val artwork = LocalPlayerPopupArtwork.current
+    val artwork = popupArtworkForPresentation()
     val backdrop = LocalPlayerPopupBackdrop.current
-    return if (LocalDynamicGlassEnabled.current && remember(backdrop) { artwork != null || backdrop != null }) {
+    return if (LocalDynamicGlassEnabled.current && (artwork != null || backdrop != null)) {
         Color.Transparent
     } else PlayerGlassPopupColors.cardBackground
 }
@@ -168,10 +182,9 @@ internal fun Modifier.playerPopupInsetGlass(shape: Shape, emphasized: Boolean = 
 /** The already frosted image stays in screen space as the panel moves over it. */
 @Composable
 internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = LocalPlayerPopupMotion.current): Modifier {
+    val fallback = popupArtworkForPresentation()?.texture
     if (!LocalDynamicGlassEnabled.current) return this
-    val texture = LocalPlayerPopupArtwork.current?.texture
     val backdrop = LocalPlayerPopupBackdrop.current
-    val fallback = remember(backdrop) { texture }
     if (fallback == null && backdrop == null) return this
     val frame = remember(backdrop) { backdrop?.frameForPresentation() }
     if (backdrop != null) DisposableEffect(backdrop) {

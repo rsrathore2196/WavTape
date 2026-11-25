@@ -1,6 +1,8 @@
 package com.example.performance
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import androidx.compose.ui.unit.dp
 
@@ -8,12 +10,14 @@ class LiquidGlassPerformanceProfileTest {
 
     @Test fun floatingChromeUsesItsDedicatedRadiusAndFastFill() {
         assertEquals(12.dp, LiquidGlassProfile.PREMIUM.chromeBlurRadius(header = false))
-        assertEquals(7.dp, LiquidGlassProfile.BALANCED.chromeBlurRadius(header = false))
+        assertEquals(6.dp, LiquidGlassProfile.BALANCED.chromeBlurRadius(header = false))
         assertEquals(3.dp, LiquidGlassProfile.PERFORMANCE.chromeBlurRadius(header = false))
         assertEquals(24.dp, LiquidGlassProfile.PREMIUM.chromeBlurRadius(header = true))
-        assertEquals(24.dp * .60f, LiquidGlassProfile.BALANCED.chromeBlurRadius(header = true))
+        assertEquals(12.dp, LiquidGlassProfile.BALANCED.chromeBlurRadius(header = true))
         assertEquals(6.dp, LiquidGlassProfile.PERFORMANCE.chromeBlurRadius(header = true))
-        assertEquals(12.dp, LiquidGlassProfile.BALANCED.blurRadius(20.dp, floatingDock = false))
+        assertEquals(10.dp, LiquidGlassProfile.BALANCED.blurRadius(20.dp, floatingDock = false))
+        assertEquals(30.dp, LiquidGlassProfile.PREMIUM.blurRadius(30.dp, floatingDock = false))
+        assertEquals(15.dp, LiquidGlassProfile.BALANCED.blurRadius(30.dp, floatingDock = false))
         assertEquals(.24f, LiquidGlassProfile.PREMIUM.surfaceFillAlpha(.24f, .5f, floatingDock = true))
         assertEquals(.24f, LiquidGlassProfile.BALANCED.surfaceFillAlpha(.24f, .5f, floatingDock = true))
         assertEquals(.78f, LiquidGlassProfile.PERFORMANCE.surfaceFillAlpha(.24f, .5f, floatingDock = true))
@@ -111,5 +115,8 @@ class LiquidGlassPerformanceProfileTest {
         assertEquals("Premium", LiquidGlassProfile.PREMIUM.name)
         assertEquals("Balanced", LiquidGlassProfile.BALANCED.name)
         assertEquals("Performance", LiquidGlassProfile.PERFORMANCE.name)
+        assertTrue(LiquidGlassProfile.PREMIUM.supportsDynamicGlass)
+        assertTrue(LiquidGlassProfile.BALANCED.supportsDynamicGlass)
+        assertFalse(LiquidGlassProfile.PERFORMANCE.supportsDynamicGlass)
     }
 }

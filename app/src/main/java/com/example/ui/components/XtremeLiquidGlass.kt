@@ -119,7 +119,7 @@ fun Modifier.xtremeLiquidGlassBackground(
 ): Modifier {
     val profile = LocalLiquidGlassProfile.current
     if (!enabled || !LocalDynamicGlassEnabled.current) return this
-        .shadow(elevation, shape)
+        .then(if (profile.enableShadows) Modifier.shadow(elevation, shape) else Modifier)
         .clip(shape)
         .background((baseFillColor?.takeUnless { appColors.isDark } ?: appColors.cardBackground).copy(alpha = 1f))
         .then(if (rimBrush != null) Modifier.border(BorderStroke(borderWidth, rimBrush), shape)

@@ -14,6 +14,7 @@ import com.example.data.local.OtherSettingsPreferences
 import com.example.data.local.PlayerEffect
 import com.example.data.model.MusicTrack
 import com.example.performance.BackgroundWorkCoordinator
+import com.example.performance.LiquidGlassProfileSetting
 import com.example.ui.util.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class PlayerArtworkPrefetchTest {
     @Before fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
+        OtherSettingsPreferences.setLiquidGlassProfile(ApplicationProvider.getApplicationContext<Context>(),
+            LiquidGlassProfileSetting.PREMIUM)
         BackgroundWorkCoordinator.resetForTesting()
         BackgroundWorkCoordinator.foreground(true)
         BackgroundWorkCoordinator.firstFrameRendered()

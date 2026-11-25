@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
-import android.view.Display
 import android.view.WindowManager
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
@@ -37,7 +36,8 @@ data class LiquidGlassProfile(
     val enableShadows: Boolean,
     val shadowElevationMultiplier: Float,
     val baseFillAlphaOverride: Float? = null,
-    val allowSecondaryBackdropSampling: Boolean = true
+    val allowSecondaryBackdropSampling: Boolean = true,
+    val supportsDynamicGlass: Boolean = true
 ) {
     /** Dock radii are already tuned per profile; do not multiply them twice. */
     internal fun blurRadius(requested: Dp, floatingDock: Boolean): Dp =
@@ -75,37 +75,29 @@ data class LiquidGlassProfile(
 
         /**
          * Balanced Liquid Glass rendering:
-         * - 40% reduced blur cost (0.60x radius)
-         * - 0.28f backdrop sample scale
+         * - Half the Premium blur radius, with a 6dp floating dock radius
+         * - 0.25f backdrop sample scale
          * - Single-texture lens refraction (chromatic aberration disabled, cutting texture lookups in half)
          * - Sleek linear reflections (avoiding expensive fragment Euclidean distance math)
-         * - Reduced shadow processing (0.60x elevation, no ambient shadow)
+         * - Reduced shadow processing (0.50x elevation, no ambient shadow)
          * - Preserves overall glass appearance and Liquid Glass aesthetic faithfully
          */
         val BALANCED = LiquidGlassProfile(
             name = "Balanced",
-            blurRadiusMultiplier = 0.60f,
-            floatingDockBlurRadius = 7.dp,
-            backdropSampleScale = 0.28f,
+            blurRadiusMultiplier = 0.50f,
+            floatingDockBlurRadius = 6.dp,
+            backdropSampleScale = 0.25f,
             enableLens = true,
             enableDepthEffect = false,
             enableChromaticAberration = false,
             enableRadialReflections = false,
             enableShadows = true,
-            shadowElevationMultiplier = 0.6f,
+            shadowElevationMultiplier = 0.50f,
             baseFillAlphaOverride = null,
             allowSecondaryBackdropSampling = true
         )
 
-        /**
-         * High-performance Liquid Glass rendering:
-         * - Lower-resolution backdrop processing (0.20f sample scale, ~60% fewer pixels)
-         * - Minimal blur (0.25x radius, 3dp dock)
-         * - Lens refraction and chromatic aberration disabled (no AGSL RuntimeShader pass)
-         * - Radial reflections disabled
-         * - Redundant button backdrop captures bypassed in favor of clean translucent fills
-         * - Lightweight translucent surface fills for smooth 60fps/120fps on budget hardware
-         */
+        /** Fast uses static surfaces and skips all dynamic backdrop work. */
         val PERFORMANCE = LiquidGlassProfile(
             name = "Performance",
             blurRadiusMultiplier = 0.25f,
@@ -118,7 +110,8 @@ data class LiquidGlassProfile(
             enableShadows = false,
             shadowElevationMultiplier = 0.0f,
             baseFillAlphaOverride = 0.78f,
-            allowSecondaryBackdropSampling = false
+            allowSecondaryBackdropSampling = false,
+            supportsDynamicGlass = false
         )
     }
 }
@@ -188,8 +181,7 @@ object LiquidGlassDeviceCapability {
         return selectAutomaticProfile(
             LiquidGlassDeviceCapabilities(
                 sdkInt = Build.VERSION.SDK_INT,
-                // Missing service information is treated conservatively rather than assuming
-                // that battery saver is off or the device has a large memory budget.
+                // Treat missing power information conservatively in Auto.
                 powerSaveMode = powerManager?.isPowerSaveMode ?: true,
                 lowRamDevice = activityManager?.isLowRamDevice ?: true,
                 memoryClassMb = activityManager?.memoryClass ?: 0,
