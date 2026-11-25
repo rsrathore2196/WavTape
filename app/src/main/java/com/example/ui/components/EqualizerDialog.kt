@@ -27,8 +27,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -242,15 +240,11 @@ fun EqualizerDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Slider(
+                            AppSlider(
                                 value = (effectsState.bassBoostStrength / 1000f),
                                 onValueChange = { onBassBoostChanged((it * 1000).toInt()) },
                                 enabled = effectsState.isEnabled,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = appColors.primaryAccent,
-                                    activeTrackColor = appColors.primaryAccent,
-                                    inactiveTrackColor = if (isDark) appColors.cardBorder else Color(0xFFCBD5E1)
-                                ),
+                                accent = appColors.primaryAccent,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -282,15 +276,11 @@ fun EqualizerDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Slider(
+                            AppSlider(
                                 value = (effectsState.virtualizerStrength / 1000f),
                                 onValueChange = { onVirtualizerChanged((it * 1000).toInt()) },
                                 enabled = effectsState.isEnabled,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = appColors.secondaryAccent,
-                                    activeTrackColor = appColors.secondaryAccent,
-                                    inactiveTrackColor = if (isDark) appColors.cardBorder else Color(0xFFCBD5E1)
-                                ),
+                                accent = appColors.secondaryAccent,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -353,7 +343,6 @@ private fun BandSliderRow(
     onLevelChange: (Short) -> Unit
 ) {
     val appColors = LocalAppColors.current
-    val isDark = appColors.isDark
     val rangeSpan = (band.maxLevelMb - band.minLevelMb).toFloat().coerceAtLeast(1f)
     val sliderValue = ((band.levelMb - band.minLevelMb) / rangeSpan).coerceIn(0f, 1f)
 
@@ -375,18 +364,14 @@ private fun BandSliderRow(
         )
 
         // Frequency Slider
-        Slider(
+        AppSlider(
             value = sliderValue,
             onValueChange = { fraction ->
                 val newMb = (band.minLevelMb + (fraction * rangeSpan)).toInt().toShort()
                 onLevelChange(newMb)
             },
             enabled = isEnabled,
-            colors = SliderDefaults.colors(
-                thumbColor = appColors.primaryAccent,
-                activeTrackColor = appColors.primaryAccent,
-                inactiveTrackColor = if (isDark) appColors.cardBorder else Color(0xFFCBD5E1)
-            ),
+            accent = appColors.primaryAccent,
             modifier = Modifier.weight(1f)
         )
 

@@ -67,7 +67,9 @@ data class PlayerExperienceSettings(
     val dolbyAtmos: Boolean = false,
     val fullScreenAlbumArt: Boolean = true,
     val bitPerfect: Boolean = false,
-    val playerEffect: PlayerEffect = PlayerEffect.DEFAULT
+    val playerEffect: PlayerEffect = PlayerEffect.DEFAULT,
+    val showMiniHeart: Boolean = true,
+    val showMiniNext: Boolean = true
 )
 
 enum class PlayerEffect(val storageKey: String, val label: String) {
@@ -151,6 +153,8 @@ object OtherSettingsPreferences {
     private const val KEY_HAPTICS_ENABLED = "haptics_enabled"
     private const val KEY_DYNAMIC_GLASS_ENABLED = "dynamic_glass_enabled"
     private const val KEY_LIQUID_GLASS_PROFILE = "liquid_glass_profile"
+    private const val KEY_MINI_HEART = "mini_player_show_heart"
+    private const val KEY_MINI_NEXT = "mini_player_show_next"
     private const val KEY_ALBUM_GLOW = "player_dynamic_album_glow"
     private const val KEY_PLAYER_EFFECT = "player_backdrop_effect"
     private const val KEY_HIGH_CONTRAST = "player_high_contrast_typography"
@@ -334,7 +338,9 @@ object OtherSettingsPreferences {
             dolbyAtmos = prefs.getBoolean(KEY_DOLBY_ATMOS, false),
             fullScreenAlbumArt = prefs.getBoolean(KEY_FULL_SCREEN_ALBUM_ART, true),
             bitPerfect = prefs.getBoolean(KEY_BIT_PERFECT, false),
-            playerEffect = PlayerEffect.fromStored(prefs.getString(KEY_PLAYER_EFFECT, null))
+            playerEffect = PlayerEffect.fromStored(prefs.getString(KEY_PLAYER_EFFECT, null)),
+            showMiniHeart = prefs.getBoolean(KEY_MINI_HEART, true),
+            showMiniNext = prefs.getBoolean(KEY_MINI_NEXT, true)
         )
     }
 
@@ -349,7 +355,9 @@ object OtherSettingsPreferences {
             KEY_SKIP_SILENCE,
             KEY_OUTPUT_PRECISION,
             KEY_BIT_PERFECT,
-            KEY_FULL_SCREEN_ALBUM_ART
+            KEY_FULL_SCREEN_ALBUM_ART,
+            KEY_MINI_HEART,
+            KEY_MINI_NEXT
         )
         return callbackFlow {
             val app = context.applicationContext
@@ -372,6 +380,14 @@ object OtherSettingsPreferences {
 
     fun setDynamicAlbumGlow(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_ALBUM_GLOW, enabled).apply()
+    }
+
+    fun setMiniHeartVisible(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_MINI_HEART, enabled).apply()
+    }
+
+    fun setMiniNextVisible(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_MINI_NEXT, enabled).apply()
     }
 
     fun setPlayerEffect(context: Context, effect: PlayerEffect) {

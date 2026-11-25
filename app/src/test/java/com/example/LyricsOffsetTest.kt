@@ -21,6 +21,13 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class LyricsOffsetTest {
+    @Test fun acceptsOffsetsToTenSecondsInBothDirections() {
+        LyricsOffsetManager.updateCurrentOffset(context, "long-delay", 11_000)
+        LyricsOffsetManager.updateCurrentOffset(context, null, -11_000, applyToAll = true)
+        assertEquals(10_000, LyricsOffsetManager.getEffectiveOffset(context, "long-delay"))
+        assertEquals(-10_000, LyricsOffsetManager.getEffectiveOffset(context, "other"))
+    }
+
     private lateinit var context: Context
 
     @Before

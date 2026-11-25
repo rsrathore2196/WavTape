@@ -118,6 +118,11 @@ class OfflineDownloads internal constructor(
 
     private suspend fun loadLedger() = lock.withLock { loadLocked() }
 
+    internal suspend fun readPreferences(): DownloadPreferences = withContext(com.example.performance.AppDispatchers.Io) {
+        loadLedger()
+        _preferences.value
+    }
+
     private suspend fun reconcileQueue() {
         for (record in records.value.values) {
             if (record.status !in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)) continue

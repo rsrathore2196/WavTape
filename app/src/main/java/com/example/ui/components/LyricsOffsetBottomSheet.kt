@@ -32,8 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -322,7 +320,7 @@ fun LyricsOffsetBottomSheet(
                             }
 
                             // Slider
-                            Slider(
+                            AppSlider(
                                 value = sliderFraction,
                                 onValueChange = { fraction ->
                                     sliderFraction = fraction
@@ -331,11 +329,7 @@ fun LyricsOffsetBottomSheet(
                                     val stepped = (raw / LyricsOffsetManager.STEP_MS).roundToInt() * LyricsOffsetManager.STEP_MS
                                     LyricsOffsetManager.updateCurrentOffset(context, track.id, stepped, applyToAll)
                                 },
-                                colors = SliderDefaults.colors(
-                                    thumbColor = appColors.primaryAccent,
-                                    activeTrackColor = appColors.primaryAccent,
-                                    inactiveTrackColor = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.10f)
-                                ),
+                                accent = appColors.primaryAccent,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("lyrics_offset_slider")

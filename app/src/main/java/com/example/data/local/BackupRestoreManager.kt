@@ -19,6 +19,8 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
@@ -30,6 +32,9 @@ import java.util.Date
 import java.util.Locale
 
 object BackupRestoreManager {
+    private const val BACKUP_SCHEMA = 8
+    private val restoredSettingsEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    internal val restoredSettings = restoredSettingsEvents.asSharedFlow()
     private const val PREFS_NAME = "xtreme_backup_preferences"
     private const val KEY_AUTO_BACKUP_ENABLED = "auto_backup_enabled"
     private const val KEY_AUTO_BACKUP_LOCATION = "auto_backup_location"
@@ -417,7 +422,7 @@ object BackupRestoreManager {
             val rootJson = JSONObject()
             rootJson.put("app", "WavTape")
             rootJson.put("version", com.example.BuildConfig.VERSION_NAME)
-            rootJson.put("schemaVersion", 7)
+            rootJson.put("schemaVersion", BACKUP_SCHEMA)
             rootJson.put("settings", BackupSettings.encode(settings))
             rootJson.put("listeningStats", ListeningStatsBackup.encode(listeningTotals))
             rootJson.put("listeningIdentityMigrations", ListeningStatsBackup.encodeMigrations(listeningMigrations))
@@ -557,7 +562,8 @@ object BackupRestoreManager {
         val settings: Map<String, Map<String, Any>> = emptyMap(),
         val listeningHistory: ListeningHistoryBackup? = null,
         val hasListeningStats: Boolean = false,
-        val avatarImage: ByteArray? = null
+        val avatarImage: ByteArray? = null,
+        val replaceMissingSettings: Boolean = false
     )
 
     private fun normalizeText(text: String): String =
@@ -651,7 +657,7 @@ object BackupRestoreManager {
         val root = JSONObject(text)
         if (root.has("app")) require(isSupportedBackupApp(stringField(root, "app"))) { "Not a WavTape backup" }
         val schema = longField(root, "schemaVersion", 1L)
-        require(schema in 1L..7L) { "Unsupported backup schema version: $schema" }
+        require(schema in 1L..BACKUP_SCHEMA.toLong()) { "Unsupported backup schema version: $schema" }
         require(listOf("playlists", "libraryTracks", "tracks", "favoriteTracks", "userProfile", "listeningStats").any(root::has)) {
             "No backup data found"
         }
@@ -751,7 +757,8 @@ object BackupRestoreManager {
         return ParsedBackup(playlists, tracks, validParentRefs, profile, root.has("playlists"), refs.size - validParentRefs.size,
             if (root.has("listeningStats")) ListeningStatsBackup.decode(root.getJSONArray("listeningStats")) else emptyList(),
             if (root.has("listeningIdentityMigrations")) ListeningStatsBackup.decodeMigrations(root.getJSONArray("listeningIdentityMigrations")) else emptyList(),
-            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history, root.has("listeningStats"), avatarImage)
+            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history, root.has("listeningStats"), avatarImage,
+            replaceMissingSettings = schema >= 8)
     }
 
     private fun restoredProfile(json: JSONObject, previous: UserProfile): UserProfile = previous.copy(
@@ -943,7 +950,7 @@ object BackupRestoreManager {
                         verifiedListeningRows = musicDatabase.listeningStatsDao().count()
                         if (backup.settings.isNotEmpty()) {
                             settingsWriteAttempted = true
-                            BackupSettings.write(context, backup.settings)
+                            BackupSettings.write(context, backup.settings, replaceMissing = backup.replaceMissingSettings)
                         }
                         profile?.let {
                             profileWriteAttempted = true
@@ -959,11 +966,12 @@ object BackupRestoreManager {
                         check(UserProfilePreferences.persistUserProfile(context, profile)) { "Could not finish restored onboarding" }
                     }
                     com.example.data.repository.ListeningStatsRepository.invalidateDatabase(musicDatabase)
-                    BackupSettings.publish(context, backup.settings)
                     profile?.let {
                         UserProfilePreferences.publishUserProfile(it)
                         AvatarImageStore.retirePrevious(context, beforeProfile.avatarUri, it.avatarUri)
                     }
+                    BackupSettings.publish(context, backup.settings)
+                    if (!finishOnboarding) restoredSettingsEvents.tryEmit(Unit)
                     restoredCount
                 }
                 android.util.Log.i("BackupRestoreManager", "Listening restore: statsPresent=${backup.hasListeningStats}, importedTotals=${backup.listeningStats.size}, databaseTotals=$verifiedListeningRows, newEvents=$restoredEventCount")

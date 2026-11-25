@@ -492,6 +492,18 @@ class PlayerViewModel(
     private val _onboardingRestore = MutableStateFlow(OnboardingRestoreState())
     val onboardingRestore: StateFlow<OnboardingRestoreState> = _onboardingRestore.asStateFlow()
 
+    private fun applyRestoredSettings(settings: com.example.data.local.StartupSettings) {
+        _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme)
+        _textScaleIndex.value = settings.textSizeIndex
+        _textScale.value = settings.textScale
+        _uiScaleIndex.value = settings.uiSizeIndex
+        _uiScale.value = settings.uiScale
+        _isDynamicGlassEnabled.value = settings.dynamicGlass
+        _liquidGlassProfile.value = settings.liquidGlassProfile
+        _isDarkMode.value = com.example.data.local.ThemePreferences.isDark(application, settings.themeMode)
+        _userProfile.value = settings.profile
+    }
+
     /** ViewModel ownership keeps the import alive across picker returns and Activity recreation. */
     fun restoreOnboardingBackup(uri: android.net.Uri) {
         if (_onboardingRestore.value.restoring || _isOnboardingCompleted.value) return
@@ -506,15 +518,7 @@ class PlayerViewModel(
                     // Read the imported snapshot, not the original first-launch settings.
                     com.example.data.local.StartupSettings.read(application)
                 }
-                _themeSelection.value = com.example.data.local.ThemeSelection(settings.themeMode, settings.customTheme)
-                _textScaleIndex.value = settings.textSizeIndex
-                _textScale.value = settings.textScale
-                _uiScaleIndex.value = settings.uiSizeIndex
-                _uiScale.value = settings.uiScale
-                _isDynamicGlassEnabled.value = settings.dynamicGlass
-                _liquidGlassProfile.value = settings.liquidGlassProfile
-                _isDarkMode.value = com.example.data.local.ThemePreferences.isDark(application, settings.themeMode)
-                _userProfile.value = settings.profile
+                applyRestoredSettings(settings)
                 _onboardingRestore.value = OnboardingRestoreState(
                     profileForDetails = settings.profile.takeUnless { it.isOnboardingCompleted })
                 // Publish last so the app's first screen uses the restored profile and appearance.
@@ -646,6 +650,12 @@ class PlayerViewModel(
     ) }
 
     init {
+        viewModelScope.launch {
+            com.example.data.local.BackupRestoreManager.restoredSettings.collect {
+                val settings = withContext(AppDispatchers.Io) { com.example.data.local.StartupSettings.read(application) }
+                applyRestoredSettings(settings)
+            }
+        }
         libraryDataScope.launch {
             combine(_preparedPlaylists.subscriptionCount, com.example.performance.BackgroundWorkCoordinator.uiForeground) { count, foreground -> count > 0 && foreground }
                 .distinctUntilChanged().flatMapLatest { active -> if (active) repository.getAllPlaylists() else emptyFlow() }

@@ -1,6 +1,7 @@
 package com.example.ui.screens.settings
 
 import com.example.R
+import com.example.ui.components.AppSlider
 
 import androidx.compose.ui.res.stringResource
 
@@ -1028,15 +1029,12 @@ internal fun CacheQuotaSlider(quotaBytes: Long, onQuotaSelected: (Long) -> Unit)
                     color = colors.primaryAccent, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                     modifier = Modifier.testTag("cache_limit_value"))
             }
-            val sliderInactiveTrackColor = if (colors.isAmoled) Color(0xFF3E4048) else if (colors.isDark) Color(0xFF34363E) else colors.cardBorder
-            androidx.compose.material3.Slider(
+            AppSlider(
                 value = selection,
                 onValueChange = { selection = it },
                 onValueChangeFinished = { onQuotaSelected(SmartCacheManager.normalizeQuota(selection.toLong() * megabyte)) },
                 valueRange = 512f..8192f,
-                colors = androidx.compose.material3.SliderDefaults.colors(
-                    thumbColor = colors.primaryAccent, activeTrackColor = colors.primaryAccent,
-                    inactiveTrackColor = sliderInactiveTrackColor),
+                accent = colors.primaryAccent,
                 modifier = Modifier.fillMaxWidth().testTag("slider_cache_quota"))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("512 MB", color = colors.textMuted, fontSize = 10.sp)

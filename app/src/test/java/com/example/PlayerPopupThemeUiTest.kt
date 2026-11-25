@@ -360,12 +360,30 @@ class PlayerPopupThemeUiTest {
                     compose.onNodeWithTag("lyrics_offset_value_text")
                         .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                     assertEquals(playerPopupColors(original).textPrimary, layouts.single().layoutInput.style.color)
+                    val offsetSlider = compose.onNodeWithTag("lyrics_offset_slider")
+                    offsetSlider.performSemanticsAction(SemanticsActions.SetProgress) { it(.005f) }
+                    settle()
+                    compose.onNodeWithTag("lyrics_offset_decrease").performClick()
+                    settle()
+                    compose.onNodeWithTag("lyrics_offset_decrease").assertIsNotEnabled()
+                    compose.onNodeWithText("-10.0 s").assertIsDisplayed()
+                    offsetSlider.performSemanticsAction(SemanticsActions.SetProgress) { it(.995f) }
+                    settle()
+                    compose.onNodeWithTag("lyrics_offset_increase").performClick()
+                    settle()
+                    compose.onNodeWithTag("lyrics_offset_increase").assertIsNotEnabled()
+                    compose.onNodeWithText("+10.0 s").assertIsDisplayed()
+                    offsetSlider.performSemanticsAction(SemanticsActions.SetProgress) { it(.5f) }
+                    settle()
                     compose.onNodeWithTag("lyrics_offset_apply_all").assertIsOn().performClick()
                     settle()
                     compose.onNodeWithTag("lyrics_offset_apply_all").assertIsOff()
                     assertFalse(LyricsOffsetManager.usesGlobalOffset(context, track.id))
                 }
                 7 -> {
+                    compose.onNodeWithTag("app_slider_track", useUnmergedTree = true).assertHeightIsEqualTo(16.dp)
+                    compose.onNodeWithTag("app_slider_thumb", useUnmergedTree = true)
+                        .assertWidthIsEqualTo(4.dp).assertHeightIsEqualTo(44.dp)
                     compose.onNodeWithTag("lyrics_size_slider")
                         .performSemanticsAction(SemanticsActions.SetProgress) { it(37f) }
                     settle()

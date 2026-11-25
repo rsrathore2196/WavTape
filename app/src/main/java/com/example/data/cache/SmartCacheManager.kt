@@ -426,6 +426,16 @@ object SmartCacheManager {
         } }
     }
 
+    /** Publish restored preferences without constructing or rescanning a cache. Called on IO. */
+    internal fun applyRestoredPreferences(context: Context) {
+        val prefs = com.example.data.local.ReactiveSettingsRepository.preferences(context, PREFS_NAME)
+        _stats.update { it.copy(maxQuotaBytes = configuredQuota(context),
+            autoTrimEnabled = prefs.getBoolean(KEY_SMART_AUTO_TRIM, true),
+            autoPreCacheEnabled = prefs.getBoolean(KEY_AUTO_PRECACHE, true),
+            cacheOnWifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false)) }
+        MusicCache.applyConfiguredLimit(context)
+    }
+
     fun setSmartAutoTrim(enabled: Boolean) {
         getPrefs()?.edit()?.putBoolean(KEY_SMART_AUTO_TRIM, enabled)?.apply()
         _stats.update { it.copy(autoTrimEnabled = enabled) }

@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 object LyricsOffsetManager {
-    const val MIN_LYRICS_OFFSET_MS = -5_000
-    const val MAX_LYRICS_OFFSET_MS = 5_000
+    const val MIN_LYRICS_OFFSET_MS = -10_000
+    const val MAX_LYRICS_OFFSET_MS = 10_000
     const val STEP_MS = 100
 
     private const val PREFS_NAME = "lyrics_offset_preferences"

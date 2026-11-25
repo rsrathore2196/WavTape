@@ -57,8 +57,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -91,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.data.local.ThemeExportManager
+import com.example.ui.components.AppSlider
 import com.example.data.local.AppThemePreset
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePreferences
@@ -984,15 +983,11 @@ private fun AccentColorHueDialog(
                     )
                 }
 
-                Slider(
+                AppSlider(
                     value = shadeSliderValue,
                     onValueChange = { shadeSliderValue = it },
                     valueRange = 100f..900f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = activeColor,
-                        activeTrackColor = activeColor,
-                        inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f)
-                    ),
+                    accent = activeColor,
                     modifier = Modifier.fillMaxWidth()
                 )
 

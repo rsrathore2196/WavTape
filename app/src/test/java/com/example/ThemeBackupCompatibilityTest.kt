@@ -10,6 +10,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import kotlinx.coroutines.runBlocking
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,7 +28,7 @@ class ThemeBackupCompatibilityTest {
 
     private fun setting(type: String, value: Any) = JSONObject().put("type", type).put("value", value)
 
-    @Test fun previousBackupsRestoreTheirAppearanceModeWhileDiscardingRemovedTonalOptions() {
+    @Test fun previousBackupsRestoreTheirAppearanceModeWhileDiscardingRemovedTonalOptions() = runBlocking {
         val previousTheme = JSONObject()
             .put("selected_theme_mode", setting("string", "light"))
             .put("tonal_enabled", setting("boolean", true))
@@ -44,7 +45,7 @@ class ThemeBackupCompatibilityTest {
             .all.keys.any { it.startsWith("tonal_") })
     }
 
-    @Test fun retiredOptionsStillOnTheDeviceAreExcludedFromNewBackups() {
+    @Test fun retiredOptionsStillOnTheDeviceAreExcludedFromNewBackups() = runBlocking {
         context.getSharedPreferences("xtreme_theme_prefs", Context.MODE_PRIVATE).edit()
             .putString("selected_theme_mode", "dark")
             .putBoolean("tonal_enabled", true).putInt("tonal_seed_argb", 0xFF6750A4.toInt())

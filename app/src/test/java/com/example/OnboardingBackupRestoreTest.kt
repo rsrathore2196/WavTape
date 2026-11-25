@@ -4,9 +4,19 @@ import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -43,6 +53,16 @@ class OnboardingBackupRestoreTest {
         OtherSettingsPreferences.setFullScreenAlbumArt(context, true)
         OtherSettingsPreferences.setTextSizeIndex(context, 5)
         OtherSettingsPreferences.setLyricsProvider(context, "LrcLib")
+        OtherSettingsPreferences.setHighPerformanceEnabled(context, true)
+        OtherSettingsPreferences.setPerformanceRefreshRate(context, 120)
+        OtherSettingsPreferences.setLiquidGlassProfile(context, com.example.performance.LiquidGlassProfileSetting.PERFORMANCE)
+        OtherSettingsPreferences.setMiniHeartVisible(context, false)
+        OtherSettingsPreferences.setMiniNextVisible(context, false)
+        AppLanguage.restoreSelection(context, "es")
+        val downloads = com.example.downloads.OfflineDownloads.get(context)
+        val downloadedSettings = com.example.downloads.DownloadPreferences(wifiOnly = false,
+            quality = com.example.downloads.DownloadQuality.entries.last())
+        downloads.setPreferences(downloadedSettings)
         context.getSharedPreferences("xtreme_audio_quality_prefs", 0).edit().putString("wifi_quality_ceiling", "HIGH").commit()
         context.getSharedPreferences("xtreme_playback_sources_prefs", 0).edit().putString("sources_order", "youtube,jiosaavn")
             .putBoolean("source_enabled_youtube", true).commit()
@@ -61,10 +81,13 @@ class OnboardingBackupRestoreTest {
             val file = BackupRestoreManager.createBackup(context, db).getOrThrow()
             val body = File(file.filePath).readText()
             val json = JSONObject(body)
-            assertEquals(7, json.getInt("schemaVersion"))
+            assertEquals(8, json.getInt("schemaVersion"))
             assertFalse(json.getJSONObject("settings").getJSONObject("xtreme_smart_cache_preferences").has("stats_audio"))
             assertFalse(json.getJSONObject("settings").getJSONObject("xtreme_backup_preferences").has("auto_backup_location"))
+            assertFalse(json.getJSONObject("settings").has("account_connections_secure"))
             BackupSettings.write(context, preferences.mapValues { emptyMap() })
+            downloads.setPreferences(com.example.downloads.DownloadPreferences())
+            AppLanguage.restoreSelection(context, "")
             com.example.playback.AudioEffectsManager.resetAll(enabled = false)
             UserProfilePreferences.saveUserProfile(context, UserProfile())
             val result = BackupRestoreManager.restoreBackup(context, db, rawJson = body, finishOnboarding = true)
@@ -72,10 +95,56 @@ class OnboardingBackupRestoreTest {
             assertFalse(result.needsOnboardingDetails)
             assertEquals(profile, UserProfilePreferences.getUserProfile(context))
             assertEquals(preferences, BackupSettings.read(context))
+            assertEquals("es", AppLanguage.selection(context))
+            assertEquals(downloadedSettings, downloads.preferences.value)
+            assertEquals(120, OtherSettingsPreferences.performanceSettings(context).refreshRateHz)
+            assertTrue(com.example.data.cache.SmartCacheManager.stats.value.cacheOnWifiOnly)
             assertEquals(-300, LyricsOffsetManager.getEffectiveOffset(context, "liked"))
             assertEquals(equalizer, com.example.playback.AudioEffectsManager.effectsState.value)
             assertTrue(db.musicDao().getTrackById("liked")!!.isLiked)
         } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun olderBackupPreservesPreferencesThatItDoesNotContain() = runBlocking {
+        OtherSettingsPreferences.setHighPerformanceEnabled(context, true)
+        OtherSettingsPreferences.setMiniHeartVisible(context, false)
+        val settings = mapOf("xtreme_other_settings" to mapOf<String, Any>("text_size_index" to 5))
+        val result = BackupRestoreManager.restoreBackup(context, db,
+            rawJson = legacy().put("schemaVersion", 7).put("settings", BackupSettings.encode(settings)).toString())
+        assertTrue(result.message, result.success)
+        assertTrue(OtherSettingsPreferences.performanceSettings(context).highPerformanceEnabled)
+        assertFalse(OtherSettingsPreferences.playerExperienceSettings(context).showMiniHeart)
+        assertEquals(5, OtherSettingsPreferences.getTextSizeIndex(context))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun restoreFromSettingsUpdatesAnExistingPlayerViewModel() = runBlocking<Unit> {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val repository = com.example.data.repository.MusicRepository(db.musicDao(), app)
+        val playback = com.example.playback.PlaybackManager(app, repository)
+        val store = ViewModelStore()
+        try {
+            val vm = ViewModelProvider(store, object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    com.example.ui.viewmodel.PlayerViewModel(repository, playback, app) as T
+            })[com.example.ui.viewmodel.PlayerViewModel::class.java]
+            withTimeout(5_000) { vm.settingsReady.first { it } }
+            val settings = mapOf("xtreme_theme_prefs" to mapOf("selected_theme_mode" to "light"),
+                "xtreme_other_settings" to mapOf("text_size_index" to 5, "dynamic_glass_enabled" to false,
+                    "liquid_glass_profile" to "PERFORMANCE"))
+            val result = BackupRestoreManager.restoreBackup(context, db,
+                rawJson = legacy().put("schemaVersion", 8).put("settings", BackupSettings.encode(settings)).toString())
+            assertTrue(result.message, result.success)
+            withTimeout(5_000) { vm.liquidGlassProfile.first { it == com.example.performance.LiquidGlassProfileSetting.PERFORMANCE } }
+            assertEquals(AppThemeMode.LIGHT, vm.themeSelection.value.mode)
+            assertEquals(5, vm.textScaleIndex.value)
+            assertFalse(vm.isDynamicGlassEnabled.value)
+        } finally {
+            store.clear()
+            playback.release()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun olderBackupsWithoutProfileRestoreDataButStillRequireTheDetailsPage() = runBlocking {

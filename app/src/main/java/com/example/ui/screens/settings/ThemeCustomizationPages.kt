@@ -21,8 +21,6 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import com.example.data.local.AppThemePreset
+import com.example.ui.components.AppSlider
 import com.example.data.local.CustomThemeState
 import com.example.data.local.ThemePresets
 import com.example.ui.theme.AppThemeColors
@@ -259,14 +258,9 @@ fun CustomThemingPage(state: CustomThemeState, onUpdate: (CustomThemeState) -> U
                     Text("Color depth", color = colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text("${((1f - brightness) * 100).roundToInt()}%", color = colors.textMuted, fontSize = 12.sp)
                 }
-                val vivid = remember(hue, saturation) { Color.hsv(hue % 360f, saturation, 1f) }
-                val depthBrush = remember(vivid) { Brush.horizontalGradient(listOf(vivid, Color.Black)) }
                 Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(8.dp).clip(CircleShape).background(depthBrush))
-                    Slider(value = 1f - brightness, onValueChange = { brightness = 1f - it; savedNotice = false },
-                        valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = accent,
-                            activeTrackColor = Color.Transparent, inactiveTrackColor = Color.Transparent),
-                        modifier = Modifier.semantics { contentDescription = "Accent color depth" })
+                    AppSlider(value = 1f - brightness, onValueChange = { brightness = 1f - it; savedNotice = false },
+                        accent = accent, modifier = Modifier.semantics { contentDescription = "Accent color depth" })
                 }
                 Text("A lighter or deeper shade of the same color", color = colors.textMuted, fontSize = 11.sp)
             }

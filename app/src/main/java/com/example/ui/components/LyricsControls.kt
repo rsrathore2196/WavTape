@@ -37,8 +37,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -245,18 +243,14 @@ fun LyricsTextSizePopup(
                     Spacer(Modifier.height(18.dp))
 
                     var sliderValue by remember(currentSizeSp) { mutableFloatStateOf(currentSizeSp.toFloat()) }
-                    Slider(
+                    AppSlider(
                         value = sliderValue,
                         onValueChange = { newValue ->
                             sliderValue = newValue
                             onSizeChange(newValue.roundToInt())
                         },
                         valueRange = 18f..44f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = appColors.primaryAccent,
-                            activeTrackColor = appColors.primaryAccent,
-                            inactiveTrackColor = appColors.textSecondary.copy(alpha = 0.25f)
-                        ),
+                        accent = appColors.primaryAccent,
                         modifier = Modifier.fillMaxWidth().playerPopupControlContrast(translucent = true).testTag("lyrics_size_slider")
                     )
 

@@ -17,7 +17,6 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,7 +58,6 @@ import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -81,14 +79,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -96,7 +92,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -320,7 +315,6 @@ fun SoundOutputDeviceDialog(
                             }
                         }
                         Spacer(Modifier.height(16.dp))
-                        val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
                         val volumeShape = RoundedCornerShape(16.dp)
                         Surface(shape = volumeShape, color = Color.Transparent,
                             modifier = Modifier.playerPopupInsetGlass(volumeShape).testTag("device_output_volume_panel")) {
@@ -341,7 +335,7 @@ fun SoundOutputDeviceDialog(
                                         tint = Color.White, modifier = Modifier.size(18.dp).playerPopupControlContrast()
                                     )
                                 }
-                                Slider(
+                                AppSlider(
                                     value = currentVolume.toFloat(),
                                     onValueChange = { value ->
                                         val volume = value.roundToInt().coerceIn(0, maxVolume)
@@ -351,23 +345,9 @@ fun SoundOutputDeviceDialog(
                                         }
                                     },
                                     valueRange = 0f..maxVolume.toFloat(),
-                                    thumb = {
-                                        Box(Modifier.size(12.dp).playerPopupControlContrast().background(Color.White, CircleShape)
-                                            .testTag("device_output_volume_thumb"))
-                                    },
-                                    track = { state ->
-                                        Canvas(Modifier.fillMaxWidth().height(4.dp).playerPopupControlContrast(translucent = true).testTag("device_output_volume_track")) {
-                                            val progress = (state.value / maxVolume).coerceIn(0f, 1f)
-                                            val center = size.height / 2f
-                                            drawLine(Color.White.copy(alpha = 0.3f), Offset(0f, center),
-                                                Offset(size.width, center), strokeWidth = size.height, cap = StrokeCap.Round)
-                                            if (progress > 0f) drawLine(Color.White,
-                                                Offset(if (rtl) size.width * (1f - progress) else 0f, center),
-                                                Offset(if (rtl) size.width else size.width * progress, center),
-                                                strokeWidth = size.height, cap = StrokeCap.Round)
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f).height(48.dp).testTag("device_output_volume_slider")
+                                    partTagPrefix = "device_output_volume",
+                                    modifier = Modifier.weight(1f).height(48.dp)
+                                        .playerPopupControlContrast(translucent = true).testTag("device_output_volume_slider")
                                         .semantics { contentDescription = "Output volume" }
                                 )
                                 Spacer(Modifier.width(8.dp))

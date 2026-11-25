@@ -161,8 +161,6 @@ private fun ThemesAppUiOverview(
     val accentColor = appColors.primaryAccent
     val dividerColor = appColors.dividerColor
 
-    var showMiniHeart by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
-    var showMiniNext by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     val settingsContext = androidx.compose.ui.platform.LocalContext.current
     val playerExperienceFlow = remember(settingsContext) {
         com.example.data.local.OtherSettingsPreferences.observePlayerExperience(settingsContext)
@@ -344,8 +342,8 @@ private fun ThemesAppUiOverview(
                         }
                     }
                     com.example.ui.theme.AccentSwitch(
-                        checked = showMiniHeart,
-                        onCheckedChange = { showMiniHeart = it },
+                        checked = playerExperience.showMiniHeart,
+                        onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setMiniHeartVisible(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
                         modifier = Modifier.testTag("switch_mini_player_heart")
                     )
@@ -386,8 +384,8 @@ private fun ThemesAppUiOverview(
                         }
                     }
                     com.example.ui.theme.AccentSwitch(
-                        checked = showMiniNext,
-                        onCheckedChange = { showMiniNext = it },
+                        checked = playerExperience.showMiniNext,
+                        onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setMiniNextVisible(settingsContext, it) },
                         colors = liquidGlassSwitchColors(appColors),
                         modifier = Modifier.testTag("switch_mini_player_next")
                     )

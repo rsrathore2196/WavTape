@@ -8,6 +8,8 @@ import android.content.res.Resources
 import android.os.Build
 import android.os.LocaleList
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.text.Collator
 import java.text.Normalizer
@@ -32,6 +34,8 @@ internal object AppLanguage {
     private val active = MutableStateFlow("en")
     val changes = active.asStateFlow()
     val catalogTag get() = active.value
+    private val restoredLegacyLocale = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val legacyRestores = restoredLegacyLocale.asSharedFlow()
 
     private fun legacyTag(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "").orEmpty()
@@ -129,5 +133,20 @@ internal object AppLanguage {
             activity.recreate()
         }
         refresh(activity)
+    }
+
+    /** Called after backup data commits. On older Android the host must reattach its localized context. */
+    fun restoreSelection(context: Context, tag: String) {
+        if (selection(context) == tag) return
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.getSystemService(LocaleManager::class.java).applicationLocales = LocaleList.forLanguageTags(tag)
+            refresh(context)
+        } else {
+            check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, tag).commit()) {
+                "Could not save the restored app language"
+            }
+            refresh(context)
+            restoredLegacyLocale.tryEmit(Unit)
+        }
     }
 }

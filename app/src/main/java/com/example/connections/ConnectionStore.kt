@@ -42,6 +42,13 @@ internal class ConnectionStore internal constructor(context: Context) {
     private var encrypted: android.content.SharedPreferences? = null
     private val _state = MutableStateFlow(ConnectionState())
     val state = _state.asStateFlow()
+
+    /** Load existing preferences for a headless backup without creating a connection store. */
+    internal suspend fun savedLastFmPreferences(): LastFmConnection = withContext(AppDispatchers.Io) {
+        if (!loaded && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).all.isNotEmpty()) load()
+        _state.value.lastFm
+    }
+
     suspend fun load(): Unit = withContext(AppDispatchers.Io) {
         if (loaded) return@withContext
         lock.withLock {

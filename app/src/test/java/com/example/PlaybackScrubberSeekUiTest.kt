@@ -169,7 +169,7 @@ class PlaybackScrubberSeekUiTest {
                     val strokeRows = (0 until image.height).filter { y ->
                         ((image.getRGB(image.width / 2, y) ushr 16) and 255) > 127
                     }
-                    val (stroke, lift) = with(compose.density) { 6.75.dp.toPx() to 3.875.dp.toPx() }
+                    val (stroke, lift) = with(compose.density) { 6.075.dp.toPx() to 3.5375.dp.toPx() }
                     assertEquals(stroke, strokeRows.size.toFloat(), 1f)
                     assertEquals(image.height / 2f - lift, strokeRows.average().toFloat() + .5f, 1f)
                 }
