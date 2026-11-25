@@ -15,7 +15,22 @@
 .cxx
 local.properties
 .env
-debug.keystore
+
+# Private signing materials (including encoded copies)
+*.p12
+*.p12.*
+*.pfx
+*.pfx.*
+*.jks
+*.jks.*
+*.keystore
+*.keystore.*
+keystore.properties
+signing.properties
+signing-config-data.json
+.env.signing
+.env.release-signing
+.release-signing/
 
 # AI Studio artifacts, plans, and generated assets
 .aistudio/
