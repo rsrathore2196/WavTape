@@ -10,6 +10,24 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+// The release workflow signs on a separate runner that never executes Gradle.
+val requireUnsignedReleaseOptIn by tasks.registering {
+  inputs.property("unsignedReleaseAllowed", providers.gradleProperty("wavtapeUnsignedRelease")
+    .map { it == "true" }.orElse(false))
+  doLast {
+    check(inputs.properties["unsignedReleaseAllowed"] == true) {
+      "Use the WavTape Release workflow for a signed APK. " +
+        "Set -PwavtapeUnsignedRelease=true only to build an unsigned intermediate."
+    }
+  }
+}
+
+tasks.configureEach {
+  if (name == "packageRelease" || name == "packageReleaseBundle") {
+    dependsOn(requireUnsignedReleaseOptIn)
+  }
+}
+
 android {
   namespace = "com.example"
   compileSdk {
@@ -40,13 +58,6 @@ android {
   }
 
   signingConfigs {
-    create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
-    }
     getByName("debug") {
       // Preserve existing local debug signatures; fresh checkouts use the
       // standard Android debug keystore, generated automatically by AGP.
@@ -62,11 +73,11 @@ android {
 
   buildTypes {
     release {
+      isDebuggable = false
       isCrunchPngs = false
       isMinifyEnabled = false
       isShrinkResources = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
     }
     create("benchmark") {
       initWith(getByName("release"))
