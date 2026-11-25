@@ -563,8 +563,8 @@ fun SupportDonationCard(
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    Color(0xFFFF9800),
-                                    Color(0xFFE65100)
+                                    accentColor.copy(alpha = 0.85f),
+                                    appColors.secondaryAccent.copy(alpha = 0.85f)
                                 )
                             )
                         ),
@@ -573,7 +573,7 @@ fun SupportDonationCard(
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = "Support Development",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(24.dp)
                     )
                 }
