@@ -167,7 +167,7 @@ fun WavyScrubberBar(
     val density = LocalDensity.current
     // Reserve room for the expanded thumb, its rim and ambient ring at both endpoints.
     val edgeInset = with(density) { 16.dp.toPx() }
-    val trackStrokeWidth = with(density) { 4.dp.toPx() }
+    val trackStrokeWidth = with(density) { 3.dp.toPx() }
     val waveLengthPx = with(density) { 22.dp.toPx() }
     val startFadePx = with(density) { 24.dp.toPx() }
     val endFadePx = with(density) { 20.dp.toPx() }
@@ -230,7 +230,7 @@ fun WavyScrubberBar(
         Canvas(modifier = Modifier.matchParentSize()) {
             val width = size.width
             val height = size.height
-            val centerY = height / 2f
+            val centerY = height / 2f - 2.dp.toPx()
             val thumbRadius = 7.dp.toPx() * thumbScale
             val trackStart = edgeInset.coerceAtMost(width / 2f)
             val trackWidth = (width - 2f * trackStart).coerceAtLeast(0f)

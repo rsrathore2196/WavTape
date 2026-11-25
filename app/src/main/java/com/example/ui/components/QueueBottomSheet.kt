@@ -31,7 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -320,7 +319,6 @@ fun QueueBottomSheet(
                         ) { index, track ->
                         val isCurrentlyPlaying = index == currentIdx
                         val isUpNext = !isCurrentlyPlaying && (index == currentIdx + 1 || (currentIdx == -1 && index == 0))
-                        val isUpcomingAutoplay = !isCurrentlyPlaying && !isUpNext && index > currentIdx
 
                         Row(
                             modifier = Modifier
@@ -383,46 +381,6 @@ fun QueueBottomSheet(
                                                 text = "PLAYING",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    } else if (isUpNext && isAutoplayEnabled) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            color = playerPopupHighlight(0.15f),
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.AutoAwesome,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(9.dp).playerPopupControlContrast()
-                                                )
-                                                Spacer(modifier = Modifier.width(2.dp))
-                                                Text(
-                                                    text = "RECOMMENDED NEXT",
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
-                                                )
-                                            }
-                                        }
-                                    } else if (isUpcomingAutoplay && isAutoplayEnabled) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            color = if (glassEnabled) playerPopupHighlight(0.12f)
-                                                else appColors.cardBorder.copy(alpha = 0.5f),
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "INFINITE AUTOPLAY",
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
                                                 color = Color.White,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                             )

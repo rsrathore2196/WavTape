@@ -147,6 +147,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.State
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.produceState
@@ -398,6 +399,14 @@ fun ExpandedPlayerScreen(
     val displayedQuality = uiState.qualityBadge.ifBlank { track.qualityBadge }.ifBlank { "Resolving audio" }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val seekBy: (Long) -> Unit = { offset ->
+        val duration = trackDurationProvider().takeIf { it > 0L } ?: Long.MAX_VALUE
+        val position = currentPositionProvider().coerceIn(0L, duration)
+        val target = if (offset > 0L) position + minOf(offset, duration - position)
+            else (position + offset).coerceAtLeast(0L)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onSeekTo(target)
+    }
     val themeColors = LocalAppColors.current
     val appColors = remember(themeColors) { com.example.ui.util.playerAppearanceColors(themeColors) }
     // The full player intentionally has one neutral appearance in both app color modes.
@@ -721,6 +730,8 @@ fun ExpandedPlayerScreen(
     val playerBackdrop = rememberLiquidGlassBackdrop()
     val popupBackdrop = rememberPlayerPopupBackdrop(isScreenVisible && prepareArtworkBackdrop)
     val popupArtwork = rememberPlayerPopupArtwork(cachedColors?.popupSample, isScreenVisible && prepareArtworkBackdrop)
+    val popupScene = remember(track.id, loadedCover, cachedColors?.popupSample, showLyrics, lyricsExpanded, playerEffect) { Any() }
+    SideEffect { popupBackdrop?.prepare(popupScene, canPrepare = !morphAnimating && !lyricsPresentationAnimating) }
     val popupSource = if (popupBackdrop == null) Modifier
         else Modifier.onGloballyPositioned { popupBackdrop.source = it }
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
@@ -1265,7 +1276,7 @@ fun ExpandedPlayerScreen(
                                         isActive = false,
                                         translucency = 0.82f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(onDoubleClick = { seekBy(-10_000L) }) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onSkipPrevious()
                                     }
@@ -1329,7 +1340,7 @@ fun ExpandedPlayerScreen(
                                         isActive = false,
                                         translucency = 0.82f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(onDoubleClick = { seekBy(10_000L) }) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onSkipNext()
                                     }
@@ -2174,7 +2185,7 @@ fun ExpandedPlayerScreen(
                             isActive = false,
                             translucency = 0.82f
                         )
-                        .bouncyClickable {
+                        .bouncyClickable(onDoubleClick = { seekBy(-10_000L) }) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onSkipPrevious()
                         }
@@ -2238,7 +2249,7 @@ fun ExpandedPlayerScreen(
                             isActive = false,
                             translucency = 0.82f
                         )
-                        .bouncyClickable {
+                        .bouncyClickable(onDoubleClick = { seekBy(10_000L) }) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onSkipNext()
                         }
@@ -3302,11 +3313,11 @@ private fun PlayerTimelineSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = formattedCurrentTime,
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall.copy(
                     color = timeLabelColor,
                     fontSize = 12.sp
@@ -3325,6 +3336,8 @@ private fun PlayerTimelineSection(
 
             Text(
                 text = formattedDuration,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.End,
                 style = MaterialTheme.typography.bodySmall.copy(
                     color = timeLabelColor,
                     fontSize = 12.sp

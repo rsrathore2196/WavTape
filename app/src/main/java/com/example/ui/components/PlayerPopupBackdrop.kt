@@ -35,6 +35,7 @@ import com.example.ui.util.blurPopupPixels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -48,7 +49,7 @@ internal val LocalPlayerPopupBackdrop = compositionLocalOf<PlayerPopupBackdrop?>
 internal class PlayerPopupFrame(val image: ImageBitmap, val originOnScreen: Offset, val screenSize: IntSize,
     val needsForegroundContrast: Boolean)
 
-/** The panels share one still and keep it until the last closing animation is disposed. */
+/** Warm one still outside popup transitions and hold the chosen frame for the whole presentation. */
 internal class PlayerPopupBackdrop(
     private val scope: CoroutineScope,
     private val capture: suspend (LayoutCoordinates) -> PlayerPopupFrame?
@@ -56,46 +57,74 @@ internal class PlayerPopupBackdrop(
     var source: LayoutCoordinates? = null
         set(value) {
             field = value
-            captureWhenReady()
+            prepareWhenReady()
         }
     var frame by mutableStateOf<PlayerPopupFrame?>(null)
         private set
+    private var preparedFrame: PlayerPopupFrame? = null
+    val hasPreparedFrame: Boolean get() = preparedFrame != null
     private var readers = 0
-    private var requestedSize: IntSize? = null
+    private var scene: Any? = null
+    private var canPrepare = false
+    private var preparedSize: IntSize? = null
     private var request: Job? = null
 
-    fun retain() {
-        readers++
-        captureWhenReady()
+    fun prepare(scene: Any, canPrepare: Boolean) {
+        if (this.scene !== scene) {
+            this.scene = scene
+            preparedFrame = null
+            preparedSize = null
+            cancelPreparation()
+        }
+        this.canPrepare = canPrepare
+        if (canPrepare) prepareWhenReady() else cancelPreparation()
     }
 
-    private fun captureWhenReady() {
-        if (readers == 0) return
-        val coordinates = source?.takeIf { it.isAttached } ?: return
-        val size = coordinates.size
-        if (size.width < 1 || size.height < 1 || requestedSize == size) return
-        // A resize invalidates the frame, but ordinary player redraws do not.
-        request?.cancel()
-        requestedSize = size
-        frame = null
-        request = scope.launch {
-            try {
-                frame = capture(coordinates)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                // An unavailable window buffer leaves the already prepared artwork visible.
-                android.util.Log.d("PlayerPopupBackdrop", "Player frame unavailable", error)
-            }
-        }
+    fun retain() {
+        if (++readers != 1) return
+        cancelPreparation()
+        frame = preparedFrame?.takeIf { source?.size == preparedSize }
     }
 
     fun release() {
         if (--readers != 0) return
+        frame = null
+        prepareWhenReady()
+    }
+
+    private fun cancelPreparation() {
         request?.cancel()
         request = null
-        requestedSize = null
-        frame = null
+    }
+
+    private fun prepareWhenReady() {
+        if (!canPrepare || readers != 0 || request?.isActive == true) return
+        val coordinates = source?.takeIf { it.isAttached } ?: return
+        val size = coordinates.size
+        if (size.width < 1 || size.height < 1 || preparedSize == size) return
+        request = scope.launch {
+            delay(200L) // Let the player finish drawing before reading back its window.
+            if (!coordinates.isAttached || coordinates.size != size) {
+                request = null
+                prepareWhenReady()
+                return@launch
+            }
+            val captured = try {
+                capture(coordinates)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                android.util.Log.d("PlayerPopupBackdrop", "Player frame unavailable", error)
+                null
+            }
+            request = null
+            if (source?.size == size) {
+                preparedFrame = captured
+                preparedSize = size
+            } else {
+                prepareWhenReady()
+            }
+        }
     }
 }
 
@@ -153,6 +182,7 @@ private suspend fun capturePlayerWindow(window: Window, view: View, coordinates:
         destination.getPixels(pixels, 0, width, 0, 0, width, height)
         val blurred = blurPopupPixels(pixels, width, height, radius)
         destination.setPixels(blurred, 0, width, 0, 0, width, height)
+        destination.prepareToDraw()
         PlayerPopupFrame(destination.asImageBitmap(), origin, size, blurred.any { Color(it).luminance() >= .18f })
     }
 }

@@ -221,7 +221,8 @@ internal class CrossfadeController(
     private suspend fun beginOverlap(outgoing: Player, next: Int) {
         val nextItem = player.getMediaItemAt(next)
         val nextKey = key(nextItem)
-        fun targetStillValid() = next in 0 until player.mediaItemCount && player.nextMediaItemIndex == next &&
+        fun targetStillValid() = player.repeatMode != Player.REPEAT_MODE_ONE &&
+            next in 0 until player.mediaItemCount && player.nextMediaItemIndex == next &&
             key(player.getMediaItemAt(next)) == nextKey
         // Its decoder is already primed at this position, with normal playback
         // speed. Start the prepared tail as the primary reaches the handoff,

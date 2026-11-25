@@ -165,6 +165,7 @@ internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = L
     val texture = LocalPlayerPopupArtwork.current?.texture
     val backdrop = LocalPlayerPopupBackdrop.current
     if (texture == null && backdrop == null) return this
+    val fallback = if (backdrop != null) remember(backdrop) { texture } else texture
     if (backdrop != null) DisposableEffect(backdrop) {
         backdrop.retain()
         onDispose { backdrop.release() }
@@ -184,7 +185,7 @@ internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = L
             val frame = backdrop?.frame
             if (frame != null) onMotion?.invoke()
             if (frame == null || !drawPlayerFrame(frame, coordinates)) {
-                if (texture != null) drawImage(texture, dstSize = panel, filterQuality = FilterQuality.Medium)
+                if (fallback != null) drawImage(fallback, dstSize = panel, filterQuality = FilterQuality.Medium)
                 else drawRect(PlayerGlassPopupColors.cardBackground)
             }
             drawRect(sheen)

@@ -934,6 +934,16 @@ class PlaybackManager(
         }
     }
 
+    private fun publishPlaybackModes(player: Player) {
+        _uiState.update { state ->
+            state.copy(isShuffle = player.shuffleModeEnabled, repeatMode = when (player.repeatMode) {
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                else -> RepeatMode.OFF
+            })
+        }
+    }
+
     private suspend fun setupPlayerListener() {
         val player = controller
         if (player == null) {
@@ -942,6 +952,7 @@ class PlaybackManager(
         }
 
         if (pendingSelectionId == null) synchronizeControllerQueue(player)
+        publishPlaybackModes(player)
         player.currentMediaItem?.takeIf { pendingSelectionId == null }?.let { item ->
             isCurrentSessionExplicitPlaylist = item.mediaMetadata.extras?.getBoolean("queue_collection") == true
             updateArtistRadio(item.mediaMetadata.extras?.artistRadio())
@@ -965,7 +976,11 @@ class PlaybackManager(
                     queueContentsChanged = true
             }
             override fun onEvents(player: Player, events: Player.Events) {
-                val controller = this@PlaybackManager.controller ?: return
+                val controller = this@PlaybackManager.controller?.takeIf { it === player } ?: return
+                if (events.contains(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED) || events.contains(Player.EVENT_REPEAT_MODE_CHANGED)) {
+                    publishPlaybackModes(controller)
+                    if (pendingSelectionId == null) publishQueueState()
+                }
                 if (!pendingSelectionMatches(controller.currentMediaItem)) return
                 if (events.contains(Player.EVENT_TIMELINE_CHANGED) || events.contains(Player.EVENT_MEDIA_METADATA_CHANGED))
                     adoptPreparedQueueSource(controller)
@@ -1070,7 +1085,7 @@ class PlaybackManager(
                             !completedQueueSelection(_uiState.value.currentTrack, player.currentMediaItem,
                                 player.playbackState, pendingSelectionId != null)) return@launch
                         if (autoplaySuppressedBySleepTimer) return@launch
-                        if (_uiState.value.repeatMode == RepeatMode.ONE) {
+                        if (player.repeatMode == Player.REPEAT_MODE_ONE) {
                             player.seekTo(0)
                             player.play()
                         } else if (player.hasNextMediaItem()) {
@@ -1079,9 +1094,6 @@ class PlaybackManager(
                         } else if (isCurrentSessionExplicitPlaylist && collectionContinuation != null ||
                             _uiState.value.isAutoplayEnabled) {
                             skipNext()
-                        } else if (_uiState.value.repeatMode == RepeatMode.ALL && activeQueue.isNotEmpty()) {
-                            player.seekTo(0, 0L)
-                            player.play()
                         }
                     }
                 }
@@ -1151,7 +1163,7 @@ class PlaybackManager(
                     } ?: activeQueue.indexOfFirst { it.id == trackId }.coerceAtLeast(0)
 
                     // The upcoming song in queue is the next recommended track
-                    val nextTrackInQueue = activeQueue.getOrNull(index + 1)
+                    val nextTrackInQueue = activeQueue.getOrNull(player.nextMediaItemIndex)
 
                     _uiState.update {
                         it.copy(
@@ -2039,7 +2051,7 @@ class PlaybackManager(
                 player.prepare()
                 player.play()
 
-                val nextInQueue = activeQueue.getOrNull(startIndex + 1)
+                val nextInQueue = activeQueue.getOrNull(player.nextMediaItemIndex)
 
                 positionClock.sample(0L, false)
                 _playbackPosition.value = 0L
@@ -2081,17 +2093,19 @@ class PlaybackManager(
     }
 
     private fun publishQueueState() {
-        val index = controller?.currentMediaItemIndex?.coerceAtLeast(0) ?: 0
+        val player = controller
+        val index = player?.currentMediaItemIndex?.coerceAtLeast(0) ?: 0
         val upcoming = upcomingTracks(index)
         val snapshot = queueSnapshot()
+        val next = if (player != null) snapshot.getOrNull(player.nextMediaItemIndex) else upcoming.firstOrNull()
         val current = _uiState.value
         if (current.queue === snapshot && current.currentIndex == index &&
-            current.infiniteAutoplayTracks === upcoming && current.nextRecommendedTrack == upcoming.firstOrNull()) return
+            current.infiniteAutoplayTracks === upcoming && current.nextRecommendedTrack == next) return
         _uiState.update {
             it.copy(
                 queue = snapshot,
                 currentIndex = index,
-                nextRecommendedTrack = upcoming.firstOrNull(),
+                nextRecommendedTrack = next,
                 infiniteAutoplayTracks = upcoming
             )
         }
@@ -2448,10 +2462,6 @@ class PlaybackManager(
                 advanceWhenQueueReady = true
                 _uiState.update { it.copy(isLoading = true, errorMessage = null) }
                 refreshAutoplayRecommendation(current)
-            } else if (_uiState.value.repeatMode == RepeatMode.ALL && activeQueue.isNotEmpty()) {
-                player.seekTo(0, 0L)
-                player.prepare()
-                player.play()
             }
         } catch (e: Exception) {
             advanceWhenQueueReady = false
@@ -2492,7 +2502,7 @@ class PlaybackManager(
                     Log.d(TAG, "Second press: playing previous song from history: ${prevTrack.title}")
                     playTrack(prevTrack, activeQueue.ifEmpty { listOf(prevTrack) }, isExplicitPlaylist = isCurrentSessionExplicitPlaylist,
                         isInfiniteRadio = _uiState.value.isInfiniteRadio, collectionLoader = collectionContinuation, preserveQueue = true)
-                } else if (activeQueue.size > 1 && player.currentMediaItemIndex > 0) {
+                } else if (!player.shuffleModeEnabled && activeQueue.size > 1 && player.currentMediaItemIndex > 0) {
                     player.seekTo(player.currentMediaItemIndex - 1, 0L)
                     player.play()
                 } else {
@@ -2513,10 +2523,9 @@ class PlaybackManager(
         }
 
         try {
-            val newShuffle = !_uiState.value.isShuffle
-            player.shuffleModeEnabled = newShuffle
-            _uiState.update { it.copy(isShuffle = newShuffle) }
-            Log.d(TAG, "Shuffle toggled: $newShuffle")
+            if (!player.isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE)) return
+            player.shuffleModeEnabled = !player.shuffleModeEnabled
+            publishPlaybackModes(player)
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling shuffle: ${e.message}", e)
         }
@@ -2530,19 +2539,13 @@ class PlaybackManager(
         }
 
         try {
-            val current = _uiState.value.repeatMode
-            val next = when (current) {
-                RepeatMode.OFF -> RepeatMode.ALL
-                RepeatMode.ALL -> RepeatMode.ONE
-                RepeatMode.ONE -> RepeatMode.OFF
+            if (!player.isCommandAvailable(Player.COMMAND_SET_REPEAT_MODE)) return
+            player.repeatMode = when (player.repeatMode) {
+                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+                else -> Player.REPEAT_MODE_ALL
             }
-            player.repeatMode = when (next) {
-                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-            }
-            _uiState.update { it.copy(repeatMode = next) }
-            Log.d(TAG, "Repeat mode changed to: $next")
+            publishPlaybackModes(player)
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling repeat: ${e.message}", e)
         }

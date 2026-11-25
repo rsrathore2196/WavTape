@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
@@ -832,10 +833,12 @@ private fun createLiquidGlassPill(
  * Scales down with a playful kinetic spring on touch and springs back with damping bounce.
  */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun Modifier.bouncyClickable(
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     enabled: Boolean = true,
     targetScaleOnPress: Float = 0.93f,
+    onDoubleClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ): Modifier {
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -851,13 +854,20 @@ fun Modifier.bouncyClickable(
             scaleY = scale
         }
         .then(
-            if (enabled) {
-                Modifier.clickable(
+            when {
+                !enabled -> Modifier
+                onDoubleClick != null -> Modifier.combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onDoubleClick = onDoubleClick,
+                    onClick = onClick
+                )
+                else -> Modifier.clickable(
                     interactionSource = interactionSource,
                     indication = null,
                     onClick = onClick
                 )
-            } else Modifier
+            }
         )
 }
 

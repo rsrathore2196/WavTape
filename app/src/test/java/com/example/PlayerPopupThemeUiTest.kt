@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.media.AudioDeviceInfo
 import android.os.Handler
+import android.os.Looper
 import android.view.PixelCopy
 import android.view.Window
 import androidx.compose.foundation.background
@@ -329,6 +330,9 @@ class PlayerPopupThemeUiTest {
                 assertGlassInset("pipeline_stage_icon_0")
             }
             if (index == 1) {
+                compose.onNodeWithText("RECOMMENDED NEXT").assertDoesNotExist()
+                compose.onNodeWithText("INFINITE AUTOPLAY").assertDoesNotExist()
+                compose.onNodeWithText("PLAYING").assertIsDisplayed()
                 if (withGlass) {
                     assertGlassInset("queue_track_2")
                     assertGlassInset("queue_track_3")
@@ -390,6 +394,11 @@ class PlayerPopupThemeUiTest {
             } }
             settle()
             compose.waitUntil(5_000) { prepared }
+            settle()
+            compose.waitUntil(5_000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                windowBackdrop?.hasPreparedFrame == true
+            }
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
             compose.waitUntil(5_000) { windowBackdrop?.frame != null }
@@ -418,6 +427,8 @@ class PlayerPopupThemeUiTest {
                     PlayerPopupFrame(still, source.localToScreen(Offset.Zero), source.size, needsForegroundContrast = false)
                 }
             }
+            val scene = remember(firstColor) { Any() }
+            SideEffect { backdrop.prepare(scene, canPrepare = true) }
             CompositionLocalProvider(LocalPlayerPopupBackdrop provides backdrop) {
                 Box(Modifier.fillMaxWidth(sourceWidth).fillMaxHeight().onGloballyPositioned { backdrop.source = it })
                 if (open) AnchoredPlayerPopupDialog(null, { open = false }) { _, _ ->
@@ -429,7 +440,8 @@ class PlayerPopupThemeUiTest {
             }
         }
         settle()
-        assertEquals(0, captureCount)
+        compose.waitUntil(5_000) { backdrop.hasPreparedFrame }
+        assertEquals(1, captureCount)
         compose.runOnIdle { open = true }
         settle()
 
@@ -446,13 +458,17 @@ class PlayerPopupThemeUiTest {
 
         compose.runOnIdle { open = false; horizontalShift = 0f }
         settle()
+        compose.waitUntil(5_000) { backdrop.hasPreparedFrame }
         compose.runOnIdle { assertNull(backdrop.frame); open = true }
         settle()
         assertTrue(middlePixel(.25f).green > .95f)
         assertEquals(2, captureCount)
         compose.runOnIdle { sourceWidth = .9f }
         settle()
-        assertEquals("A resize requires a single fresh frame", 3, captureCount)
+        assertEquals("A visible popup never starts a window capture", 2, captureCount)
+        compose.runOnIdle { open = false }
+        settle()
+        compose.waitUntil(5_000) { captureCount == 3 }
     }
 
     private fun boundsOnScreen(node: SemanticsNodeInteraction): Rect {

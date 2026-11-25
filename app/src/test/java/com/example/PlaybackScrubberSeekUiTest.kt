@@ -11,8 +11,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import com.example.data.model.MusicTrack
+import com.example.playback.PlayerUiState
+import com.example.ui.components.ExpandedPlayerScreen
+import com.example.ui.components.LocalDynamicGlassEnabled
 import com.example.ui.components.WavyScrubberBar
+import com.example.ui.util.LocalArtworkRequestsActive
 import com.github.takahirom.roborazzi.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -26,6 +32,67 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PlaybackScrubberSeekUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun doubleTapsSeekWithinTheTrackInPortrait() = verifyTransportTaps()
+
+    @Test @Config(qualifiers = "w891dp-h411dp-land")
+    fun doubleTapsSeekWithinTheTrackInLandscape() = verifyTransportTaps()
+
+    private fun verifyTransportTaps() {
+        val track = MusicTrack("skip", "Skip test", "Artist", "Album", 35_000L, "", "")
+        var position = 15_000L
+        var nextTracks = 0
+        var previousTracks = 0
+        val seeks = mutableListOf<Long>()
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalArtworkRequestsActive provides false, LocalDynamicGlassEnabled provides false) {
+                ExpandedPlayerScreen(PlayerUiState(currentTrack = track), onMinimize = {}, onPlayPause = {},
+                    onSeekTo = { position = it; seeks += it }, onSkipNext = { nextTracks++ },
+                    onSkipPrevious = { previousTracks++ }, onToggleShuffle = {}, onToggleRepeat = {},
+                    onToggleFavorite = {}, onOpenQueue = {}, onAddToPlaylist = {},
+                    currentPositionProvider = { position })
+            }
+        } }
+        val next = compose.onNodeWithTag("expanded_player_next")
+        val previous = compose.onNodeWithTag("expanded_player_previous")
+        repeat(2) { next.performTouchInput { doubleClick(delayMillis = 80L) } }
+        repeat(4) { previous.performTouchInput { doubleClick(delayMillis = 80L) } }
+        compose.runOnIdle {
+            assertEquals(listOf(25_000L, 35_000L, 25_000L, 15_000L, 5_000L, 0L), seeks)
+            assertEquals(0, nextTracks)
+            assertEquals(0, previousTracks)
+        }
+        next.performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(400L)
+        compose.waitUntil(5_000L) { nextTracks == 1 }
+        previous.performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(400L)
+        compose.waitUntil(5_000L) { previousTracks == 1 }
+        compose.runOnIdle {
+            assertEquals(1, nextTracks)
+            assertEquals(1, previousTracks)
+            assertEquals(6, seeks.size)
+        }
+    }
+
+    @Test fun audioQualityPillStaysCenteredAsElapsedTimeGetsWider() {
+        val track = MusicTrack("timer", "Timer test", "Artist", "Album", 720_000L, "", "")
+        val elapsed = MutableStateFlow(539_000L)
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalArtworkRequestsActive provides false, LocalDynamicGlassEnabled provides false) {
+                ExpandedPlayerScreen(PlayerUiState(currentTrack = track), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                    onAddToPlaylist = {}, playbackPositionFlow = elapsed, currentPositionProvider = { elapsed.value })
+            }
+        } }
+        val pill = compose.onNode(hasClickAction() and hasText("Resolving audio"))
+        val timeline = compose.onNodeWithTag("player_timeline_section", useUnmergedTree = true)
+        compose.onNodeWithText("8:59").assertExists()
+        val center = pill.fetchSemanticsNode().boundsInRoot.center.x
+        assertEquals(timeline.fetchSemanticsNode().boundsInRoot.center.x, center, 1f)
+        compose.runOnIdle { elapsed.value = 600_000L }
+        compose.onNodeWithText("10:00").assertExists()
+        assertEquals(center, pill.fetchSemanticsNode().boundsInRoot.center.x, 1f)
+    }
 
     @OptIn(ExperimentalRoborazziApi::class)
     @Test fun bothEndpointsKeepTheWholeThumbAndRoundTrackCapsInsideTheCanvas() {
@@ -54,6 +121,14 @@ class PlaybackScrubberSeekUiTest {
                 assertTrue("The thumb is visible even at zero progress", bright > 30)
                 assertTrue("The left cap/halo must not be cut off", left > 1)
                 assertTrue("The right cap/halo must not be cut off", right < image.width - 2)
+                if (fraction == 1f) {
+                    val strokeRows = (0 until image.height).filter { y ->
+                        ((image.getRGB(image.width / 2, y) ushr 16) and 255) > 127
+                    }
+                    val (stroke, lift) = with(compose.density) { 3.dp.toPx() to 2.dp.toPx() }
+                    assertEquals(stroke, strokeRows.size.toFloat(), 1f)
+                    assertEquals(image.height / 2f - lift, strokeRows.average().toFloat() + .5f, 1f)
+                }
             } finally { file.delete() }
         }
         scrubber.performTouchInput { click(Offset(0f, centerY)) }
