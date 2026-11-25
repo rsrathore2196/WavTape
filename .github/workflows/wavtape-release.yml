@@ -2,6 +2,11 @@ name: WavTape Release
 
 on:
   workflow_dispatch:
+    inputs:
+      bypass_lists_checked:
+        description: 'I verified in GitHub Rulesets that every active ruleset applying to release has an empty bypass list.'
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -18,6 +23,7 @@ jobs:
         shell: bash
         env:
           REF_PROTECTED: ${{ github.ref_protected }}
+          BYPASS_LISTS_CHECKED: ${{ inputs.bypass_lists_checked }}
         run: |
           set -euo pipefail
           fail() {
@@ -44,14 +50,31 @@ jobs:
             all(.[]; (.ruleset_id | type == "number" and . > 0))
           ' <<< "$rules" >/dev/null || fail 'Release must require PRs and block force pushes and deletion.'
 
-          # Treat a redacted bypass list as unverifiable, even if all required rules are active.
+          bypass_confirmation_needed=false
           ruleset_ids=$(jq -r 'map(.ruleset_id) | unique[]' <<< "$rules")
           while IFS= read -r ruleset_id; do
             ruleset=$(get "rulesets/$ruleset_id?includes_parents=true") ||
               fail 'Unable to read an effective release ruleset.'
             jq -e --argjson id "$ruleset_id" '
-              .id == $id and .enforcement == "active" and .target == "branch" and .bypass_actors == []
-            ' <<< "$ruleset" >/dev/null || fail 'An effective ruleset has bypass actors or its bypass list is unavailable.'
+              type == "object" and .id == $id and .enforcement == "active" and .target == "branch"
+            ' <<< "$ruleset" >/dev/null || fail "Release ruleset $ruleset_id did not return valid active branch ruleset metadata."
+
+            bypass_state=$(jq -r '
+              if has("bypass_actors") | not then "undisclosed"
+              elif (.bypass_actors | type) != "array" then "invalid"
+              elif .bypass_actors == [] then "empty"
+              else "nonempty"
+              end
+            ' <<< "$ruleset")
+            case "$bypass_state" in
+              empty) ;;
+              nonempty) fail "Release ruleset $ruleset_id contains bypass actors." ;;
+              undisclosed)
+                echo "::warning::GitHub did not disclose the bypass list for release ruleset $ruleset_id. Preflight could not verify it."
+                bypass_confirmation_needed=true
+                ;;
+              *) fail "Release ruleset $ruleset_id returned a malformed bypass list." ;;
+            esac
           done <<< "$ruleset_ids"
 
           environment=$(get 'environments/release-signing') ||
@@ -68,6 +91,12 @@ jobs:
             .total_count == 1 and (.branch_policies | length) == 1 and
             .branch_policies[0].type == "branch" and .branch_policies[0].name == "release"
           ' <<< "$allowed" >/dev/null || fail 'Allow exactly the release branch in release-signing.'
+
+          if [[ "$bypass_confirmation_needed" == true ]]; then
+            [[ "$BYPASS_LISTS_CHECKED" == true ]] ||
+              fail 'Have a repository administrator inspect the release ruleset bypass lists, then dispatch again with bypass_lists_checked selected.'
+            echo 'Proceeding with the dispatch confirmation for bypass lists that GitHub did not disclose.'
+          fi
 
   build:
     needs: preflight
