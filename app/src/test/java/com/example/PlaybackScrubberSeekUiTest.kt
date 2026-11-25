@@ -83,45 +83,39 @@ class PlaybackScrubberSeekUiTest {
         }
     }
 
-    @Test fun doubleTapsSeekWithinTheTrackInPortrait() = verifyTransportTaps()
+    @Test fun rapidTapsOnlyChangeTracksInPortrait() = verifyTransportTaps()
 
     @Test @Config(qualifiers = "w891dp-h411dp-land")
-    fun doubleTapsSeekWithinTheTrackInLandscape() = verifyTransportTaps()
+    fun rapidTapsOnlyChangeTracksInLandscape() = verifyTransportTaps()
 
     private fun verifyTransportTaps() {
         val track = MusicTrack("skip", "Skip test", "Artist", "Album", 35_000L, "", "")
-        var position = 15_000L
         var nextTracks = 0
         var previousTracks = 0
         val seeks = mutableListOf<Long>()
         compose.setContent { MaterialTheme {
             CompositionLocalProvider(LocalArtworkRequestsActive provides false, LocalDynamicGlassEnabled provides false) {
                 ExpandedPlayerScreen(PlayerUiState(currentTrack = track), onMinimize = {}, onPlayPause = {},
-                    onSeekTo = { position = it; seeks += it }, onSkipNext = { nextTracks++ },
+                    onSeekTo = { seeks += it }, onSkipNext = { nextTracks++ },
                     onSkipPrevious = { previousTracks++ }, onToggleShuffle = {}, onToggleRepeat = {},
                     onToggleFavorite = {}, onOpenQueue = {}, onAddToPlaylist = {},
-                    currentPositionProvider = { position })
+                    currentPositionProvider = { 15_000L })
             }
         } }
         val next = compose.onNodeWithTag("expanded_player_next")
         val previous = compose.onNodeWithTag("expanded_player_previous")
-        repeat(2) { next.performTouchInput { doubleClick(delayMillis = 80L) } }
-        repeat(4) { previous.performTouchInput { doubleClick(delayMillis = 80L) } }
+        next.performTouchInput { doubleClick(delayMillis = 80L) }
         compose.runOnIdle {
-            assertEquals(listOf(25_000L, 35_000L, 25_000L, 15_000L, 5_000L, 0L), seeks)
-            assertEquals(0, nextTracks)
+            assertEquals(2, nextTracks)
             assertEquals(0, previousTracks)
         }
+        previous.performTouchInput { doubleClick(delayMillis = 80L) }
         next.performTouchInput { click() }
-        compose.mainClock.advanceTimeBy(400L)
-        compose.waitUntil(5_000L) { nextTracks == 1 }
         previous.performTouchInput { click() }
-        compose.mainClock.advanceTimeBy(400L)
-        compose.waitUntil(5_000L) { previousTracks == 1 }
         compose.runOnIdle {
-            assertEquals(1, nextTracks)
-            assertEquals(1, previousTracks)
-            assertEquals(6, seeks.size)
+            assertEquals(3, nextTracks)
+            assertEquals(3, previousTracks)
+            assertTrue(seeks.isEmpty())
         }
     }
 
@@ -175,7 +169,7 @@ class PlaybackScrubberSeekUiTest {
                     val strokeRows = (0 until image.height).filter { y ->
                         ((image.getRGB(image.width / 2, y) ushr 16) and 255) > 127
                     }
-                    val (stroke, lift) = with(compose.density) { 4.5.dp.toPx() to 2.75.dp.toPx() }
+                    val (stroke, lift) = with(compose.density) { 6.75.dp.toPx() to 3.875.dp.toPx() }
                     assertEquals(stroke, strokeRows.size.toFloat(), 1f)
                     assertEquals(image.height / 2f - lift, strokeRows.average().toFloat() + .5f, 1f)
                 }

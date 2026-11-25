@@ -735,6 +735,7 @@ fun MainNavigationScaffold(
                             onDismiss = { isQueueOpen = false },
                             isAutoplayEnabled = expandedPlayer.isAutoplayEnabled,
                             nextRecommendedTrack = expandedPlayer.nextRecommendedTrack,
+                            currentQueueIndex = expandedPlayer.currentIndex,
                             onToggleAutoplay = { viewModel.toggleAutoplay() }
                         )
                     }

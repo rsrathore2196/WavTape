@@ -48,7 +48,11 @@ import androidx.media3.common.C
 import com.example.playback.AudioEffectsManager
 import com.example.playback.AudioSignalPath
 import com.example.playback.SignalPathState
+import com.example.performance.AppDispatchers
 import com.example.ui.theme.LocalAppColors
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -58,13 +62,16 @@ import kotlin.math.min
 @Composable
 fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackText: String,
     content: Color, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    val path by AudioSignalPath.state.collectAsStateWithLifecycle()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var showPipeline by remember(trackId) { mutableStateOf(false) }
     val pill = remember { PlayerPopupAnchor() }
     var origin by remember(trackId) { mutableStateOf<Rect?>(null) }
-    val current = path.takeIf { it.trackId == trackId } ?: SignalPathState()
-    val label = current.quality.takeIf { it.verified && it.codec.isNotBlank() }?.badgeLabel ?: "Resolving audio"
+    val labels = remember(trackId) {
+        AudioSignalPath.state.map { it.badgeText(trackId) }.distinctUntilChanged().flowOn(AppDispatchers.Presentation)
+    }
+    val label by labels.collectAsStateWithLifecycle(
+        initialValue = remember(trackId) { AudioSignalPath.state.value.badgeText(trackId) }
+    )
     val shape = RoundedCornerShape(10.dp)
     Surface(color = Color.Transparent, shape = shape,
         modifier = modifier.playerLiquidGlassButton(LocalAppColors.current, shape)
@@ -80,11 +87,17 @@ fun AudioQualityBadge(trackId: String, @Suppress("UNUSED_PARAMETER") fallbackTex
                 fontWeight = FontWeight.ExtraBold, fontSize = if (landscape) 12.sp else 10.sp, letterSpacing = 0.5.sp), maxLines = 1)
         }
     }
-    if (showPipeline) AudioPipelineDialog(current, origin) { showPipeline = false }
+    if (showPipeline) AudioPipelineDialog(trackId, origin) { showPipeline = false }
 }
 
+private fun SignalPathState.badgeText(trackId: String): String = quality
+    .takeIf { this.trackId == trackId && it.verified && it.codec.isNotBlank() }
+    ?.badgeLabel ?: "Resolving audio"
+
 @Composable
-private fun AudioPipelineDialog(state: SignalPathState, origin: Rect?, onDismiss: () -> Unit) {
+private fun AudioPipelineDialog(trackId: String, origin: Rect?, onDismiss: () -> Unit) {
+    val path by AudioSignalPath.state.collectAsStateWithLifecycle()
+    val state = remember(trackId, path) { path.takeIf { it.trackId == trackId } ?: SignalPathState() }
     AnchoredPlayerPopupDialog(origin, onDismiss, decorFitsSystemWindows = true, animated = true) { motion, dismiss ->
         SignalPathPopupCard(state, Modifier.padding(16.dp).then(motion), onClose = dismiss)
     }

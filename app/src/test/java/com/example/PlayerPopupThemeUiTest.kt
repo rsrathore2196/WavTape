@@ -305,6 +305,7 @@ class PlayerPopupThemeUiTest {
         val background = if (source.isDark) Color.Black else Color.White
         tags.forEachIndexed { index, tag ->
             compose.runOnIdle { popup = index }
+            if (index == 0) awaitPopupLayout(tag)
             settle()
             if (index == 6) {
                 compose.onNodeWithTag("fixture_pipeline_open").performClick()
@@ -402,10 +403,7 @@ class PlayerPopupThemeUiTest {
             settle()
             compose.waitUntil(5_000) { prepared }
             settle()
-            compose.waitUntil(5_000) {
-                shadowOf(Looper.getMainLooper()).idle()
-                windowBackdrop?.hasPreparedFrame == true
-            }
+            awaitBackdrop { windowBackdrop?.hasPreparedFrame == true }
             compose.onNodeWithTag("player_options_button").performClick()
             settle()
             compose.waitUntil(5_000) { windowBackdrop?.frame != null }
@@ -472,7 +470,7 @@ class PlayerPopupThemeUiTest {
             }
         }
         settle()
-        compose.waitUntil(5_000) { backdrop.hasPreparedFrame }
+        awaitBackdrop { backdrop.hasPreparedFrame }
         assertEquals(1, captureCount)
         compose.runOnIdle { open = true }
         settle()
@@ -490,7 +488,7 @@ class PlayerPopupThemeUiTest {
 
         compose.runOnIdle { open = false; horizontalShift = 0f }
         settle()
-        compose.waitUntil(5_000) { backdrop.hasPreparedFrame }
+        awaitBackdrop { backdrop.hasPreparedFrame }
         compose.runOnIdle { assertNull(backdrop.frame); open = true }
         settle()
         assertTrue(middlePixel(.25f).green > .95f)
@@ -500,7 +498,17 @@ class PlayerPopupThemeUiTest {
         assertEquals("A visible popup never starts a window capture", 2, captureCount)
         compose.runOnIdle { open = false }
         settle()
-        compose.waitUntil(5_000) { captureCount == 3 }
+        awaitBackdrop { captureCount == 3 }
+    }
+
+    private fun awaitBackdrop(ready: () -> Boolean) {
+        compose.waitUntil(5_000) {
+            // Navigation admission uses Android's elapsed clock alongside Compose's frame clock.
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(32))
+            shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeBy(32)
+            ready()
+        }
     }
 
     private fun boundsOnScreen(node: SemanticsNodeInteraction): Rect {
@@ -513,6 +521,13 @@ class PlayerPopupThemeUiTest {
     private fun advancePopup(milliseconds: Long) {
         compose.mainClock.advanceTimeBy(milliseconds)
         compose.waitForIdle()
+    }
+
+    private fun awaitPopupLayout(tag: String) {
+        compose.waitUntil(5_000) {
+            advancePopup(16)
+            compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test fun playerDialogsTravelFromTheirOwnPillsAndReturnToThem() {
@@ -529,7 +544,8 @@ class PlayerPopupThemeUiTest {
             val anchor = boundsOnScreen(trigger)
             val panel = compose.onNodeWithTag(panelTag)
             trigger.performClick()
-            advancePopup(48)
+            awaitPopupLayout(panelTag)
+            advancePopup(32)
             val first = boundsOnScreen(panel)
             advancePopup(80)
             val middle = boundsOnScreen(panel)

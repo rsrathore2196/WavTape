@@ -90,6 +90,7 @@ fun QueueBottomSheet(
     onDismiss: () -> Unit,
     isAutoplayEnabled: Boolean = true,
     nextRecommendedTrack: MusicTrack? = null,
+    currentQueueIndex: Int = -1,
     onToggleAutoplay: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -119,10 +120,17 @@ fun QueueBottomSheet(
     val displayQueue = remember(queue, currentTrack) {
         if (queue.isEmpty() && currentTrack != null) listOf(currentTrack) else queue
     }
-    val currentIdx = remember(displayQueue, currentTrack?.queueIdentity) { displayQueue.indexOfFirst { it.queueIdentity == currentTrack?.queueIdentity } }
+    val currentIdentity = currentTrack?.queueIdentity
+    val currentIdx = remember(displayQueue, currentIdentity, currentQueueIndex) {
+        if (displayQueue.getOrNull(currentQueueIndex)?.queueIdentity == currentIdentity && currentIdentity != null) {
+            currentQueueIndex
+        } else displayQueue.indexOfFirst { it.queueIdentity == currentIdentity }
+    }
     val appColors = PlayerGlassPopupColors
     val glassEnabled = LocalDynamicGlassEnabled.current
     val presentation = updateTransition(sheetState.targetValue != SheetValue.Hidden, label = "queue_presentation")
+    PrioritizePlayerPopupMotion(!sheetState.isVisible || sheetState.currentValue != sheetState.targetValue ||
+        dismissing || presentation.isRunning)
     val reveal = presentation.animateFloat(
         transitionSpec = { tween(if (targetState) 220 else 160, easing = FastOutSlowInEasing) },
         label = "queue_glass_reveal"

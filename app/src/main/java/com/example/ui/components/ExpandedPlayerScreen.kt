@@ -139,11 +139,16 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
+import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.State
@@ -354,7 +359,9 @@ private fun rememberCreditsTextColors(
     return colors
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+internal val playerControlRipple = ripple()
+
+@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ExpandedPlayerScreen(
     uiState: PlayerUiState,
@@ -399,14 +406,6 @@ fun ExpandedPlayerScreen(
     val displayedQuality = uiState.qualityBadge.ifBlank { track.qualityBadge }.ifBlank { "Resolving audio" }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val seekBy: (Long) -> Unit = { offset ->
-        val duration = trackDurationProvider().takeIf { it > 0L } ?: Long.MAX_VALUE
-        val position = currentPositionProvider().coerceIn(0L, duration)
-        val target = if (offset > 0L) position + minOf(offset, duration - position)
-            else (position + offset).coerceAtLeast(0L)
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        onSeekTo(target)
-    }
     val themeColors = LocalAppColors.current
     val appColors = remember(themeColors) { com.example.ui.util.playerAppearanceColors(themeColors) }
     // The full player intentionally has one neutral appearance in both app color modes.
@@ -734,9 +733,13 @@ fun ExpandedPlayerScreen(
     SideEffect { popupBackdrop?.prepare(popupScene, canPrepare = !morphAnimating && !lyricsPresentationAnimating) }
     val popupSource = if (popupBackdrop == null) Modifier
         else Modifier.onGloballyPositioned { popupBackdrop.source = it }
+    val controlRipple = remember(appColors.textPrimary) {
+        RippleConfiguration(appColors.textPrimary, RippleAlpha(draggedAlpha = .16f,
+            focusedAlpha = .12f, hoveredAlpha = .08f, pressedAlpha = .20f))
+    }
     CompositionLocalProvider(LocalLiquidGlassBackdrop provides playerBackdrop, LocalAppColors provides appColors,
         LocalPlayerPopupColors provides themeColors, LocalPlayerPopupArtwork provides popupArtwork,
-        LocalPlayerPopupBackdrop provides popupBackdrop) {
+        LocalPlayerPopupBackdrop provides popupBackdrop, LocalRippleConfiguration provides controlRipple) {
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -1033,7 +1036,7 @@ fun ExpandedPlayerScreen(
                                 modifier = Modifier
                                     .size(38.dp)
                                     .liquidGlassButton(appColors, shape = CircleShape, elevation = 4.dp)
-                                    .bouncyClickable { onMinimize() }
+                                    .bouncyClickable(indication = playerControlRipple) { onMinimize() }
                                     .testTag("player_minimize_button"),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -1052,7 +1055,7 @@ fun ExpandedPlayerScreen(
                                     .weight(1f)
                                     .padding(horizontal = 8.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onOpenQueue()
                                     }
@@ -1088,7 +1091,7 @@ fun ExpandedPlayerScreen(
                                     modifier = Modifier
                                         .size(38.dp)
                                         .liquidGlassButton(appColors, shape = CircleShape, elevation = 4.dp)
-                                        .bouncyClickable { isMenuOpen = true }
+                                        .bouncyClickable(indication = playerControlRipple) { isMenuOpen = true }
                                         .testTag("player_options_button"),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -1164,7 +1167,7 @@ fun ExpandedPlayerScreen(
                                         isActive = uiState.isFavorite,
                                         translucency = 0.84f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onToggleFavorite(track)
                                     }
@@ -1250,7 +1253,7 @@ fun ExpandedPlayerScreen(
                                         isActive = uiState.isShuffle,
                                         translucency = if (uiState.isShuffle) 0.88f else 0.80f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onToggleShuffle()
                                     }
@@ -1276,7 +1279,7 @@ fun ExpandedPlayerScreen(
                                         isActive = false,
                                         translucency = 0.82f
                                     )
-                                    .bouncyClickable(onDoubleClick = { seekBy(-10_000L) }) {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onSkipPrevious()
                                     }
@@ -1312,7 +1315,7 @@ fun ExpandedPlayerScreen(
                                                 elevation = 14.dp,
                                                 translucency = 0.82f
                                             )
-                                            .bouncyClickable(targetScaleOnPress = 0.90f) {
+                                            .bouncyClickable(targetScaleOnPress = 0.90f, indication = playerControlRipple) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 onPlayPause()
                                             }
@@ -1340,7 +1343,7 @@ fun ExpandedPlayerScreen(
                                         isActive = false,
                                         translucency = 0.82f
                                     )
-                                    .bouncyClickable(onDoubleClick = { seekBy(10_000L) }) {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onSkipNext()
                                     }
@@ -1375,7 +1378,7 @@ fun ExpandedPlayerScreen(
                                         isActive = isRepeatActiveLandscape,
                                         translucency = if (isRepeatActiveLandscape) 0.88f else 0.80f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onToggleRepeat()
                                     }
@@ -1602,7 +1605,7 @@ fun ExpandedPlayerScreen(
                             isActive = false,
                             translucency = if (isFullScreenArt) 0.88f else 0.82f
                         )
-                        .bouncyClickable { onMinimize() }
+                        .bouncyClickable(indication = playerControlRipple) { onMinimize() }
                         .testTag("player_minimize_button"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1621,7 +1624,7 @@ fun ExpandedPlayerScreen(
                         .weight(1f)
                         .padding(horizontal = 8.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .bouncyClickable {
+                        .bouncyClickable(indication = playerControlRipple) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onOpenQueue()
                         }
@@ -1663,7 +1666,7 @@ fun ExpandedPlayerScreen(
                                 isActive = isMenuOpen,
                                 translucency = if (isFullScreenArt) 0.88f else 0.82f
                             )
-                            .bouncyClickable { isMenuOpen = true }
+                            .bouncyClickable(indication = playerControlRipple) { isMenuOpen = true }
                             .testTag("player_options_button"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1756,7 +1759,7 @@ fun ExpandedPlayerScreen(
                                         isActive = uiState.isFavorite,
                                         translucency = 0.84f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onToggleFavorite(track)
                                     }
@@ -2022,7 +2025,7 @@ fun ExpandedPlayerScreen(
                                         isActive = uiState.isFavorite,
                                         translucency = 0.84f
                                     )
-                                    .bouncyClickable {
+                                    .bouncyClickable(indication = playerControlRipple) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onToggleFavorite(track)
                                     }
@@ -2159,7 +2162,7 @@ fun ExpandedPlayerScreen(
                             isActive = uiState.isShuffle,
                             translucency = if (uiState.isShuffle) 0.88f else 0.80f
                         )
-                        .bouncyClickable {
+                        .bouncyClickable(indication = playerControlRipple) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onToggleShuffle()
                         }
@@ -2185,7 +2188,7 @@ fun ExpandedPlayerScreen(
                             isActive = false,
                             translucency = 0.82f
                         )
-                        .bouncyClickable(onDoubleClick = { seekBy(-10_000L) }) {
+                        .bouncyClickable(indication = playerControlRipple) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onSkipPrevious()
                         }
@@ -2221,7 +2224,7 @@ fun ExpandedPlayerScreen(
                                     elevation = 16.dp,
                                     translucency = 0.82f
                                 )
-                                .bouncyClickable(targetScaleOnPress = 0.90f) {
+                                .bouncyClickable(targetScaleOnPress = 0.90f, indication = playerControlRipple) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onPlayPause()
                                 }
@@ -2249,7 +2252,7 @@ fun ExpandedPlayerScreen(
                             isActive = false,
                             translucency = 0.82f
                         )
-                        .bouncyClickable(onDoubleClick = { seekBy(10_000L) }) {
+                        .bouncyClickable(indication = playerControlRipple) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onSkipNext()
                         }
@@ -2284,7 +2287,7 @@ fun ExpandedPlayerScreen(
                             isActive = isRepeatActive,
                             translucency = if (isRepeatActive) 0.88f else 0.80f
                         )
-                        .bouncyClickable {
+                        .bouncyClickable(indication = playerControlRipple) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onToggleRepeat()
                         }
@@ -2979,10 +2982,6 @@ private fun PlayerOptionsMenu(
 
     val downloadScope = rememberCoroutineScope()
     val downloads = remember(context) { com.example.downloads.OfflineDownloads.get(context) }
-    val observedDownload by remember(downloads, track.id) { downloads.observeRecord(track.id) }
-        .collectAsStateWithLifecycle(downloads.records.value[track.id])
-    val downloadRecord = observedDownload
-    LaunchedEffect(expanded) { if (expanded) runCatching { downloads.load() } }
 
     PlayerPopupTheme(appColors) {
         val menuShape = RoundedCornerShape(22.dp)
@@ -2996,6 +2995,9 @@ private fun PlayerOptionsMenu(
                 .clip(menuShape)
                 .padding(vertical = 4.dp, horizontal = 4.dp)
         ) {
+            val downloadRecord = remember(downloads, track.id) { downloads.observeRecord(track.id) }
+                .collectAsStateWithLifecycle(downloads.records.value[track.id]).value
+            LaunchedEffect(downloads) { runCatching { downloads.load() } }
             val itemIconBg = appColors.cardBorder.copy(alpha = 0.35f)
 
             listOf(

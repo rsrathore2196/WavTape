@@ -78,7 +78,7 @@ class SoundOutputDeviceDialogTest {
                 }
             }
         }
-        settle()
+        awaitDialog()
         compose.onNodeWithTag("output_device_count").assertTextEquals("2")
         compose.onNodeWithText("Playing here", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Built-in speaker").assertDoesNotExist()
@@ -127,7 +127,7 @@ class SoundOutputDeviceDialogTest {
                 }
             }
         }
-        settle()
+        awaitDialog()
         compose.onNodeWithTag("close_output_devices_dialog").assertIsDisplayed()
         compose.onNodeWithTag("device_output_volume_slider").assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("device_row_6"))
@@ -137,6 +137,14 @@ class SoundOutputDeviceDialogTest {
     private fun settle() {
         compose.mainClock.advanceTimeBy(600)
         compose.waitForIdle()
+    }
+
+    private fun awaitDialog() {
+        compose.waitUntil(5_000) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.onAllNodesWithTag("sound_output_devices_dialog").fetchSemanticsNodes().isNotEmpty()
+        }
+        settle()
     }
 
     private fun capture(mode: String) {

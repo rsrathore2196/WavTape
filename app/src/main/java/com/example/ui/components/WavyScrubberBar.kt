@@ -1,6 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -18,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.LocalAppColors
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.math.cos
@@ -126,6 +130,8 @@ fun WavyScrubberBar(
     var gesture by remember(gestureKey) { mutableStateOf<ScrubberGesture?>(null) }
     var dragFraction by remember(gestureKey) { mutableFloatStateOf(progress) }
     val isDragging = gesture != null
+    val pressRipple = remember(gestureKey) { Animatable(1f) }
+    val rippleScope = rememberCoroutineScope()
 
     val currentFraction = if (isDragging) dragFraction else progress.coerceIn(0f, 1f)
 
@@ -167,7 +173,7 @@ fun WavyScrubberBar(
     val density = LocalDensity.current
     // Reserve room for the expanded thumb, its rim and ambient ring at both endpoints.
     val edgeInset = with(density) { 16.dp.toPx() }
-    val trackStrokeWidth = with(density) { 4.5.dp.toPx() }
+    val trackStrokeWidth = with(density) { 6.75.dp.toPx() }
     val waveLengthPx = with(density) { 22.dp.toPx() }
     val startFadePx = with(density) { 24.dp.toPx() }
     val endFadePx = with(density) { 20.dp.toPx() }
@@ -182,6 +188,10 @@ fun WavyScrubberBar(
             .pointerInput(edgeInset, gestureKey) {
                 detectTapGestures(
                     onPress = { offset ->
+                        rippleScope.launch {
+                            pressRipple.snapTo(0f)
+                            pressRipple.animateTo(1f, tween(300, easing = LinearOutSlowInEasing))
+                        }
                         gesture = ScrubberGesture.Press
                         seekStarted()
                         val fraction = scrubberFractionAt(offset.x, size.width.toFloat(), edgeInset)
@@ -231,7 +241,8 @@ fun WavyScrubberBar(
             val width = size.width
             val height = size.height
             // Grow the stroke toward the top while keeping its lower edge fixed.
-            val centerY = height / 2f - 2.75.dp.toPx()
+            val centerY = height / 2f - 3.875.dp.toPx()
+            val thumbCenterY = height / 2f - 2.75.dp.toPx()
             val thumbRadius = 7.dp.toPx() * thumbScale
             val trackStart = edgeInset.coerceAtMost(width / 2f)
             val trackWidth = (width - 2f * trackStart).coerceAtLeast(0f)
@@ -279,6 +290,12 @@ fun WavyScrubberBar(
 
             // 3. Draw Scrubber Thumb with specular liquid glass glow
             val isDarkBar = (0.299 * resolvedActiveColor.red + 0.587 * resolvedActiveColor.green + 0.114 * resolvedActiveColor.blue) > 0.50f
+            val rippleProgress = pressRipple.value
+            if (rippleProgress < 1f) drawCircle(
+                color = resolvedActiveColor.copy(alpha = .20f * (1f - rippleProgress)),
+                radius = (8f + 6f * rippleProgress).dp.toPx(),
+                center = Offset(thumbX, thumbCenterY)
+            )
 
             // Outer ambient glow ring
             val glowColor = if (isDarkBar) {
@@ -289,7 +306,7 @@ fun WavyScrubberBar(
             if (glassEnabled) drawCircle(
                 color = glowColor,
                 radius = thumbRadius + 5.dp.toPx(),
-                center = Offset(thumbX, centerY)
+                center = Offset(thumbX, thumbCenterY)
             )
 
             // Main thumb circle
@@ -297,7 +314,7 @@ fun WavyScrubberBar(
             drawCircle(
                 color = thumbCircleColor,
                 radius = thumbRadius,
-                center = Offset(thumbX, centerY)
+                center = Offset(thumbX, thumbCenterY)
             )
 
             // Contrasting core dot
@@ -305,7 +322,7 @@ fun WavyScrubberBar(
             drawCircle(
                 color = coreDotColor,
                 radius = thumbRadius * 0.50f,
-                center = Offset(thumbX, centerY)
+                center = Offset(thumbX, thumbCenterY)
             )
 
             // Specular rim reflection
@@ -313,7 +330,7 @@ fun WavyScrubberBar(
             if (glassEnabled) drawCircle(
                 color = rimColor,
                 radius = thumbRadius,
-                center = Offset(thumbX, centerY),
+                center = Offset(thumbX, thumbCenterY),
                 style = rimStroke
             )
         }

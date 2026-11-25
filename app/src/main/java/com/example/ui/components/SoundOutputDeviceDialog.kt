@@ -68,7 +68,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -103,9 +105,12 @@ import androidx.core.content.ContextCompat
 import com.example.playback.AudioDeviceCategory
 import com.example.playback.AudioDeviceManager
 import com.example.playback.SoundOutputDevice
+import com.example.performance.AppDispatchers
 import com.example.ui.theme.LocalAppColors
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Connected output picker with immediate routing and media-volume controls. */
 @Composable
@@ -122,10 +127,17 @@ fun SoundOutputDeviceDialog(
     val appColors = PlayerGlassPopupColors
     val glassEnabled = LocalDynamicGlassEnabled.current
 
-    // Audio Manager & Volume Management
+    // Read the platform's volume before revealing the panel, without blocking its host window.
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
-    var currentVolume by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
+    val initialVolume by produceState<Pair<Int, Int>?>(null, audioManager) {
+        value = withContext(AppDispatchers.Io) {
+            val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maximum) to maximum
+        }
+    }
+    val (initial, maxVolume) = initialVolume ?: return
+    var currentVolume by remember { mutableIntStateOf(initial) }
+    val volumeScope = rememberCoroutineScope()
 
     // Synchronize slider with hardware volume changes
     DisposableEffect(context) {
@@ -136,8 +148,12 @@ fun SoundOutputDeviceDialog(
                     val stream = intent?.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) ?: -1
                     if (stream != -1 && stream != AudioManager.STREAM_MUSIC) return
                     val volume = intent?.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1) ?: -1
-                    currentVolume = if (volume >= 0) volume.coerceIn(0, maxVolume)
-                        else audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    if (volume >= 0) currentVolume = volume.coerceIn(0, maxVolume)
+                    else volumeScope.launch {
+                        val observed = currentVolume
+                        val actual = withContext(AppDispatchers.Io) { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }
+                        if (currentVolume == observed) currentVolume = actual.coerceIn(0, maxVolume)
+                    }
                 } catch (_: Exception) {}
             }
         }
@@ -195,6 +211,7 @@ fun SoundOutputDeviceDialog(
 
     val isPresented = isMounted && !isClosing
     val presentation = updateTransition(isPresented, label = "output_dialog_presentation")
+    PrioritizePlayerPopupMotion(presentation.currentState != !isClosing || presentation.isRunning)
 
     val expansion = presentation.animateFloat(
         transitionSpec = { tween(if (targetState) 300 else 240, easing = FastOutSlowInEasing) },

@@ -56,8 +56,18 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import com.example.performance.BackgroundWorkCoordinator
 
 internal val LocalPlayerPopupMotion = compositionLocalOf<(() -> Unit)?> { null }
+
+/** Defer optional process work until the popup has reached its resting frame. */
+@Composable
+internal fun PrioritizePlayerPopupMotion(moving: Boolean) {
+    DisposableEffect(moving) {
+        val lease = if (moving) BackgroundWorkCoordinator.navigationBusy() else null
+        onDispose { lease?.close() }
+    }
+}
 
 /** Capture the clicked pill once. Screen coordinates also work across the new dialog window. */
 internal class PlayerPopupAnchor {
@@ -126,6 +136,7 @@ internal fun AnchoredPlayerPopupDialog(
     val positioned by remember { derivedStateOf { center.value.isSpecified } }
     val readMotion: () -> Unit = remember(expansion, center) { { expansion?.value; center.value } }
     if (animated) {
+        PrioritizePlayerPopupMotion(visible.currentState != !closing || !visible.isIdle)
         LaunchedEffect(positioned, closing) { visible.targetState = positioned && !closing }
         LaunchedEffect(closing, visible.currentState, visible.targetState, visible.isIdle) {
             if (closing && visible.isIdle && !visible.currentState && !visible.targetState) dismissAction.value()
@@ -190,6 +201,7 @@ internal fun PlayerOptionsDropdown(
     val scroll = rememberScrollState()
     if (!expanded && !visibility.currentState && !visibility.targetState && visibility.isIdle) return
 
+    PrioritizePlayerPopupMotion(visibility.currentState != expanded || !visibility.isIdle)
     val motion = rememberTransition(visibility, label = "player_options_menu")
     val scale = motion.animateFloat(transitionSpec = {
         tween(if (targetState) 220 else 160, easing = FastOutSlowInEasing)

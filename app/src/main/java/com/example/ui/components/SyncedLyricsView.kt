@@ -457,7 +457,7 @@ fun SyncedLyricsView(
                             .clickable(
                                 enabled = isSynced,
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
+                                indication = playerControlRipple,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     followPlayback = true

@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.performance.AppDispatchers
+import com.example.performance.BackgroundWorkCoordinator
 import com.example.ui.util.blurPopupPixels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -104,6 +105,7 @@ internal class PlayerPopupBackdrop(
         if (size.width < 1 || size.height < 1 || preparedSize == size) return
         request = scope.launch {
             delay(200L) // Let the player finish drawing before reading back its window.
+            BackgroundWorkCoordinator.awaitNavigationIdle()
             if (!coordinates.isAttached || coordinates.size != size) {
                 request = null
                 prepareWhenReady()
