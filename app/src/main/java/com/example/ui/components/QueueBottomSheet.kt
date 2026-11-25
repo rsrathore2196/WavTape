@@ -128,7 +128,7 @@ fun QueueBottomSheet(
         label = "queue_glass_reveal"
     ) { if (it) 1f else 0f }
 
-    PlayerPopupTheme(appColors, glass = true) {
+    PlayerPopupTheme(appColors) {
         val sheetContent: @Composable () -> Unit = {
             Column(
                 modifier = Modifier
@@ -456,7 +456,7 @@ fun QueueBottomSheet(
             dragHandle = null,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
-            KeepPlayerPopupWindowClear()
+            KeepPlayerPopupWindowClear(disableWindowAnimations = true)
             // Material owns the vertical position and gestures. A separate visual-only reveal
             // needs no layout coordinates or offset from the dialog window.
             Column(Modifier.fillMaxWidth()

@@ -2984,7 +2984,7 @@ private fun PlayerOptionsMenu(
     val downloadRecord = observedDownload
     LaunchedEffect(expanded) { if (expanded) runCatching { downloads.load() } }
 
-    PlayerPopupTheme(appColors, glass = true) {
+    PlayerPopupTheme(appColors) {
         val menuShape = RoundedCornerShape(22.dp)
         PlayerOptionsDropdown(
             expanded = expanded,

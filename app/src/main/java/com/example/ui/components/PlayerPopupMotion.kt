@@ -25,9 +25,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -107,9 +110,10 @@ internal fun AnchoredPlayerPopupDialog(
     content: @Composable (Modifier, () -> Unit) -> Unit
 ) {
     val dismissAction = rememberUpdatedState(onDismiss)
-    val visible = remember { MutableTransitionState(false).apply { targetState = true } }
+    val visible = remember { MutableTransitionState(false) }
+    var closing by remember { mutableStateOf(false) }
     val dismiss = remember(animated) {
-        { if (animated) visible.targetState = false else dismissAction.value() }
+        { if (animated) closing = true else dismissAction.value() }
     }
     val motion = if (animated) rememberTransition(visible, label = "pill_popup_presentation") else null
     val expansion = motion?.animateFloat(transitionSpec = {
@@ -119,16 +123,20 @@ internal fun AnchoredPlayerPopupDialog(
         tween(if (targetState) 180 else 120)
     }, label = "pill_popup_opacity") { if (it) 1f else 0f }
     val center = remember { mutableStateOf(Offset.Unspecified) }
+    val positioned by remember { derivedStateOf { center.value.isSpecified } }
     val readMotion: () -> Unit = remember(expansion, center) { { expansion?.value; center.value } }
-    if (animated) LaunchedEffect(visible.currentState, visible.targetState, visible.isIdle) {
-        if (visible.isIdle && !visible.currentState && !visible.targetState) dismissAction.value()
+    if (animated) {
+        LaunchedEffect(positioned, closing) { visible.targetState = positioned && !closing }
+        LaunchedEffect(closing, visible.currentState, visible.targetState, visible.isIdle) {
+            if (closing && visible.isIdle && !visible.currentState && !visible.targetState) dismissAction.value()
+        }
     }
     Dialog(
         onDismissRequest = dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = decorFitsSystemWindows)
     ) {
         val view = LocalView.current
-        KeepPlayerPopupWindowClear()
+        KeepPlayerPopupWindowClear(disableWindowAnimations = animated)
         DisposableEffect(view, decorFitsSystemWindows) {
             val root = view.rootView
             val elevation = root.elevation
@@ -150,12 +158,22 @@ internal fun AnchoredPlayerPopupDialog(
 }
 
 @Composable
-internal fun KeepPlayerPopupWindowClear() {
+internal fun KeepPlayerPopupWindowClear(disableWindowAnimations: Boolean = false) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-    DisposableEffect(window) {
-        window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-        window?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        window?.setDimAmount(0f)
+    DisposableEffect(window, disableWindowAnimations) {
+        if (window != null) {
+            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            val attributes = window.attributes
+            val clearFlags = attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+            val animations = if (disableWindowAnimations) 0 else attributes.windowAnimations
+            if (clearFlags != attributes.flags || attributes.dimAmount != 0f || attributes.windowAnimations != animations) {
+                // The composed panel owns the animation. Apply window changes together before it travels.
+                attributes.flags = clearFlags
+                attributes.dimAmount = 0f
+                attributes.windowAnimations = animations
+                window.attributes = attributes
+            }
+        }
         onDispose { }
     }
 }
@@ -169,9 +187,8 @@ internal fun PlayerOptionsDropdown(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val visibility = remember { MutableTransitionState(false) }
-    visibility.targetState = expanded
     val scroll = rememberScrollState()
-    if (!visibility.currentState && !visibility.targetState && visibility.isIdle) return
+    if (!expanded && !visibility.currentState && !visibility.targetState && visibility.isIdle) return
 
     val motion = rememberTransition(visibility, label = "player_options_menu")
     val scale = motion.animateFloat(transitionSpec = {
@@ -180,7 +197,9 @@ internal fun PlayerOptionsDropdown(
     val opacity = motion.animateFloat(transitionSpec = {
         tween(if (targetState) 160 else 140, easing = LinearOutSlowInEasing)
     }, label = "menu_alpha") { if (it) 1f else 0f }
-    val pivot = remember { mutableStateOf(TransformOrigin.Center) }
+    val pivot = remember { mutableStateOf<TransformOrigin?>(null) }
+    val positioned by remember { derivedStateOf { pivot.value != null } }
+    LaunchedEffect(expanded, positioned) { visibility.targetState = expanded && positioned }
     val margin = with(LocalDensity.current) { 48.dp.roundToPx() }
     val position = remember(margin) { PlayerOptionsPosition(margin) { pivot.value = it } }
 
@@ -194,7 +213,7 @@ internal fun PlayerOptionsDropdown(
                 scaleX = scale.value
                 scaleY = scale.value
                 alpha = opacity.value
-                transformOrigin = pivot.value
+                transformOrigin = pivot.value ?: TransformOrigin.Center
             }.playerPopupGlass(shape, onMotion = { scale.value; pivot.value }),
             shape = shape,
             color = playerPopupSurfaceColor()

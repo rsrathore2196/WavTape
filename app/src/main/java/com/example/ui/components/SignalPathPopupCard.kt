@@ -139,7 +139,7 @@ fun SignalPathPopupCard(state: SignalPathState, modifier: Modifier = Modifier, o
     val flowAlpha = animateFloatAsState(if (state.playbackStatus == "Playing") 1f else 0f,
         tween(if (state.playbackStatus == "Playing") 450 else 320), label = "pipeline_power")
 
-    PlayerPopupTheme(colors, glass = true) {
+    PlayerPopupTheme(colors) {
         val shape = RoundedCornerShape(26.dp)
         Surface(shape = shape, color = playerPopupSurfaceColor(), tonalElevation = 0.dp, shadowElevation = 0.dp,
             modifier = modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = height)

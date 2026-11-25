@@ -299,6 +299,8 @@ fun MyApplicationTheme(
         LocalStatusBarAppearance provides statusBarAppearance,
         androidx.compose.ui.platform.LocalDensity provides customDensity
     ) {
-        MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+        MaterialTheme(colorScheme = colorScheme, typography = Typography) {
+            com.example.util.ProvideAppHaptics(content)
+        }
     }
 }

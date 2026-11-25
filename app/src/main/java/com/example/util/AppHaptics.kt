@@ -5,9 +5,30 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.example.data.local.OtherSettingsPreferences
+
+@Composable
+internal fun ProvideAppHaptics(content: @Composable () -> Unit) {
+    val context = LocalContext.current.applicationContext
+    val platformHaptics = LocalHapticFeedback.current
+    val appHaptics = remember(context, platformHaptics) {
+        object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                if (OtherSettingsPreferences.isHapticsEnabled(context)) {
+                    platformHaptics.performHapticFeedback(hapticFeedbackType)
+                }
+            }
+        }
+    }
+    CompositionLocalProvider(LocalHapticFeedback provides appHaptics, content = content)
+}
 
 object AppHaptics {
     fun performTap(context: Context? = null, hapticFeedback: HapticFeedback? = null) {

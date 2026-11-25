@@ -13,11 +13,8 @@ import android.view.Window
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -59,7 +56,7 @@ internal class PlayerPopupBackdrop(
             field = value
             prepareWhenReady()
         }
-    var frame by mutableStateOf<PlayerPopupFrame?>(null)
+    var frame: PlayerPopupFrame? = null
         private set
     private var preparedFrame: PlayerPopupFrame? = null
     val hasPreparedFrame: Boolean get() = preparedFrame != null
@@ -80,10 +77,13 @@ internal class PlayerPopupBackdrop(
         if (canPrepare) prepareWhenReady() else cancelPreparation()
     }
 
-    fun retain() {
+    fun frameForPresentation(): PlayerPopupFrame? = if (readers != 0) frame
+        else preparedFrame?.takeIf { source?.size == preparedSize }
+
+    fun retain(selectedFrame: PlayerPopupFrame?) {
         if (++readers != 1) return
         cancelPreparation()
-        frame = preparedFrame?.takeIf { source?.size == preparedSize }
+        frame = selectedFrame
     }
 
     fun release() {

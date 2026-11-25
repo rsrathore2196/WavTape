@@ -195,7 +195,7 @@ fun LyricsTextSizePopup(
     origin: Rect? = null
 ) {
     val appColors = PlayerGlassPopupColors
-    PlayerPopupTheme(appColors, glass = true) {
+    PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, _ ->
             val shape = RoundedCornerShape(26.dp)
             val panelColor = playerPopupSurfaceColor()
@@ -299,7 +299,7 @@ fun LyricsProviderSelectionPopup(
     @Suppress("NAME_SHADOWING") val appColors = if (usePlayerTheme) PlayerGlassPopupColors else appColors
     fun textColor(themeColor: Color) = if (usePlayerTheme) Color.White else themeColor
     val selectedFill = if (usePlayerTheme) playerPopupHighlight(0.12f) else appColors.primaryAccent.copy(alpha = 0.12f)
-    PlayerPopupTheme(appColors, glass = usePlayerTheme) {
+    PlayerPopupTheme(appColors) {
         AnchoredPlayerPopupDialog(origin, onDismissRequest) { motion, dismiss ->
             val shape = RoundedCornerShape(26.dp)
             val panelColor = if (usePlayerTheme) playerPopupSurfaceColor()

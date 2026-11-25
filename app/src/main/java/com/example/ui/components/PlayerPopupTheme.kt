@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
@@ -71,8 +70,9 @@ internal fun rememberPlayerPopupArtwork(sample: PlayerArtworkSample?, playerVisi
         if (sample == null || !playerVisible || prepared != null) return@LaunchedEffect
         prepared = withContext(AppDispatchers.CpuBounded) {
             val pixels = sample.blurredPopupPixels(blurFraction)
-            PlayerPopupArtwork(Bitmap.createBitmap(pixels, sample.width, sample.height, Bitmap.Config.ARGB_8888)
-                .asImageBitmap(), needsForegroundContrast = pixels.any { Color(it).luminance() >= .18f })
+            val bitmap = Bitmap.createBitmap(pixels, sample.width, sample.height, Bitmap.Config.ARGB_8888)
+            bitmap.prepareToDraw()
+            PlayerPopupArtwork(bitmap.asImageBitmap(), needsForegroundContrast = pixels.any { Color(it).luminance() >= .18f })
         }
     }
     return prepared
@@ -84,9 +84,13 @@ internal val PlayerGlassPopupColors by lazy {
 }
 
 @Composable
-internal fun needsPopupForegroundContrast() =
-    LocalDynamicGlassEnabled.current && (LocalPlayerPopupArtwork.current?.needsForegroundContrast == true ||
-        LocalPlayerPopupBackdrop.current?.frame?.needsForegroundContrast == true)
+internal fun needsPopupForegroundContrast(): Boolean {
+    val artwork = LocalPlayerPopupArtwork.current
+    val backdrop = LocalPlayerPopupBackdrop.current
+    return LocalDynamicGlassEnabled.current && remember(backdrop) {
+        artwork?.needsForegroundContrast == true || backdrop?.frameForPresentation()?.needsForegroundContrast == true
+    }
+}
 
 /** Cast a short, fading shadow beneath the mark, leaving the surrounding glass as drawn. */
 @Composable
@@ -130,10 +134,13 @@ internal fun Modifier.playerPopupControlContrast(translucent: Boolean = false): 
 }
 
 @Composable
-internal fun playerPopupSurfaceColor(): Color =
-    if (LocalDynamicGlassEnabled.current &&
-        (LocalPlayerPopupArtwork.current != null || LocalPlayerPopupBackdrop.current != null)) Color.Transparent
-    else PlayerGlassPopupColors.cardBackground
+internal fun playerPopupSurfaceColor(): Color {
+    val artwork = LocalPlayerPopupArtwork.current
+    val backdrop = LocalPlayerPopupBackdrop.current
+    return if (LocalDynamicGlassEnabled.current && remember(backdrop) { artwork != null || backdrop != null }) {
+        Color.Transparent
+    } else PlayerGlassPopupColors.cardBackground
+}
 
 /** Keep inset highlights subtle over the live glass. */
 @Composable
@@ -164,10 +171,11 @@ internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = L
     if (!LocalDynamicGlassEnabled.current) return this
     val texture = LocalPlayerPopupArtwork.current?.texture
     val backdrop = LocalPlayerPopupBackdrop.current
-    if (texture == null && backdrop == null) return this
-    val fallback = if (backdrop != null) remember(backdrop) { texture } else texture
+    val fallback = remember(backdrop) { texture }
+    if (fallback == null && backdrop == null) return this
+    val frame = remember(backdrop) { backdrop?.frameForPresentation() }
     if (backdrop != null) DisposableEffect(backdrop) {
-        backdrop.retain()
+        backdrop.retain(frame)
         onDispose { backdrop.release() }
     }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null, neverEqualPolicy()) }
@@ -182,11 +190,13 @@ internal fun Modifier.playerPopupGlass(shape: Shape, onMotion: (() -> Unit)? = L
         val sheen = Brush.verticalGradient(0f to Color.White.copy(alpha = .035f), .28f to Color.Transparent)
         val panel = IntSize(size.width.roundToInt(), size.height.roundToInt())
         onDrawBehind {
-            val frame = backdrop?.frame
-            if (frame != null) onMotion?.invoke()
-            if (frame == null || !drawPlayerFrame(frame, coordinates)) {
-                if (fallback != null) drawImage(fallback, dstSize = panel, filterQuality = FilterQuality.Medium)
-                else drawRect(PlayerGlassPopupColors.cardBackground)
+            when {
+                frame != null -> {
+                    onMotion?.invoke()
+                    if (!drawPlayerFrame(frame, coordinates)) return@onDrawBehind
+                }
+                fallback != null -> drawImage(fallback, dstSize = panel, filterQuality = FilterQuality.Medium)
+                else -> drawRect(PlayerGlassPopupColors.cardBackground)
             }
             drawRect(sheen)
         }
@@ -244,28 +254,10 @@ internal fun rememberPlayerPopupColors(fallback: AppThemeColors = LocalAppColors
 }
 
 @Composable
-internal fun PlayerPopupTheme(colors: AppThemeColors, glass: Boolean = false, content: @Composable () -> Unit) {
+internal fun PlayerPopupTheme(colors: AppThemeColors, content: @Composable () -> Unit) {
     val scheme = remember(colors) { resolveColorScheme(colors.isDark, colors) }
-    val typography = MaterialTheme.typography
-    val contrast = glass && needsPopupForegroundContrast()
-    val density = LocalDensity.current
-    val popupTypography = remember(typography, contrast, density) {
-        if (contrast) {
-            val shadow = with(density) {
-                Shadow(Color.Black.copy(alpha = .92f), Offset(0f, 1.dp.toPx()), 2.dp.toPx())
-            }
-            typography.copy(
-                bodyLarge = typography.bodyLarge.copy(shadow = shadow),
-                bodyMedium = typography.bodyMedium.copy(shadow = shadow),
-                bodySmall = typography.bodySmall.copy(shadow = shadow),
-                titleMedium = typography.titleMedium.copy(shadow = shadow),
-                titleSmall = typography.titleSmall.copy(shadow = shadow),
-                labelMedium = typography.labelMedium.copy(shadow = shadow)
-            )
-        } else typography
-    }
     CompositionLocalProvider(LocalAppColors provides colors) {
-        MaterialTheme(colorScheme = scheme, typography = popupTypography, content = content)
+        MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, content = content)
     }
 }
 

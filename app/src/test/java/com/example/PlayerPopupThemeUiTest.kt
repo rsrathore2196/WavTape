@@ -170,7 +170,7 @@ class PlayerPopupThemeUiTest {
             val prepared = rememberPlayerPopupArtwork(whiteArtwork, playerVisible = true)
             SideEffect { ready = prepared != null }
             CompositionLocalProvider(LocalDynamicGlassEnabled provides true, LocalPlayerPopupArtwork provides prepared) {
-                Box(
+                if (prepared != null) Box(
                     Modifier.size(80.dp).playerPopupGlass(RoundedCornerShape(12.dp)).testTag("white_artwork"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -211,8 +211,8 @@ class PlayerPopupThemeUiTest {
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         val style = layouts.single().layoutInput.style
         assertEquals("$tag uses white text", Color.White, style.color)
-        assertTrue("$tag casts a soft text shadow over bright artwork",
-            style.shadow?.let { it.offset.y > 0f && it.blurRadius > 0f } == true)
+        assertTrue("$tag text has no shadow even over bright artwork",
+            style.shadow == null || style.shadow == androidx.compose.ui.graphics.Shadow.None)
     }
 
     private fun assertContinuousLyricsGlass(tag: String, image: java.awt.image.BufferedImage) {
@@ -251,16 +251,18 @@ class PlayerPopupThemeUiTest {
 
     private fun checkPopups(source: AppThemeColors, withGlass: Boolean = false) {
         captureSuffix = (if (source.isDark) "-dark" else "-light") + if (withGlass) "-glass" else ""
-        var popup by mutableIntStateOf(0)
+        var popup by mutableIntStateOf(-1)
         var size by mutableIntStateOf(32)
         var enabled by mutableStateOf(true)
         var selectedProvider by mutableStateOf("Auto")
         var dismissed = 0
         // Extreme saved accents previously caused white-on-white switches and selected text.
         val original = source.copy(primaryAccent = if (source.isDark) Color.White else Color.Yellow)
+        var glassReady = false
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme {
             val preparedArtwork = rememberPlayerPopupArtwork(artwork.popupSample.takeIf { withGlass }, playerVisible = true)
+            SideEffect { glassReady = preparedArtwork != null }
             CompositionLocalProvider(LocalAppColors provides playerAppearanceColors(original),
                 LocalPlayerPopupColors provides original, LocalArtworkRequestsActive provides false,
                 LocalDynamicGlassEnabled provides withGlass,
@@ -292,6 +294,11 @@ class PlayerPopupThemeUiTest {
                 }
             }
         } }
+        if (withGlass) {
+            compose.mainClock.autoAdvance = true
+            compose.waitUntil(5_000) { glassReady }
+            compose.mainClock.autoAdvance = false
+        }
         val tags = listOf("sound_output_devices_dialog", "queue_bottom_sheet", "sleep_timer_popup",
             "equalizer_dialog", "lyrics_offset_sheet", "add_to_playlist_popup", "signal_path_popup",
             "lyrics_text_size_popup", "lyrics_provider_popup")
@@ -407,6 +414,31 @@ class PlayerPopupThemeUiTest {
         } finally {
             TrackPaletteCache.clear()
         }
+    }
+
+    @Test fun artworkThatFinishesDuringOpeningAppearsOnTheNextPresentation() {
+        var open by mutableStateOf(true)
+        var prepared by mutableStateOf<PlayerPopupArtwork?>(null)
+        compose.setContent {
+            CompositionLocalProvider(LocalDynamicGlassEnabled provides true, LocalPlayerPopupArtwork provides prepared) {
+                if (open) Box(Modifier.size(80.dp).background(playerPopupSurfaceColor())
+                    .playerPopupGlass(RectangleShape).testTag("popup_artwork_first_frame"))
+            }
+        }
+        fun centerPixel(): Int {
+            val image = capture("popup_artwork_first_frame")
+            return image.getRGB(image.width / 2, image.height / 2)
+        }
+        assertEquals(Color.Black.toArgb(), centerPixel())
+        compose.runOnIdle {
+            val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(coverColor.toArgb()) }
+            prepared = PlayerPopupArtwork(bitmap.asImageBitmap(), needsForegroundContrast = true)
+        }
+        assertEquals(Color.Black.toArgb(), centerPixel())
+        compose.runOnIdle { open = false }
+        compose.onNodeWithTag("popup_artwork_first_frame").assertDoesNotExist()
+        compose.runOnIdle { open = true }
+        assertEquals(coverColor.toArgb(), centerPixel())
     }
 
     @Test fun popupUsesOneScreenAlignedFrameUntilItCloses() {

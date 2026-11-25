@@ -8,15 +8,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.local.OtherSettingsPreferences
 import com.example.data.model.MusicTrack
 import com.example.playback.PlayerUiState
 import com.example.ui.components.ExpandedPlayerScreen
 import com.example.ui.components.LocalDynamicGlassEnabled
 import com.example.ui.components.WavyScrubberBar
 import com.example.ui.util.LocalArtworkRequestsActive
+import com.example.util.ProvideAppHaptics
 import com.github.takahirom.roborazzi.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.*
@@ -32,6 +38,50 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PlaybackScrubberSeekUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun playerGesturesUseTheCurrentHapticPreference() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val initialSetting = OtherSettingsPreferences.isHapticsEnabled(context)
+        val vibrations = mutableListOf<HapticFeedbackType>()
+        val platform = object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                vibrations += hapticFeedbackType
+            }
+        }
+        val track = MusicTrack("haptics", "Haptics test", "Artist", "Album", 35_000L, "", "")
+        try {
+            OtherSettingsPreferences.setHapticsEnabled(context, false)
+            compose.setContent { MaterialTheme {
+                CompositionLocalProvider(LocalHapticFeedback provides platform, LocalArtworkRequestsActive provides false,
+                    LocalDynamicGlassEnabled provides false) {
+                    ProvideAppHaptics {
+                        ExpandedPlayerScreen(PlayerUiState(currentTrack = track), {}, {}, {}, {}, {}, {}, {}, {}, {},
+                            onAddToPlaylist = {})
+                    }
+                }
+            } }
+            val playPause = compose.onNodeWithTag("expanded_player_play_pause")
+            val seek = compose.onNodeWithTag("player_scrub_slider", useUnmergedTree = true)
+            fun useControls() {
+                playPause.performClick()
+                seek.performTouchInput { click() }
+            }
+            useControls()
+            compose.runOnIdle {
+                assertTrue(vibrations.isEmpty())
+                OtherSettingsPreferences.setHapticsEnabled(context, true)
+            }
+            useControls()
+            compose.runOnIdle {
+                assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.TextHandleMove), vibrations)
+                OtherSettingsPreferences.setHapticsEnabled(context, false)
+            }
+            useControls()
+            compose.runOnIdle { assertEquals(2, vibrations.size) }
+        } finally {
+            OtherSettingsPreferences.setHapticsEnabled(context, initialSetting)
+        }
+    }
 
     @Test fun doubleTapsSeekWithinTheTrackInPortrait() = verifyTransportTaps()
 
@@ -125,7 +175,7 @@ class PlaybackScrubberSeekUiTest {
                     val strokeRows = (0 until image.height).filter { y ->
                         ((image.getRGB(image.width / 2, y) ushr 16) and 255) > 127
                     }
-                    val (stroke, lift) = with(compose.density) { 3.dp.toPx() to 2.dp.toPx() }
+                    val (stroke, lift) = with(compose.density) { 4.5.dp.toPx() to 2.75.dp.toPx() }
                     assertEquals(stroke, strokeRows.size.toFloat(), 1f)
                     assertEquals(image.height / 2f - lift, strokeRows.average().toFloat() + .5f, 1f)
                 }

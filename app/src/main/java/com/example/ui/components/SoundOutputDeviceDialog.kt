@@ -180,11 +180,8 @@ fun SoundOutputDeviceDialog(
 
     // One transition owns every layer; dismissal waits for its actual completion.
     var isClosing by remember { mutableStateOf(false) }
-    var isMounted by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        isMounted = true
-    }
+    val dialogCenter = remember { mutableStateOf(Offset.Unspecified) }
+    val isMounted by remember { androidx.compose.runtime.derivedStateOf { dialogCenter.value != Offset.Unspecified } }
 
     val closeWithAnimation: () -> Unit = {
         if (!isClosing) {
@@ -209,8 +206,6 @@ fun SoundOutputDeviceDialog(
         label = "output_opacity"
     ) { if (it) 1.0f else 0.0f }
 
-    val dialogCenter = remember { mutableStateOf(Offset.Unspecified) }
-
     LaunchedEffect(isClosing, presentation) {
         if (isClosing) {
             snapshotFlow { !presentation.isRunning && !presentation.currentState }.first { it }
@@ -225,8 +220,8 @@ fun SoundOutputDeviceDialog(
             decorFitsSystemWindows = false
         )
     ) {
-        KeepPlayerPopupWindowClear()
-        PlayerPopupTheme(appColors, glass = true) {
+        KeepPlayerPopupWindowClear(disableWindowAnimations = true)
+        PlayerPopupTheme(appColors) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
