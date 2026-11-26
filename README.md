@@ -23,7 +23,9 @@
   <p>
     <a href="https://github.com/rsrathore2196/WavTape/releases"><img src="https://img.shields.io/github/v/release/rsrathore2196/WavTape?style=flat-square&logo=github&label=Release&color=green" alt="Latest Release"></a>
     <a href="https://github.com/rsrathore2196/WavTape/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_APK-green?style=flat-square&logo=android&logoColor=white" alt="Download APK"></a>
-    <a href="#"><img src="https://img.shields.io/badge/Android-12%2B-red?style=flat-square&logo=android" alt="Android Version"></a>
+    <a href="https://developer.android.com/about/versions/12">
+  <img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android 12+">
+    </a>
   </p>
 
   <p>
