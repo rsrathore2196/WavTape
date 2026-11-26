@@ -37,7 +37,9 @@ class ArchiveMetadataRegressionTest {
             {"name":"Artist - Song.flac","format":"Flac","length":"180"},
             {"name":"another.flac","format":"Flac","title":"Another Song"}
         ]}""")
-        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root).isEmpty())
+        val namedFile = InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null }).single()
+        assertEquals("Another Song", namedFile.title)
+        assertEquals(0L, namedFile.durationMs)
     }
     @Test fun aSingleRecordingMayUseItsActualItemDurationButStillRequiresPlaybackRights() = runBlocking {
         val root = JSONObject("""{"metadata":{"title":"Single Song","creator":"Artist","duration":"181",
@@ -156,6 +158,53 @@ class ArchiveMetadataRegressionTest {
             assertEquals("INTERNET_ARCHIVE", resolved.source)
             assertTrue(resolved.isLossless)
         } finally { resolver.clear() }
+    }
+
+    @Test fun archiveFlacDerivativesUseOnlyTheirExplicitAuthorizedOriginal() = runBlocking {
+        val root = JSONObject("""{"metadata":{"title":"Late Surrender","creator":"selene XIV",
+            "licenseurl":"https://creativecommons.org/licenses/by/4.0/"},"files":[
+            {"name":"catboi-album3.flac","source":"derivative","original":"catboi-album3.wav","format":"Flac","length":"244.83"},
+            {"name":"catboi-album3.wav","source":"original","format":"WAVE","length":"244.83","title":"Back Counting","artist":"selene XIV"},
+            {"name":"unlinked.flac","format":"Flac","length":"244.83"}
+        ]}""")
+        val candidates = InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null })
+        assertEquals(listOf("ia_album:catboi-album3.flac", "ia_album:catboi-album3.wav"), candidates.map { it.id })
+        assertTrue(candidates.all { it.title == "Back Counting" && it.artist == "selene XIV" && it.durationMs == 244830L })
+        root.getJSONArray("files").getJSONObject(1).put("private", "1")
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null }).isEmpty())
+    }
+
+    @Test fun exactBrowseCanShowAFileWithoutMakingItsNameRecordingEvidence() = runBlocking {
+        val root = JSONObject("""{"metadata":{"title":"Collection","creator":"Artist","rights":"public domain"},"files":[
+            {"name":"track01.flac","format":"Flac","length":"120"},
+            {"name":"track02.flac","format":"Flac","length":"120","title":"Song"}]}""")
+        val selected = com.example.data.remote.ArchiveFileKey.create("album", "track01.flac")!!
+        val result = InternetArchiveApiService.parseLosslessItem(doc, root, exactFile = selected,
+            allowLiteral = true, readHeader = { null }).single()
+        assertEquals("track01.flac", result.title)
+        assertTrue(com.example.data.remote.ArchiveFileEvidence.isLiteralSelection(result))
+        assertEquals(selected.id, result.id)
+        assertFalse(StreamResolver.matchesLosslessUpgrade(result.copy(id = "yt_ordinarySong", title = "Song"), result))
+        root.getJSONObject("metadata").put("rights", org.json.JSONArray(listOf("public domain", "all rights reserved")))
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, exactFile = selected, allowLiteral = true) {
+            fail("Contradictory rights must be detected before file probing")
+            null
+        }.isEmpty())
+    }
+
+    @Test fun mismatchedEmbeddedAudioIsRejectedAndTheNextVerifiedCopyCanWin() = runBlocking {
+        val request = MusicTrack("online_song", "Song", "Artist", "Album", 180000, "", "")
+        val root = JSONObject("""{"metadata":{"title":"Album","rights":"public domain"},"files":[
+            {"name":"first.flac","format":"Flac","title":"Song","artist":"Artist","length":"180"},
+            {"name":"second.flac","format":"Flac","title":"Song","artist":"Artist","length":"180"}]}""")
+        val attempts = mutableListOf<String>()
+        val result = InternetArchiveApiService.parseLosslessItem(doc, root, request,
+            validateCandidate = { candidate ->
+                attempts += candidate.id
+                candidate.id == "ia_album:second.flac"
+            }).single()
+        assertEquals(listOf("ia_album:first.flac", "ia_album:second.flac"), attempts)
+        assertEquals("ia_album:second.flac", result.id)
     }
 
 }

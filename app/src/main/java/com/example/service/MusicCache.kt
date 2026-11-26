@@ -196,6 +196,10 @@ object MusicCache {
                     delegate = source
                     return try { source.open(spec) } catch (error: Exception) { close(); throw error }
                 }
+                val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(spec.uri.toString())
+                val transportFactory = if (archive == null) rangedUpstream else DataSource.Factory {
+                    com.example.data.remote.ArchiveFileTransport.source(app, archive, connectTimeoutMs, readTimeoutMs)
+                }
                 val selectedKey = spec.key ?: StreamedAudioRepresentations.keyFor(spec.uri) ?: safeTransportKey(spec.uri)
                 StreamedAudioPrefetch.preempt(selectedKey)
                 val source: DataSource = try {
@@ -203,18 +207,18 @@ object MusicCache {
                     StreamedAudioRepresentations.persistBinding(cache, selectedKey)
                     CacheDataSource.Factory().setCache(cache)
                         .setCacheKeyFactory { selectedKey }
-                        .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online })
+                        .setUpstreamDataSourceFactory(transportFactory.takeIf { online })
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
                 } catch (failure: Exception) {
                     if (!online) throw IOException("Cached audio is unavailable offline", failure)
-                    rangedUpstream.createDataSource()
+                    transportFactory.createDataSource()
                 }
                 listeners.forEach(source::addTransferListener)
                 delegate = source
                 return try { source.open(spec) } catch (failure: Cache.CacheException) {
                     close()
                     if (!online) throw failure
-                    val upstream = rangedUpstream.createDataSource()
+                    val upstream = transportFactory.createDataSource()
                     listeners.forEach(upstream::addTransferListener)
                     delegate = upstream
                     try { upstream.open(spec) } catch (error: Exception) { close(); throw error }

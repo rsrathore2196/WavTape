@@ -61,7 +61,7 @@ internal fun CatalogSectionTitle(title: String) {
 internal fun LazyListScope.catalogSearchResults(
     state: CatalogSearchState, playingId: String?, isPlaying: Boolean, isLoading: Boolean,
     onPlay: (MusicTrack, List<MusicTrack>) -> Unit, onFavorite: (MusicTrack) -> Unit,
-    onOpen: (CatalogDestination) -> Unit, onMore: () -> Unit, onRetry: () -> Unit
+    onOpen: (CatalogDestination) -> Unit, onMore: () -> Unit, onRetry: () -> Unit, onArchiveMore: () -> Unit = {}
 ) {
     val result = state.page
     val display = state.display
@@ -111,7 +111,7 @@ internal fun LazyListScope.catalogSearchResults(
         item("playlists_header") { CatalogSectionTitle("Playlists") }
         result.playlists.forEach { entity("playlist:${it.id}", CatalogDestination.Playlist(it)) }
     }
-    if (!state.loading && state.error == null && result.tracks.isEmpty() && result.albums.isEmpty() && result.artists.isEmpty() && result.playlists.isEmpty()) {
+    if (!state.loading && !state.archiveLoading && state.archiveMessage == null && state.error == null && result.tracks.isEmpty() && result.albums.isEmpty() && result.artists.isEmpty() && result.playlists.isEmpty()) {
         item("empty") { Text("No results found", color = LocalAppColors.current.textMuted, modifier = Modifier.padding(20.dp)) }
     }
     val message = state.error ?: result.warning
@@ -119,7 +119,18 @@ internal fun LazyListScope.catalogSearchResults(
     if (state.loading || state.loadingMore) item("loading") {
         Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { VisibleCircularProgressIndicator(Modifier.size(24.dp), color = LocalAppColors.current.primaryAccent) }
     }
-    else if (result.nextPage != null) item("more") {
+    else if (result.nextPage != null && !state.archiveOwnsContinuation) item("more") {
         Text("See More", color = LocalAppColors.current.primaryAccent, modifier = Modifier.fillMaxWidth().clickable(onClick = onMore).padding(20.dp))
+    }
+    if (state.archiveLoading) item("archive_loading") {
+        Text("Searching Internet Archive…", color = LocalAppColors.current.textMuted, modifier = Modifier.padding(20.dp))
+    }
+    if (state.archiveMessage != null) item("archive_status") {
+        Text(state.archiveMessage, color = LocalAppColors.current.textMuted, modifier = Modifier.padding(20.dp))
+    }
+    if (!state.archiveLoading && state.archiveNextPage != null) item("archive_more") {
+        Text(if (state.archiveMessage != null) "Retry Internet Archive" else "More from Internet Archive",
+            color = LocalAppColors.current.textPrimary,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onArchiveMore).padding(20.dp))
     }
 }

@@ -283,6 +283,24 @@ class SourcePolicyRoutingTest {
         }
     }
 
+    @Test fun aDirectArchiveAttemptRunsOnceAndTheExistingFallbackOrderIsPreserved() = runBlocking {
+        val calls = mutableListOf<String>()
+        val resolver = StreamResolver(verifyArchive = { calls += "archive"; null },
+            searchStandard = { _, _ -> calls += "jio"; listOf(jio) },
+            resolveYouTube = { _, _, _, _ -> calls += "youtube"; null }, searchYouTube = { emptyList() })
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = archiveFirst)
+        assertThrows(TrackUnavailableException::class.java) {
+            runBlocking {
+                resolver.resolve(archive, policy.ceiling.audioQuality, sourcePolicy = policy,
+                    preferredSourceId = PlaybackSource.archive.id)
+            }
+        }
+        val result = resolver.resolve(archive, policy.ceiling.audioQuality, sourcePolicy = policy,
+            bestQualityFirst = true, skipExactArchive = true)
+        assertEquals(jio.audioUrl, result.audioUrl)
+        assertEquals(listOf("archive", "jio"), calls)
+    }
+
     @Test fun aDifferentArchiveFileCannotReplaceTheExplicitlySelectedFile() = runBlocking {
         val other = archive.copy(audioUrl = "https://archive.org/download/other/song.flac")
         val result = resolver(verifiedArchive = other).resolve(archive, AudioQuality.HI_RES_LOSSLESS,

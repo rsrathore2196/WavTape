@@ -45,4 +45,33 @@ class ArchiveAudioMetadataTest {
         val malformed = header().apply { this[7] = 33 }
         assertNull(ArchiveAudioMetadata.flac(malformed))
     }
+    @Test fun aBoundedFollowUpRangeCanSkipPictureBytesAndRecoverComments() {
+        val original = header()
+        val pictureBytes = 500_000
+        val prefix = original.copyOf(42) + byteArrayOf(6, (pictureBytes ushr 16).toByte(),
+            (pictureBytes ushr 8).toByte(), pictureBytes.toByte())
+        assertEquals("", ArchiveAudioMetadata.flac(prefix)!!.title)
+        assertEquals(500046L, ArchiveAudioMetadata.followingFlacMetadataOffset(prefix))
+        val recovered = ArchiveAudioMetadata.extendFlacTags(original.copyOfRange(42, original.size),
+            ArchiveAudioMetadata.flac(prefix)!!)
+        assertEquals("Song", recovered.title)
+        assertEquals("Artist", recovered.artist)
+        assertEquals(183000L, recovered.durationMs)
+    }
+
+    @Test fun actualLosslessWaveAndAlacSignaturesAreDistinctFromLossyContainers() {
+        val riff = "RIFF".toByteArray() + byteArrayOf(36, 0, 0, 0) + "WAVEfmt ".toByteArray() +
+            byteArrayOf(16, 0, 0, 0) + ByteArray(16).apply { this[0] = 1 }
+        assertTrue(ArchiveAudioMetadata.pcmWave(riff))
+        assertFalse(ArchiveAudioMetadata.pcmWave(riff.copyOf().apply { this[20] = 6 }))
+        fun atom(type: String, body: ByteArray): ByteArray = java.nio.ByteBuffer.allocate(8 + body.size)
+            .putInt(8 + body.size).put(type.toByteArray()).put(body).array()
+        fun mp4(sample: String): ByteArray = listOf("stsd", "stbl", "minf", "mdia", "trak", "moov")
+            .fold(ByteArray(8) + atom(sample, ByteArray(24))) { body, box -> atom(box, body) }
+        assertTrue(ArchiveAudioMetadata.alac(mp4("alac")))
+        assertFalse(ArchiveAudioMetadata.alac(mp4("mp4a")))
+        val mdat = java.nio.ByteBuffer.allocate(8).putInt(1_000_000).put("mdat".toByteArray()).array()
+        assertEquals(1_000_000L, ArchiveAudioMetadata.followingMp4MetadataOffset(mdat, 0L))
+    }
+
 }

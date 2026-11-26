@@ -600,11 +600,11 @@ class PlaybackManager(
                     }
                     return@launch
                 }
-                val media = preparedFastMedia ?: transitionMedia(resolved)
+                var media = preparedFastMedia ?: transitionMedia(resolved)
                 val prepared = if (fastSwitch) ownsFastStart() else {
                     val sameCode = withContext(AppDispatchers.CpuBounded) {
                         com.example.data.repository.RecordingIdentity.isrc(original.isrc)?.let {
-                            it == com.example.data.repository.RecordingIdentity.isrc(resolved.isrc)
+                            it == com.example.data.remote.ArchiveFileEvidence.verifiedReplacementIsrc(resolved)
                         } == true
                     }
                     val cached = media.localConfiguration?.uri?.scheme == com.example.service.MusicCache.OFFLINE_SCHEME
@@ -614,6 +614,7 @@ class PlaybackManager(
                         context, media, original.durationMs, currentPosition = ::position, stillCurrent = ::owns,
                         durationToleranceMs = if (sameCode) 8_000L else 5_000L, allowUnknownDuration = sameCode,
                         automatic = automatic) else null
+                    warmed?.archiveCacheKey?.let { key -> media = media.buildUpon().setCustomCacheKey(key).build() }
                     val ready = if (cached) true else if (adaptive) LosslessStreamPrebuffer.prepareAdaptiveSource(
                         context, media, original.durationMs, stillCurrent = ::owns,
                         durationToleranceMs = if (sameCode) 8_000L else 5_000L,
@@ -1322,11 +1323,15 @@ class PlaybackManager(
         _uiState.update { it.copy(isPlaying = false) }
         if (current.isLossless && losslessFallback == null && !error.isAudioPipelineFailure() &&
             Uri.parse(current.audioUrl).scheme !in setOf("file", "content", "xtreme-offline")) {
-            val reason = when (error.errorCode) {
-                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> LosslessDiagnostics.Reason.DECODER_UNSUPPORTED
-                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> LosslessDiagnostics.Reason.NETWORK_TIMEOUT
-                else -> LosslessDiagnostics.Reason.ACTIVATION_FAILED
+            val failure = com.example.data.remote.ArchiveFileKey.nativeTransport(current.audioUrl)?.let {
+                com.example.data.remote.ArchiveFileTransport.failureOf(error)
             }
+            val reason = failure?.let(com.example.data.remote.InternetArchiveApiService::archiveFailureReason)
+                ?: when (error.errorCode) {
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> LosslessDiagnostics.Reason.DECODER_UNSUPPORTED
+                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> LosslessDiagnostics.Reason.NETWORK_TIMEOUT
+                    else -> LosslessDiagnostics.Reason.ACTIVATION_FAILED
+                }
             scope.launch(AppDispatchers.Io) {
                 LosslessDiagnostics.record(current.id, reason, "player-error")
                 repository?.rejectLosslessUpgrade(current, current.audioUrl)

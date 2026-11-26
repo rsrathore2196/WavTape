@@ -401,6 +401,7 @@ fun SearchScreen(
     catalogState: com.example.ui.viewmodel.CatalogSearchState = com.example.ui.viewmodel.CatalogSearchState(),
     onSelectType: (String) -> Unit = {},
     onLoadMore: () -> Unit = {},
+    onArchiveMore: () -> Unit = {},
     onRetrySearch: () -> Unit = {},
     onOpenCatalog: (com.example.data.repository.CatalogDestination) -> Unit = {},
     onOpenAlbumByName: (String) -> Unit = {},
@@ -1006,7 +1007,7 @@ fun SearchScreen(
                         keyboardController?.hide()
                         focusManager.clearFocus()
                         onOpenCatalog(destination)
-                    }, onMore = onLoadMore, onRetry = onRetrySearch)
+                    }, onMore = onLoadMore, onRetry = onRetrySearch, onArchiveMore = onArchiveMore)
             } else {
             val results = searchState.result
             val showTracks = selectedTypeFilter == null || selectedTypeFilter == "Tracks"

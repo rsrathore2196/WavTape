@@ -3,8 +3,10 @@ package com.example.ui.viewmodel
 import com.example.performance.AppDispatchers
 
 import com.example.data.model.MusicTrack
+import com.example.data.remote.ArchiveFileKey
 import com.example.data.repository.*
 import com.example.playback.AudioQuality
+import com.example.playback.LosslessDiagnostics.Reason
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -15,7 +17,11 @@ data class CatalogSearchState(
     val loading: Boolean = false, val loadingMore: Boolean = false, val error: String? = null,
     internal val requestId: Int = 0,
     internal val sourcePolicyKey: String = "",
-    val display: CatalogSearchDisplay = CatalogSearchDisplay()
+    val display: CatalogSearchDisplay = CatalogSearchDisplay(),
+    val archiveMessage: String? = null,
+    val archiveLoading: Boolean = false,
+    val archiveNextPage: Int? = null,
+    val archiveOwnsContinuation: Boolean = false
 )
 data class CatalogTopResult(val key: String, val score: Int,
     val track: MusicTrack? = null, val destination: CatalogDestination? = null)
@@ -103,6 +109,8 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
     @Volatile private var catalogCandidates = emptyList<MusicTrack>()
     @Volatile private var archiveCandidates = emptyList<MusicTrack>()
     @Volatile private var archiveNext: Int? = 1
+    private var archiveStarted = false
+    private var archiveTriedAnchors = false
     @Volatile private var catalogNext: Int? = null
     private val searchPublicationLock = Any()
 
@@ -148,7 +156,11 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             policyRevision++
             candidateRevision++
             archiveSearchJob?.cancel()
+            archiveSearchJob = null
             archivePaginationJob?.cancel()
+            archiveStarted = archiveCandidates.isNotEmpty()
+            if (!archiveStarted && archiveNext == null) archiveNext = 1
+            archiveTriedAnchors = false
         }
         setStreamingAddon(addonSettings)
         // Keep the current query and original catalog results. A late Archive response
@@ -162,7 +174,10 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     archiveNext.takeIf { archiveSearch != null && policy.allowsArchive } else state.page.nextPage)
             // Filtering existing prepared rows is immediate; relevance preparation
             // stays on CpuBounded and never discards the query or ordinary results.
-            state.copy(page = page, sourcePolicyKey = policy.key, loadingMore = false, display = state.display.copy(
+            state.copy(page = page, sourcePolicyKey = policy.key, loadingMore = false, archiveLoading = false,
+                archiveMessage = if (policy.allowsArchive) null else archiveBlockedMessage(state.query, policy),
+                archiveNextPage = archiveNext.takeIf { policy.allowsArchive && archiveCandidates.isNotEmpty() },
+                display = state.display.copy(
                 top = state.display.top.filter { result -> result.track?.let { eligible(it, policy) }
                     ?: !(!policy.allowsArchive && result.key.substringAfter(':').startsWith("ia_")) },
                 songs = state.display.songs.filter { eligible(it, policy) },
@@ -182,16 +197,20 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             val version = candidateRevision
             val revision = policyRevision
             val policy = sourcePolicy
+            val archive = archiveCandidates.takeIf { policy.allowsArchive }.orEmpty()
+            val archiveLink = ArchiveFileKey.itemLink(state.query) != null
             val tracks = catalogCandidates.filter { !archiveTrack(it) && eligible(it, policy) } +
-                archiveCandidates.takeIf { policy.allowsArchive }.orEmpty() + addonCandidates
+                archive.takeUnless { archiveLink }.orEmpty() + addonCandidates
             val ranked = com.example.data.remote.AudioRoutingService.rankTracks(state.query, tracks,
-                includeArchive = policy.allowsArchive, deduplicateRecordings = false)
+                includeArchive = policy.allowsArchive, deduplicateRecordings = false) +
+                archive.takeIf { archiveLink }.orEmpty()
             // Build presentation on CpuBounded, outside the publication lock.
             // The lock only protects the final generation/revision check and CAS.
             val prepared = state.withPage((page ?: state.page).copy(tracks = liked(ranked),
                 nextPage = catalogNext ?: archiveNext.takeIf { archiveSearch != null && policy.allowsArchive }))
                 .copy(sourcePolicyKey = policy.key, loading = loading ?: state.loading,
-                    loadingMore = loadingMore ?: state.loadingMore)
+                    loadingMore = loadingMore ?: state.loadingMore,
+                    archiveOwnsContinuation = catalogNext == null && archiveSearch != null && policy.allowsArchive)
             val published = synchronized(searchPublicationLock) {
                 if (searchGeneration != generation || _search.value.requestId != generation) return
                 candidateRevision == version && policyRevision == revision &&
@@ -202,10 +221,23 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
         }
     }
 
-    private fun enrichSearch(generation: Int, loadArchivePage: Boolean = true) = synchronized(searchPublicationLock) {
+    private fun archiveBlockedMessage(query: String, policy: com.example.playback.PlaybackSourcePolicy): String? {
+        if (ArchiveFileKey.itemLink(query) == null) return null
+        return when {
+            !policy.online -> "Internet Archive needs an internet connection."
+            !policy.maximum -> "Internet Archive requires Maximum/Lossless on the active network."
+            else -> "Internet Archive is disabled in Playback Sources."
+        }
+    }
+
+    private fun enrichSearch(generation: Int, loadArchivePage: Boolean = true, moreArchive: Boolean = false) {
+        synchronized(searchPublicationLock) { enrichSearchLocked(generation, loadArchivePage, moreArchive) }
+    }
+
+    private fun enrichSearchLocked(generation: Int, loadArchivePage: Boolean, moreArchive: Boolean) {
         val state = _search.value
         if (searchGeneration != generation || state.requestId != generation || typingGeneration == generation ||
-            state.query.isBlank() || state.type !in setOf("All", "Tracks")) return@synchronized
+            state.query.isBlank() || state.type !in setOf("All", "Tracks")) return
         val policy = sourcePolicy
         val revision = policyRevision
         fun current() = searchGeneration == generation && _search.value.requestId == generation &&
@@ -230,28 +262,62 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             }
             addonSearchJob?.start()
         }
-        if (policy.allowsArchive && archiveSearch != null && !state.loading && loadArchivePage &&
-            archiveNext != null && archiveSearchJob?.isActive != true) {
-            val requestedPage = archiveNext!!
-            archiveSearchJob = dataScope.launch(start = CoroutineStart.LAZY) {
-                try {
-                    val page = withTimeoutOrNull(45_000L) { archiveSearch.invoke(state.query.trim(), requestedPage, policy,
-                        catalogCandidates.take(2)) }
-                        ?: return@launch
-                    synchronized(searchPublicationLock) {
-                        if (!current()) return@launch
-                        archiveCandidates = (archiveCandidates + page.tracks).distinctBy { it.id }
-                        archiveNext = page.nextPage ?: requestedPage.takeUnless { page.isSuccessful }
-                        candidateRevision++
-                    }
-                    publishEligibleSearch(generation = generation)
-                } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Provider failures never clear usable catalog rows. */ }
-                finally { _search.update { if (current() && archivePaginationJob?.isActive != true)
-                    it.copy(loadingMore = false) else it } }
-            }
-            archiveSearchJob?.start()
+        if (!loadArchivePage || archiveSearch == null) return
+        if (!policy.allowsArchive) {
+            val message = archiveBlockedMessage(state.query, policy) ?: return
+            _search.update { if (current()) it.copy(archiveMessage = message) else it }
+            return
         }
+        val anchors = catalogCandidates.take(2).filter {
+            CatalogNames.score(state.query, it.title, listOf(it.artist, it.album)) >= 55
+        }
+        val withAnchors = !moreArchive && archiveStarted && !archiveTriedAnchors &&
+            archiveCandidates.isEmpty() && anchors.isNotEmpty() && ArchiveFileKey.itemLink(state.query) == null
+        if (archiveSearchJob?.isActive == true || archiveStarted && !moreArchive && !withAnchors) return
+        val requestedPage = if (withAnchors) 1 else archiveNext ?: return
+        archiveStarted = true
+        if (anchors.isNotEmpty()) archiveTriedAnchors = true
+        _search.update { if (current()) it.copy(archiveLoading = true, archiveMessage = null) else it }
+        archiveSearchJob = dataScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val page = try {
+                    withTimeoutOrNull(45_000L) { archiveSearch.invoke(state.query.trim(), requestedPage, policy, anchors) }
+                        ?: com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(
+                            isSuccessful = false, failure = Reason.NETWORK_TIMEOUT, exhaustive = false)
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) {
+                    com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(
+                        isSuccessful = false, failure = Reason.METADATA_INCOMPLETE, exhaustive = false)
+                }
+                synchronized(searchPublicationLock) {
+                    if (!current()) return@launch
+                    archiveCandidates = (archiveCandidates + page.tracks).distinctBy { it.id }
+                    archiveNext = page.nextPage ?: requestedPage.takeUnless { page.isSuccessful }
+                    candidateRevision++
+                    val message = when {
+                        page.failure == Reason.NETWORK_TIMEOUT -> "Internet Archive timed out."
+                        page.failure == Reason.UNAUTHORIZED && archiveCandidates.isEmpty() ->
+                            "Internet Archive found no files with the required playback rights."
+                        !page.isSuccessful -> "Internet Archive could only check part of the results."
+                        archiveCandidates.isEmpty() && archiveNext == null -> "No eligible Internet Archive files found."
+                        else -> null
+                    }
+                    _search.update { if (current()) it.copy(archiveMessage = message, archiveNextPage = archiveNext) else it }
+                }
+                publishEligibleSearch(generation = generation)
+            } finally {
+                val owner = currentCoroutineContext()[Job]
+                synchronized(searchPublicationLock) {
+                    if (current() && archiveSearchJob === owner) {
+                        archiveSearchJob = null
+                        _search.update { it.copy(archiveLoading = false,
+                            loadingMore = it.loadingMore && archivePaginationJob?.isActive == true) }
+                        if (!moreArchive) enrichSearchLocked(generation, loadArchivePage = true, moreArchive = false)
+                    }
+                }
+            }
+        }
+        archiveSearchJob?.start()
     }
     private var detailJob: Job? = null
     private var favoritesJob: Job? = null
@@ -333,6 +399,9 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             typingGeneration = if (debounce && query.isNotBlank()) generation else 0
             catalogCandidates = emptyList()
             archiveCandidates = emptyList()
+            archiveSearchJob = null
+            archiveStarted = false
+            archiveTriedAnchors = false
             archiveNext = 1
             catalogNext = null
             addonCandidates = emptyList()
@@ -350,7 +419,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     if (searchGeneration != generation) return@launch
                     if (typingGeneration == generation) typingGeneration = 0
                 }
-                enrichSearch(generation, loadArchivePage = false)
+                enrichSearch(generation)
                 suspend fun publishResult(result: CatalogPage, complete: Boolean) {
                     ensureActive()
                     if (_search.value.requestId != generation) return
@@ -378,29 +447,37 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                 it.copy(loading = false, error = "Couldn't load results. Tap to retry.") } }
         }
     }
+    fun loadMoreArchiveSearch() = loadMoreArchiveSearch(combined = false)
+
+    private fun loadMoreArchiveSearch(combined: Boolean) = synchronized(searchPublicationLock) {
+        val state = _search.value
+        val revision = policyRevision
+        if (archiveNext == null || archiveSearch == null || !sourcePolicy.allowsArchive ||
+            archivePaginationJob?.isActive == true || state.type !in setOf("All", "Tracks")) return@synchronized
+        if (combined) _search.update { it.copy(loadingMore = true, error = null) }
+        val previous = archiveSearchJob
+        archivePaginationJob = dataScope.launch(start = CoroutineStart.LAZY) {
+            fun current() = searchGeneration == state.requestId && policyRevision == revision
+            try {
+                previous?.join()
+                ensureActive()
+                if (!current()) return@launch
+                enrichSearch(state.requestId, moreArchive = true)
+                archiveSearchJob?.join()
+            } finally {
+                if (combined) _search.update { if (current() && it.requestId == state.requestId)
+                    it.copy(loadingMore = false) else it }
+            }
+        }
+        archivePaginationJob?.start()
+    }
+
     fun loadMoreSearch() {
         val state = _search.value
         val page = state.page.nextPage ?: return
         if (state.loading || state.loadingMore || searchJob?.isActive == true || archivePaginationJob?.isActive == true) return
         if (state.type in setOf("All", "Tracks") && catalogNext == null && archiveSearch != null && sourcePolicy.allowsArchive) {
-            _search.update { it.copy(loadingMore = true, error = null) }
-            val previous = archiveSearchJob
-            val revision = policyRevision
-            // A completed page can be visible just before its worker finishes.
-            // Join that worker asynchronously rather than dropping the next-page
-            // request or restarting the ordinary JioSaavn/YouTube catalog search.
-            archivePaginationJob = dataScope.launch(start = CoroutineStart.LAZY) {
-                fun current() = searchGeneration == state.requestId && policyRevision == revision
-                try {
-                    previous?.join()
-                    ensureActive()
-                    if (!current()) return@launch
-                    enrichSearch(state.requestId)
-                    archiveSearchJob?.join()
-                } finally { _search.update { if (current() && it.requestId == state.requestId)
-                    it.copy(loadingMore = false) else it } }
-            }
-            archivePaginationJob?.start()
+            loadMoreArchiveSearch(combined = true)
             return
         }
         val generation = searchGeneration

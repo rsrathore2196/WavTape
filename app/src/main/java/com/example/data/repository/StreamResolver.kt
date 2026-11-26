@@ -6,6 +6,9 @@ import android.net.Uri
 import com.example.data.model.MusicTrack
 import com.example.data.remote.OnlineMusicApiService
 import com.example.data.remote.InternetArchiveApiService
+import com.example.data.remote.ArchiveFileEvidence
+import com.example.data.remote.ArchiveFileKey
+import com.example.data.remote.ArchivePlaybackEvents
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.remote.YouTubeMusicApiService
 import com.example.playback.AudioQuality
@@ -68,9 +71,7 @@ internal class StreamResolver(
             }.getOrDefault(false)
         }
     },
-    private val verifyArchive: suspend (MusicTrack) -> MusicTrack? = { track ->
-        com.example.data.remote.InternetArchiveApiService.verifyDirectRecording(track) { true }
-    },
+    private val verifyArchive: (suspend (MusicTrack) -> MusicTrack?)? = null,
     private val resolveAddon: suspend (PlaybackSource, MusicTrack, PlaybackSourcePolicy, Set<String>) -> MusicTrack? = { _, _, _, _ -> null },
     private val ioDispatcher: CoroutineDispatcher = AppDispatchers.Io,
     private val findLossless: suspend (MusicTrack, Set<String>, () -> Boolean) -> InternetArchiveApiService.LosslessSearchPage =
@@ -89,7 +90,7 @@ internal class StreamResolver(
     private data class StreamKey(val id: String, val quality: AudioQuality, val recommendation: Boolean, val cap: Int,
         val recording: String, val policy: String?, val selectedArchiveUrl: String? = null,
         val preferredSource: String? = null, val currentOnly: Boolean = false, val manualUpgrade: Boolean = false,
-        val bestQualityFirst: Boolean = false)
+        val bestQualityFirst: Boolean = false, val skipExactArchive: Boolean = false)
     private val archiveAttempts = LinkedHashMap<String, Long>()
     // Catalog identities outlive signed URLs. Playback re-extracts the transport
     // for these exact, previously verified cross-provider matches.
@@ -264,7 +265,7 @@ internal class StreamResolver(
         sourcePolicy: com.example.playback.PlaybackSourcePolicy? = null,
         preferredSourceId: String? = null, manualUpgrade: Boolean = false,
         retainLosslessLookup: Boolean = true, losslessVersion: Long? = null, bestQualityFirst: Boolean = false,
-        cachedFallback: MusicTrack? = null
+        cachedFallback: MusicTrack? = null, skipExactArchive: Boolean = false
     ): MusicTrack = withContext(ioDispatcher) {
         // Older saved tracks may have a shortened display title alongside the full provider title.
         val track = if (track.title == track.fullTitle) track else track.copy(title = track.fullTitle)
@@ -285,13 +286,14 @@ internal class StreamResolver(
                 PlaybackDiagnostics.Reason.INCOMPLETE_METADATA) })
         val recordingKey = withContext(cpuDispatcher) { RecordingIdentity.key(track) }
         if (manualUpgrade) synchronized(archiveMisses) { archiveMisses.remove(recordingKey) }
-        val archiveUrl = com.example.data.remote.InternetArchiveApiService.originalFileUrl(track)
-            ?: track.audioUrl.takeIf { archiveTransport(it) }
+        val archiveFile = ArchiveFileKey.fromId(track.id) ?: ArchiveFileKey.nativeTransport(track.audioUrl)
+        val archiveUrl = archiveFile?.url?.toString() ?: track.audioUrl.takeIf { archiveTransport(it) }
         val selectedArchive = archiveUrl != null
+        val literalArchive = ArchiveFileEvidence.isLiteralSelection(track)
         // Cross-provider playback retains its catalog ID. Revalidate a known
         // Archive file before reusing that identity's cached lossy fallback.
         val key = StreamKey(track.id, quality, track.recommendationOnly, ceilingBps, recordingKey, policy.key,
-            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade, bestQualityFirst)
+            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade, bestQualityFirst, skipExactArchive)
         fun capped(candidate: MusicTrack): MusicTrack {
             val host = uriHost(candidate.audioUrl).orEmpty()
             if (candidate.source.startsWith("Streaming Addon:")) return candidate
@@ -337,6 +339,8 @@ internal class StreamResolver(
         }
         fun cachedFor(sourceId: String?): MusicTrack? {
             if (sourceId == null || sourceId != cachedSourceId || cached == null || cached.expiresAt <= System.currentTimeMillis()) return null
+            if (selectedArchive && sourceId == policy.sourceId(PlaybackSourceKind.INTERNET_ARCHIVE) &&
+                (skipExactArchive || verifyArchive == null)) return null
             val candidate = capped(cached.track)
             val addon = candidate.source.startsWith("Streaming Addon:") &&
                 com.example.data.remote.StreamingAddons.isVerified(candidate.audioUrl, policy)
@@ -556,7 +560,8 @@ internal class StreamResolver(
                 return attempt(6_000L) { jioExact() ?: standardFallback() }
             }
             if (currentSourceOnly) {
-                if (track.source.startsWith("Streaming Addon:")) policy.playbackSources
+                if (literalArchive) null
+                else if (track.source.startsWith("Streaming Addon:")) policy.playbackSources
                     .filter { it.kind == PlaybackSourceKind.ADDON &&
                         com.example.data.remote.StreamingAddons.fromSource(track.audioUrl, it.id) }.firstNotNullOfOrNull { source ->
                         addon(source, ADDON_STARTUP_TIMEOUT_MS)
@@ -578,13 +583,13 @@ internal class StreamResolver(
             } else {
                 val currentProvider = com.example.playback.SourceTransitionOrigin.sourceId(track.id,
                     android.net.Uri.parse(track.audioUrl), policy)
-                val providers = if (preferredSourceId != null) policy.playbackSources.filter { it.id == preferredSourceId }
+                val providers = (if (preferredSourceId != null) policy.playbackSources.filter { it.id == preferredSourceId }
                     else if (manualUpgrade && currentProvider != null)
                         policy.upgradeSources.takeWhile { it.id != currentProvider }
                     else (if (bestQualityFirst) policy.startupSourcesFor(track.id) else policy.resolutionSourcesFor(track.id)).let { ordered ->
                         if (selectedArchive) ordered.filter { it.kind == PlaybackSourceKind.INTERNET_ARCHIVE } +
                             ordered.filterNot { it.kind == PlaybackSourceKind.INTERNET_ARCHIVE } else ordered
-                    }
+                    }).filter { !literalArchive || it.kind == PlaybackSourceKind.INTERNET_ARCHIVE }
                 val pinned = preferredSourceId != null || manualUpgrade || selectedArchive ||
                     track.isLossless && track.audioUrl.isNotBlank()
                 suspend fun resolveProvider(provider: PlaybackSource): MusicTrack? = withContext(AttemptState()) {
@@ -602,11 +607,20 @@ internal class StreamResolver(
                             }
                             PlaybackSourceKind.JIOSAAVN -> boundedJio()
                             PlaybackSourceKind.INTERNET_ARCHIVE -> if (!archiveCurrent()) null else if (selectedArchive) {
-                                val direct = if (archiveUrl == rejected || archiveUrl == failedUrl || archiveUrl in rejectedUrls ||
-                                    isLosslessUrlRejected(archiveUrl)) null else attempt(MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS) {
-                                    verifyArchive(track.copy(audioUrl = archiveUrl, isLossless = true, source = "INTERNET_ARCHIVE"))
+                                val refused = (rejectedUrls + listOfNotNull(failedUrl)).any {
+                                    it == archiveUrl || archiveFile != null && ArchiveFileKey.fromUrl(it) == archiveFile
                                 }
-                                direct?.takeIf { it.audioUrl == archiveUrl && usable(it) && supportsLossless(it) }
+                                val direct = if (skipExactArchive || refused || isLosslessUrlRejected(archiveUrl)) null
+                                    else attempt(MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS) {
+                                        val exact = track.copy(audioUrl = archiveUrl, isLossless = true, source = "INTERNET_ARCHIVE")
+                                        if (verifyArchive != null) verifyArchive.invoke(exact)
+                                        else InternetArchiveApiService.verifyDirectRecording(exact, policy.key, forceRefresh, ::archiveCurrent)
+                                    }
+                                ArchivePlaybackEvents.record("exact_file", if (direct != null) "verified" else "exact_unavailable",
+                                    archiveFile, android.os.SystemClock.elapsedRealtime() - started)
+                                direct?.takeIf { it.audioUrl == archiveUrl && archiveCurrent() &&
+                                    (if (forceRefresh && failedUrl == null) providerAllowed(it) else usable(it)) &&
+                                    supportsLossless(it) }
                             } else archive()
                             PlaybackSourceKind.ADDON -> addon(provider,
                                 if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS)
