@@ -392,8 +392,13 @@ fun HomeScreenContent(
                 val firstName = profile?.name.orEmpty().trim().takeWhile { !it.isWhitespace() }
                     .ifEmpty { stringResource(R.string.home_listener) }
                     .lowercase(locale).replaceFirstChar { it.titlecase(locale) }
-                val greetingFont = remember {
-                    FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
+                val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
+                val greetingFont = remember(activeFontStyle) {
+                    if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) {
+                        FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
+                    } else {
+                        activeFontStyle.fontFamily
+                    }
                 }
                 val glowRadius = with(LocalDensity.current) { 9.dp.toPx() }
                 Column(

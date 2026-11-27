@@ -153,6 +153,7 @@ object OtherSettingsPreferences {
     private const val KEY_HAPTICS_ENABLED = "haptics_enabled"
     private const val KEY_DYNAMIC_GLASS_ENABLED = "dynamic_glass_enabled"
     private const val KEY_LIQUID_GLASS_PROFILE = "liquid_glass_profile"
+    private const val KEY_APP_FONT_STYLE = "app_font_style"
     private const val KEY_MINI_HEART = "mini_player_show_heart"
     private const val KEY_MINI_NEXT = "mini_player_show_next"
     private const val KEY_ALBUM_GLOW = "player_dynamic_album_glow"
@@ -480,6 +481,15 @@ object OtherSettingsPreferences {
 
     fun setLiquidGlassProfile(context: Context, profile: com.example.performance.LiquidGlassProfileSetting) {
         getPrefs(context).edit().putString(KEY_LIQUID_GLASS_PROFILE, profile.name).apply()
+    }
+
+    fun getAppFontStyle(context: Context): com.example.ui.theme.AppFontStyle {
+        val raw = getPrefs(context).getString(KEY_APP_FONT_STYLE, com.example.ui.theme.AppFontStyle.SYSTEM.id)
+        return com.example.ui.theme.AppFontStyle.fromId(raw)
+    }
+
+    fun setAppFontStyle(context: Context, fontStyle: com.example.ui.theme.AppFontStyle) {
+        getPrefs(context).edit().putString(KEY_APP_FONT_STYLE, fontStyle.id).apply()
     }
 
     fun isProxyEnabled(context: Context): Boolean {

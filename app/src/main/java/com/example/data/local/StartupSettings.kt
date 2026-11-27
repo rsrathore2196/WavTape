@@ -19,7 +19,8 @@ data class StartupSettings(
     val dynamicGlass: Boolean = true,
     val liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     val profile: UserProfile = UserProfile(),
-    val quality: AudioQuality = AudioQuality.EXTREME_320
+    val quality: AudioQuality = AudioQuality.EXTREME_320,
+    val appFontStyle: com.example.ui.theme.AppFontStyle = com.example.ui.theme.AppFontStyle.SYSTEM
 ) {
     val textScale get() = OtherSettingsPreferences.TEXT_SIZE_OPTIONS[textSizeIndex].scale
     val uiScale get() = OtherSettingsPreferences.UI_SIZE_OPTIONS[uiSizeIndex].scale
@@ -31,7 +32,8 @@ data class StartupSettings(
                 OtherSettingsPreferences.isDynamicGlassEnabled(context),
                 OtherSettingsPreferences.getLiquidGlassProfile(context),
                 UserProfilePreferences.getUserProfile(context),
-                AudioQuality.EXTREME_320
+                AudioQuality.EXTREME_320,
+                OtherSettingsPreferences.getAppFontStyle(context)
             )
         }
     }
@@ -106,6 +108,6 @@ internal class StartupSettingsCache(private val context: Context) : AutoCloseabl
     }
 
     private companion object {
-        val appearanceKeys = setOf("text_size_index", "ui_size_index", "dynamic_glass_enabled", "liquid_glass_profile")
+        val appearanceKeys = setOf("text_size_index", "ui_size_index", "dynamic_glass_enabled", "liquid_glass_profile", "app_font_style")
     }
 }

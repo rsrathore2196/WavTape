@@ -115,6 +115,8 @@ fun SettingsScreen(
     onToggleDynamicGlass: (Boolean) -> Unit = {},
     liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
+    appFontStyle: com.example.ui.theme.AppFontStyle = com.example.ui.theme.AppFontStyle.SYSTEM,
+    onSelectAppFontStyle: (com.example.ui.theme.AppFontStyle) -> Unit = {},
     onSubpageStateChanged: (Boolean) -> Unit = {},
     onNavigateBackToHome: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -262,6 +264,8 @@ fun SettingsScreen(
                                         onToggleDynamicGlass = onToggleDynamicGlass,
                                         liquidGlassProfile = liquidGlassProfile,
                                         onSelectLiquidGlassProfile = onSelectLiquidGlassProfile,
+                                        appFontStyle = appFontStyle,
+                                        onSelectAppFontStyle = onSelectAppFontStyle,
                                         onNestedPageChanged = { title, subtitle, back ->
                                             if (selectedCategory == SettingsCategory.THEMES_APP_UI) {
                                                 subPageTitle = title; subPageSubtitle = subtitle; subPageBackAction = back
@@ -463,10 +467,11 @@ private fun MainProfilePreviewBar(
             Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+                val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
                 Text(
                     text = userProfile?.name?.ifBlank { "WAVTAPE LISTENER" }?.trim()?.uppercase() ?: "WAVTAPE LISTENER",
                     fontWeight = FontWeight.ExtraBold,
-                    fontFamily = FontFamily.SansSerif,
+                    fontFamily = if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) FontFamily.SansSerif else activeFontStyle.fontFamily,
                     fontSize = 17.sp,
                     letterSpacing = 0.5.sp,
                     color = appColors.textPrimary,

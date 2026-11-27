@@ -254,8 +254,12 @@ fun SyncedLyricsView(
     }
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
+    val effectiveLyricsFont = remember(activeFontStyle) {
+        if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) LyricsFontFamily else activeFontStyle.fontFamily
+    }
     val lyricStyle = LocalTextStyle.current.copy(fontSize = lyricsTextSize.sp, lineHeight = (40 * lyricsTextScale).sp,
-        fontWeight = FontWeight.ExtraBold, fontFamily = LyricsFontFamily, textAlign = TextAlign.Start)
+        fontWeight = FontWeight.ExtraBold, fontFamily = effectiveLyricsFont, textAlign = TextAlign.Start)
     val romanizationStyle = LocalTextStyle.current.copy(fontSize = (14 * lyricsTextScale).sp, lineHeight = (18 * lyricsTextScale).sp,
         fontWeight = FontWeight.Medium, textAlign = TextAlign.Start)
     val rowHeights = remember(lyrics?.trackId, lines, viewportWidth, density, lyricStyle, romanizationStyle,
@@ -540,9 +544,13 @@ private fun KaraokeLineItem(
 ) {
     // Keep line wrapping and row height fixed as activity changes. Emphasis is a
     // top-anchored graphics transform, so it cannot invalidate the centering target.
+    val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
+    val effectiveLyricsFont = remember(activeFontStyle) {
+        if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) LyricsFontFamily else activeFontStyle.fontFamily
+    }
     val fontSize = textSizeSp.sp
     val fontWeight = FontWeight.ExtraBold
-    val lineHeight = (textSizeSp * 40f / 28f).sp
+    val lineHeight = (textSizeSp * 40f / 28f * activeFontStyle.lineHeightScale).sp
     val glowFocus = animateFloatAsState(
         targetValue = if (isActive) 1f else 0f,
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
@@ -557,7 +565,7 @@ private fun KaraokeLineItem(
             text = line.text,
             fontSize = fontSize,
             fontWeight = fontWeight,
-            fontFamily = LyricsFontFamily,
+            fontFamily = effectiveLyricsFont,
             lineHeight = lineHeight,
             color = activeTextColor,
             textAlign = TextAlign.Start,
@@ -621,7 +629,7 @@ private fun KaraokeLineItem(
         text = line.text,
         fontSize = fontSize,
         fontWeight = fontWeight,
-        fontFamily = LyricsFontFamily,
+        fontFamily = effectiveLyricsFont,
         lineHeight = lineHeight,
         // Sung and upcoming inactive lines share a fainter color; the live reveal stays unchanged.
         color = baseTextColor,

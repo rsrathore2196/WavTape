@@ -147,10 +147,11 @@ fun EditProfileNameSubPage(
                     Spacer(modifier = Modifier.width(14.dp))
 
                     Column {
+                        val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
                         Text(
                             text = nameInput.ifBlank { "WAVTAPE LISTENER" }.trim().uppercase(),
                             fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.SansSerif,
+                            fontFamily = if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) FontFamily.SansSerif else activeFontStyle.fontFamily,
                             fontSize = 19.sp,
                             letterSpacing = 0.8.sp,
                             color = appColors.textPrimary

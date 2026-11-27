@@ -255,6 +255,7 @@ fun MyApplicationTheme(
     customThemeState: CustomThemeState? = null,
     textScale: Float = 0.95f,
     uiScale: Float = 0.94f,
+    appFontStyle: AppFontStyle = AppFontStyle.SYSTEM,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -267,6 +268,7 @@ fun MyApplicationTheme(
             .copy(dynamicAlbumGlow = playerExperience.dynamicAlbumGlow)
     }
     val colorScheme = remember(darkTheme, appColors) { resolveColorScheme(darkTheme, appColors) }
+    val appTypography = remember(appFontStyle) { buildAppTypography(appFontStyle) }
 
     val statusBarAppearance = remember { StatusBarAppearance() }
     val headerDarkIcons = statusBarAppearance.headerDarkIcons
@@ -286,21 +288,38 @@ fun MyApplicationTheme(
     }
 
     val currentDensity = androidx.compose.ui.platform.LocalDensity.current
-    val customDensity = remember(currentDensity, textScale, uiScale) {
+    val customDensity = remember(currentDensity, textScale, uiScale, appFontStyle) {
         androidx.compose.ui.unit.Density(
             density = currentDensity.density * uiScale,
-            fontScale = currentDensity.fontScale * textScale
+            fontScale = currentDensity.fontScale * textScale * appFontStyle.opticalScale
         )
     }
 
     CompositionLocalProvider(
         LocalAppColors provides appColors,
+        LocalAppFontStyle provides appFontStyle,
         LocalPlayerEffect provides playerExperience.playerEffect,
         LocalStatusBarAppearance provides statusBarAppearance,
         androidx.compose.ui.platform.LocalDensity provides customDensity
     ) {
-        MaterialTheme(colorScheme = colorScheme, typography = Typography) {
-            com.example.util.ProvideAppHaptics(content)
+        MaterialTheme(colorScheme = colorScheme, typography = appTypography) {
+            val inheritedStyle = androidx.compose.material3.LocalTextStyle.current
+            val fontTextStyle = remember(inheritedStyle, appFontStyle) {
+                if (appFontStyle == AppFontStyle.SYSTEM) {
+                    inheritedStyle
+                } else {
+                    inheritedStyle.copy(
+                        fontFamily = appFontStyle.fontFamily,
+                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None
+                        )
+                    )
+                }
+            }
+            androidx.compose.material3.ProvideTextStyle(value = fontTextStyle) {
+                com.example.util.ProvideAppHaptics(content)
+            }
         }
     }
 }

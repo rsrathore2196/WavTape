@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Favorite
@@ -59,6 +60,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AppThemeMode
@@ -87,6 +89,8 @@ fun ThemesAppUiPage(
     onToggleDynamicGlass: (Boolean) -> Unit = {},
     liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
+    appFontStyle: com.example.ui.theme.AppFontStyle = com.example.ui.theme.AppFontStyle.SYSTEM,
+    onSelectAppFontStyle: (com.example.ui.theme.AppFontStyle) -> Unit = {},
     modifier: Modifier = Modifier,
     onNestedPageChanged: (String?, String?, (() -> Boolean)?) -> Unit = { _, _, _ -> }
 ) {
@@ -130,6 +134,8 @@ fun ThemesAppUiPage(
                     state, onUpdateCustomThemeState, onApplyPreset, isDynamicGlassEnabled, onToggleDynamicGlass,
                     liquidGlassProfile = liquidGlassProfile,
                     onSelectLiquidGlassProfile = onSelectLiquidGlassProfile,
+                    appFontStyle = appFontStyle,
+                    onSelectAppFontStyle = onSelectAppFontStyle,
                     onOpenPresets = { page = ThemeSettingsPage.PRESETS }, onOpenCustomTheming = { page = ThemeSettingsPage.CUSTOM }
                 )
                 ThemeSettingsPage.PRESETS -> ThemePresetsPage(state, onApplyPreset)
@@ -151,6 +157,8 @@ private fun ThemesAppUiOverview(
     onToggleDynamicGlass: (Boolean) -> Unit = {},
     liquidGlassProfile: com.example.performance.LiquidGlassProfileSetting = com.example.performance.LiquidGlassProfileSetting.AUTO,
     onSelectLiquidGlassProfile: (com.example.performance.LiquidGlassProfileSetting) -> Unit = {},
+    appFontStyle: com.example.ui.theme.AppFontStyle = com.example.ui.theme.AppFontStyle.SYSTEM,
+    onSelectAppFontStyle: (com.example.ui.theme.AppFontStyle) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenPresets: () -> Unit = {},
     onOpenCustomTheming: () -> Unit = {}
@@ -626,6 +634,92 @@ private fun ThemesAppUiOverview(
                         }
                     }
                 }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        var showFontStyleDialog by remember { mutableStateOf(false) }
+
+        if (showFontStyleDialog) {
+            FontStylePickerDialog(
+                selectedFont = appFontStyle,
+                onSelectFont = onSelectAppFontStyle,
+                onDismiss = { showFontStyleDialog = false }
+            )
+        }
+
+        // Font Style Selector (Bottom End of Appearance Settings)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .liquidGlassCard(
+                    appColors,
+                    shape = RoundedCornerShape(22.dp),
+                    elevation = 6.dp,
+                    translucency = 0.82f,
+                    tintAccent = false
+                )
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .bouncyClickable(onClick = { showFontStyleDialog = true })
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .testTag("appearance_font_style_button")
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = if (isDarkMode) 0.18f else 0.12f))
+                        .border(1.dp, accentColor.copy(alpha = 0.28f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Aa",
+                        fontFamily = appFontStyle.fontFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        maxLines = 1
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Font Style",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = appColors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = appFontStyle.displayName,
+                        fontFamily = appFontStyle.fontFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("appearance_font_style_current")
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = "Choose font style",
+                    tint = appColors.textMuted,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 

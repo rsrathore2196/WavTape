@@ -251,11 +251,12 @@ fun LyricsOffsetBottomSheet(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Big numerical readout
+                        val activeFontStyle = com.example.ui.theme.LocalAppFontStyle.current
                         Text(
                             text = LyricsOffsetManager.formatOffset(activeOffsetMs),
                             style = MaterialTheme.typography.displaySmall.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontFamily = FontFamily.SansSerif,
+                                fontFamily = if (activeFontStyle == com.example.ui.theme.AppFontStyle.SYSTEM) FontFamily.SansSerif else activeFontStyle.fontFamily,
                                 color = offsetDisplayColor,
                                 letterSpacing = (-0.5).sp
                             ),

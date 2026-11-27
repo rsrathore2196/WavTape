@@ -30,7 +30,7 @@ internal object BackupSettings {
                 "mini_player_show_next").forEach { put(it, "boolean") }
             listOf("proxy_host", "proxy_type", "lyrics_provider", "lyrics_translation_language",
                 "playback_output_precision", "player_backdrop_effect", "streaming_addon_url", "streaming_addon_name",
-                "liquid_glass_profile").forEach { put(it, "string") }
+                "liquid_glass_profile", "app_font_style").forEach { put(it, "string") }
             listOf("proxy_port", "text_size_index", "ui_size_index", "lyrics_text_size_sp",
                 "total_played_count", "total_listening_minutes", "performance_refresh_rate_hz").forEach { put(it, "int") }
         },

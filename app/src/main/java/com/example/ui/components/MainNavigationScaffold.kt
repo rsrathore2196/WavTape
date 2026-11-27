@@ -453,6 +453,7 @@ fun MainNavigationScaffold(
                                 val effectsState by viewModel.effectsState.collectAsStateWithLifecycle()
                                 val themeSelection by viewModel.themeSelection.collectAsStateWithLifecycle()
                                 val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+                                val appFontStyle by viewModel.appFontStyle.collectAsStateWithLifecycle()
                                 SettingsScreen(
                                     effectsState = effectsState,
                                     isDarkMode = isDarkMode,
@@ -462,6 +463,8 @@ fun MainNavigationScaffold(
                                     onToggleDynamicGlass = { viewModel.setDynamicGlassEnabled(it) },
                                     liquidGlassProfile = liquidGlassProfileSetting,
                                     onSelectLiquidGlassProfile = { viewModel.setLiquidGlassProfile(it) },
+                                    appFontStyle = appFontStyle,
+                                    onSelectAppFontStyle = { viewModel.setAppFontStyle(it) },
                                     onSubpageStateChanged = { isOpen -> isSettingsSubpageOpen = isOpen },
                                     onNavigateBackToHome = { selectTab(0) },
                                     onUpdateProfile = { updated -> viewModel.updateUserProfile(updated) },

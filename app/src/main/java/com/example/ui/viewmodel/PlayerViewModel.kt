@@ -395,6 +395,9 @@ class PlayerViewModel(
     private val _liquidGlassProfile = MutableStateFlow(initialSettings.liquidGlassProfile)
     val liquidGlassProfile: StateFlow<com.example.performance.LiquidGlassProfileSetting> = _liquidGlassProfile.asStateFlow()
 
+    private val _appFontStyle = MutableStateFlow(initialSettings.appFontStyle)
+    val appFontStyle: StateFlow<com.example.ui.theme.AppFontStyle> = _appFontStyle.asStateFlow()
+
     private var searchDataStarted = false
     private var libraryUiSeen = false
     private var catalogFavoritesStarted = false
@@ -470,6 +473,11 @@ class PlayerViewModel(
         _liquidGlassProfile.value = profile
     }
 
+    fun setAppFontStyle(fontStyle: com.example.ui.theme.AppFontStyle) {
+        com.example.data.local.OtherSettingsPreferences.setAppFontStyle(application, fontStyle)
+        _appFontStyle.value = fontStyle
+    }
+
     fun setTextScaleIndex(index: Int) {
         com.example.data.local.OtherSettingsPreferences.setTextSizeIndex(application, index)
         _textScaleIndex.value = index
@@ -499,6 +507,7 @@ class PlayerViewModel(
         _uiScale.value = settings.uiScale
         _isDynamicGlassEnabled.value = settings.dynamicGlass
         _liquidGlassProfile.value = settings.liquidGlassProfile
+        _appFontStyle.value = settings.appFontStyle
         _isDarkMode.value = com.example.data.local.ThemePreferences.isDark(application, settings.themeMode)
         _userProfile.value = settings.profile
     }
@@ -679,6 +688,7 @@ class PlayerViewModel(
                 _uiScale.value = settings.uiScale
                 _isDynamicGlassEnabled.value = settings.dynamicGlass
                 _liquidGlassProfile.value = settings.liquidGlassProfile
+                _appFontStyle.value = settings.appFontStyle
                 _userProfile.value = settings.profile
                 _isOnboardingCompleted.value = settings.profile.isOnboardingCompleted
             } finally { _settingsReady.value = true }

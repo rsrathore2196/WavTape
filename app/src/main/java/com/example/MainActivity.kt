@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
             val themeMode = themeSelection.mode
             val textScale by playerViewModel.textScale.collectAsStateWithLifecycle()
             val uiScale by playerViewModel.uiScale.collectAsStateWithLifecycle()
+            val appFontStyle by playerViewModel.appFontStyle.collectAsStateWithLifecycle()
             val isOnboardingCompleted by playerViewModel.isOnboardingCompleted.collectAsStateWithLifecycle()
             val onboardingRestore by playerViewModel.onboardingRestore.collectAsStateWithLifecycle()
             val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -226,7 +227,8 @@ class MainActivity : ComponentActivity() {
                         ?: com.example.data.local.ThemePreferences.getThemeForDarkMode(this@MainActivity, effectiveDark)
                 },
                 textScale = textScale,
-                uiScale = uiScale
+                uiScale = uiScale,
+                appFontStyle = appFontStyle
             ) {
                 androidx.compose.animation.Crossfade(
                     targetState = isOnboardingCompleted,
