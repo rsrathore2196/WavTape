@@ -919,13 +919,16 @@ class MusicService : MediaLibraryService() {
                     val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(address?.toString().orEmpty())
                     if (archive != null) {
                         val transport = com.example.data.remote.ArchiveFileTransport
-                        val extractors = if (transport.isSequentialOnly(archive) && address != null) {
-                            val key = item.localConfiguration?.customCacheKey ?: StreamedAudioRepresentations.keyFor(address)
-                                ?: MusicCache.safeTransportKey(address)
-                            transport.sequentialExtractors { MusicCache.fullyCached(this@MusicService, key) }
-                        } else androidx.media3.extractor.DefaultExtractorsFactory()
-                        return androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(cacheDataSourceFactory, extractors)
-                            .setLoadErrorHandlingPolicy(transport.loadPolicy()).createMediaSource(item)
+                        val uri = requireNotNull(address)
+                        val key = item.localConfiguration?.customCacheKey ?: StreamedAudioRepresentations.keyFor(uri)
+                            ?: MusicCache.safeTransportKey(uri)
+                        val seek = com.example.data.remote.ArchiveSeekSupport(
+                            { transport.supportsRanges(archive) },
+                            { MusicCache.fullyCached(this@MusicService, key) })
+                        val pinnedItem = item.buildUpon().setCustomCacheKey(key).build()
+                        return androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(
+                            seek.dataSources(cacheDataSourceFactory), seek.extractors())
+                            .setLoadErrorHandlingPolicy(transport.loadPolicy()).createMediaSource(pinnedItem)
                     }
                     val manifests = FastStartManifests.takeFor(item)
                     val sources = if (manifests == null) transportSources else DefaultMediaSourceFactory(this@MusicService)

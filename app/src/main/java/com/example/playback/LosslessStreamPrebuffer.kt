@@ -491,10 +491,10 @@ internal object LosslessStreamPrebuffer {
                 return@withLock null
             }
             if (!withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock null
-            val source = MusicCache.createCacheDataSourceFactory(context.applicationContext,
-                connectTimeoutMs = 5_000, readTimeoutMs = 5_000).createDataSource()
-            val deadline = SystemClock.elapsedRealtime() + 20_000L
             val maxBytes = 24L * 1024 * 1024
+            val source = MusicCache.createCacheDataSourceFactory(context.applicationContext,
+                connectTimeoutMs = 5_000, readTimeoutMs = 5_000, archiveReplayLimit = maxBytes).createDataSource()
+            val deadline = SystemClock.elapsedRealtime() + 20_000L
             val jobContext = currentCoroutineContext()
             var bytes = 0L
             val reader = DataReader { buffer, offset, length ->

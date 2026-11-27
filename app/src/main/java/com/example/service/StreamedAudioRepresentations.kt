@@ -98,15 +98,19 @@ internal object StreamedAudioRepresentations {
             }
         }.build().toString()
         val identity = recording(track)
-        // Unknown-length mutable URLs are not byte-identical evidence. A fresh process/resolve
-        // gets a new partial representation; completed entries remain reusable by metadata.
+        // Native Archive cache fills validate the file's bytes or strong ETag before replaying
+        // a sequential response into a persisted partial representation.
         val expected = Descriptor("", identity, provider.id, provider.kind, track.bitrateKbps, codec, mime,
             track.isLossless, knownLength, track.id)
         // A provider may reuse the same address for a different quality/format.
         // Neither URI equality nor recording identity permits joining those bytes.
-        val variant = digest("$normalized|${provider.kind}|${track.bitrateKbps}|$codec|$mime|${track.isLossless}|$knownLength|" +
-            if (knownLength > 0) "known" else UUID.randomUUID().toString())
-        val newKey = "stream:v1:${digest(provider.id).take(16)}:$identity:$variant"
+        val nativeArchive = if (provider.kind == PlaybackSourceKind.INTERNET_ARCHIVE)
+            com.example.data.remote.ArchiveFileKey.nativeTransport(track.audioUrl) else null
+        val variant = if (nativeArchive != null) digest(nativeArchive.url.toString())
+            else digest("$normalized|${provider.kind}|${track.bitrateKbps}|$codec|$mime|${track.isLossless}|$knownLength|" +
+                if (knownLength > 0) "known" else UUID.randomUUID().toString())
+        val cacheIdentity = if (nativeArchive == null) identity else digest(track.id)
+        val newKey = "stream:v1:${digest(provider.id).take(16)}:$cacheIdentity:$variant"
         synchronized(transports) {
             val existing = transports[track.audioUrl]?.takeIf { it.copy(key = "") == expected }
             val descriptor = existing ?: expected.copy(key = newKey)

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import androidx.media3.common.C
+import androidx.media3.common.DataReader
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import com.example.playback.NetworkQualityMonitor
@@ -16,6 +17,7 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.EOFException
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -37,9 +39,12 @@ internal object ArchiveFileTransport {
     private class Access(val key: ArchiveFileKey, val allowed: () -> Boolean)
     private val rangeAvailability = android.util.LruCache<ArchiveFileKey, Pair<Long, Boolean>>(128)
 
-    fun isSequentialOnly(key: ArchiveFileKey): Boolean = rangeAvailability.get(key)?.let {
-        SystemClock.elapsedRealtime() - it.first in 0 until 300_000L && !it.second
-    } == true
+    private fun rangeSupport(key: ArchiveFileKey): Boolean? = rangeAvailability.get(key)?.let {
+        it.second.takeIf { _ -> SystemClock.elapsedRealtime() - it.first in 0 until 300_000L }
+    }
+
+    fun isSequentialOnly(key: ArchiveFileKey): Boolean = rangeSupport(key) == false
+    fun supportsRanges(key: ArchiveFileKey): Boolean = rangeSupport(key) == true
 
     private fun recordRange(key: ArchiveFileKey, code: Int) {
         if (code == 206 || code == 200)
@@ -145,7 +150,8 @@ internal object ArchiveFileTransport {
     private class RangeCursor(val start: Long, private val wanted: Long) {
         var position = start
             private set
-        private var total = UNKNOWN
+        var total = UNKNOWN
+            private set
         var chunkRemaining = UNKNOWN
             private set
         var validator: String? = null
@@ -204,6 +210,7 @@ internal object ArchiveFileTransport {
     internal suspend fun probe(key: ArchiveFileKey, offset: Long, maxBytes: Int,
         allowed: () -> Boolean, http: OkHttpClient): ByteArray = withTimeoutOrNull(10_000L) {
         require(offset >= 0 && maxBytes in 1..PREFIX_BYTES)
+        if (offset > 0 && isSequentialOnly(key)) throw Failure("range_unavailable")
         val cursor = RangeCursor(offset, maxBytes.toLong())
         val buffer = okio.Buffer()
         repeat(16) {
@@ -244,32 +251,19 @@ internal object ArchiveFileTransport {
         })
     }
 
-    /** Keep a sequential Archive file playable while exposing its genuine seek capability. */
-    fun sequentialExtractors(fullyCached: () -> Boolean): androidx.media3.extractor.ExtractorsFactory =
-        androidx.media3.extractor.ExtractorsFactory {
-            androidx.media3.extractor.DefaultExtractorsFactory().createExtractors().map { extractor ->
-                object : androidx.media3.extractor.Extractor by extractor {
-                    override fun init(output: androidx.media3.extractor.ExtractorOutput) {
-                        extractor.init(object : androidx.media3.extractor.ExtractorOutput by output {
-                            override fun seekMap(seekMap: androidx.media3.extractor.SeekMap) {
-                                output.seekMap(if (seekMap.isSeekable && fullyCached()) seekMap
-                                    else androidx.media3.extractor.SeekMap.Unseekable(seekMap.durationUs))
-                            }
-                        })
-                    }
-                }
-            }.toTypedArray()
-        }
-
-    fun source(context: Context, key: ArchiveFileKey, connectMs: Int, readMs: Int): BaseDataSource =
+    fun source(context: Context, key: ArchiveFileKey, connectMs: Int, readMs: Int,
+        resume: ArchiveCacheResume? = null, replayLimit: Long = Long.MAX_VALUE): BaseDataSource =
         FileSource(key, client.newBuilder()
             .connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
-            .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()) {
-            NetworkQualityMonitor.getInstance(context.applicationContext).sourcePolicySnapshot().allowsArchive
+            .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build(), resume, replaySequential = true, replayLimit = replayLimit) {
+            val policy = NetworkQualityMonitor.getInstance(context.applicationContext).sourcePolicySnapshot()
+            if (!policy.online) throw IOException("Archive network unavailable")
+            policy.allowsArchive
         }
 
     internal class FileSource(private val key: ArchiveFileKey, private val http: OkHttpClient,
-        private val allowed: () -> Boolean) : BaseDataSource(true) {
+        private val resume: ArchiveCacheResume? = null, private val replaySequential: Boolean = false,
+        private val replayLimit: Long = Long.MAX_VALUE, private val allowed: () -> Boolean) : BaseDataSource(true) {
         private var call: Call? = null
         private var response: Response? = null
         private var cursor: RangeCursor? = null
@@ -280,9 +274,8 @@ internal object ArchiveFileTransport {
             val started = SystemClock.elapsedRealtime()
             try {
                 if (dataSpec.httpMethod != DataSpec.HTTP_METHOD_GET) throw Failure("http_unavailable")
-                val range = RangeCursor(dataSpec.position, dataSpec.length)
+                val range = openInitial(dataSpec)
                 cursor = range
-                openChunk(range)
                 transferStarted(dataSpec)
                 opened = true
                 ArchivePlaybackEvents.record("load", if (dataSpec.position == 0L) "opened" else "range_opened",
@@ -295,13 +288,91 @@ internal object ArchiveFileTransport {
             }
         }
 
-        private fun openChunk(range: RangeCursor) {
+        private fun execute(position: Long, length: Long, validator: String?): Response {
             response?.close()
             response = null
-            val request = request(key, range.position, range.remaining, range.validator, allowed)
-            val reply = http.newCall(request).also { call = it }.execute()
-            response = reply
+            if (!allowed()) throw Failure("policy_blocked")
+            return http.newCall(request(key, position, length, validator, allowed)).also { call = it }
+                .execute().also { response = it }
+        }
+
+        private fun openInitial(spec: DataSpec): RangeCursor {
+            val expectedTag = resume?.validator
+            val offset = spec.position
+            val range = RangeCursor(offset, spec.length)
+            if (offset > 0 && replaySequential && expectedTag == null && resume?.hasCachedBytes() == true &&
+                supportsRanges(key)) {
+                // An expired or restarted untagged representation must agree with persisted bytes.
+                val reading = replayRange(spec)
+                return replay(spec, execute(0, reading.remaining, null), expectedTag)
+            }
+            if (offset > 0 && replaySequential && !supportsRanges(key)) {
+                // Establish capability at zero after restart, expiration or a previous 200.
+                val head = execute(0, 1, expectedTag)
+                if (head.code == 200) return replay(spec, head, expectedTag)
+                val probe = RangeCursor(0, 1)
+                probe.accept(key, head)
+                resume?.verifyHeaders(strongTag(head), probe.total, conditionalRange = head.code == 206 && expectedTag != null)
+                if (probe.total == 0L) throw Failure("range_unavailable", head.code)
+                if (expectedTag == null && resume?.hasCachedBytes() == true) {
+                    val reading = replayRange(spec)
+                    return replay(spec, execute(0, reading.remaining, null), expectedTag)
+                }
+            }
+            val reply = execute(offset, spec.length, expectedTag.takeIf { offset > 0 })
+            if (reply.code == 200 && offset > 0 && replaySequential) return replay(spec, reply, expectedTag)
             range.accept(key, reply)
+            val tag = strongTag(reply)
+            resume?.verifyHeaders(tag, range.total, conditionalRange = offset > 0 && reply.code in setOf(206, 416) &&
+                expectedTag != null)
+            resume?.remember(tag, provenPrefix = false)
+            return range
+        }
+
+        private fun replayRange(spec: DataSpec): RangeCursor {
+            val offset = spec.position
+            if (offset > replayLimit) throw Failure("range_unavailable")
+            val length = if (spec.length == UNKNOWN) UNKNOWN else {
+                if (offset > Long.MAX_VALUE - spec.length) throw Failure("range_unavailable")
+                offset + spec.length
+            }
+            return RangeCursor(0, length)
+        }
+
+        private fun replay(spec: DataSpec, response: Response, expectedTag: String?): RangeCursor {
+            val offset = spec.position
+            val range = replayRange(spec)
+            range.accept(key, response)
+            if (range.total >= 0 && offset > range.total) throw Failure("range_unavailable", response.code)
+            val tag = strongTag(response)
+            // If a mirror omits its tag, require matching cached bytes before joining.
+            val compare = expectedTag == null || tag == null
+            resume?.verifyHeaders(tag, range.total, conditionalRange = tag == null)
+            var nextPolicyCheck = SystemClock.elapsedRealtime()
+            fun checkpoint() {
+                if (Thread.currentThread().isInterrupted) throw InterruptedIOException()
+                val now = SystemClock.elapsedRealtime()
+                if (now >= nextPolicyCheck) {
+                    if (!allowed()) throw Failure("policy_blocked")
+                    nextPolicyCheck = now + 500L
+                }
+            }
+            val reader = DataReader { buffer, start, length -> readChunk(range, buffer, start, length) }
+            if (resume != null) resume.verifyPrefix(reader, offset, compare, ::checkpoint)
+            else ArchiveCacheResume.discard(reader, offset, ::checkpoint)
+            resume?.remember(range.validator, provenPrefix = compare)
+            return range
+        }
+
+        private fun openChunk(range: RangeCursor) {
+            val validator = range.validator ?: resume?.validator
+            val reply = execute(range.position, range.remaining, validator)
+            range.accept(key, reply)
+            resume?.verifyHeaders(strongTag(reply), range.total, conditionalRange = validator != null && (reply.code == 206 || reply.code == 416))
+        }
+
+        private fun strongTag(response: Response): String? = response.header("ETag")?.takeIf {
+            it.length in 2..256 && it.first() == '"' && it.last() == '"'
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -310,23 +381,25 @@ internal object ArchiveFileTransport {
             if (range.remaining == 0L) return C.RESULT_END_OF_INPUT
             val started = SystemClock.elapsedRealtime()
             try {
-                if (range.chunkRemaining == 0L) {
-                    check(range.partial)
-                    openChunk(range)
-                    if (range.remaining == 0L) return C.RESULT_END_OF_INPUT
-                }
-                val count = checkNotNull(response).body.source().read(buffer, offset,
-                    range.limit(if (range.remaining < 0) length.toLong() else minOf(length.toLong(), range.remaining)).toInt())
-                if (count < 0) range.endOfBody()
-                if (count > 0) {
-                    range.consume(count.toLong())
-                    bytesTransferred(count)
-                }
-                return count
+                return readChunk(range, buffer, offset, length).also { if (it > 0) bytesTransferred(it) }
             } catch (error: IOException) {
                 report(error, started)
                 throw error
             }
+        }
+
+        private fun readChunk(range: RangeCursor, buffer: ByteArray, offset: Int, length: Int): Int {
+            if (range.remaining == 0L) return C.RESULT_END_OF_INPUT
+            if (range.chunkRemaining == 0L) {
+                check(range.partial)
+                openChunk(range)
+                if (range.remaining == 0L) return C.RESULT_END_OF_INPUT
+            }
+            val count = checkNotNull(response).body.source().read(buffer, offset,
+                range.limit(if (range.remaining < 0) length.toLong() else minOf(length.toLong(), range.remaining)).toInt())
+            if (count < 0) range.endOfBody()
+            if (count > 0) range.consume(count.toLong())
+            return count
         }
 
         private fun report(error: IOException, started: Long) {
