@@ -303,7 +303,14 @@ object AppUpdateManager {
                             listeners.complete(_updateStatus.value)
                             true
                         } else if (currentSession.ready) {
-                            inspectReadySession(app)
+                            try {
+                                inspectReadySession(app)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                // Clear a corrupt or incompatible staged APK so a fresh update check can run.
+                                clear(app)
+                            }
                             if (session != null) {
                                 if (manualCheckRequested) _isDismissedForSession.value = false
                                 listeners.complete(_updateStatus.value)
@@ -355,6 +362,9 @@ object AppUpdateManager {
                     showNotice = listeners.needsManualErrorNotice()
                 )
                 _updateStatus.value = error
+                if (error.showNotice) {
+                    _isDismissedForSession.value = false
+                }
                 listeners.complete(error)
             }
         }
@@ -1023,6 +1033,16 @@ object AppUpdateManager {
                     s.info,
                     "Enable 'Install unknown apps' for WavTape in Settings, then tap Install."
                 )
+            } catch (_: SecurityException) {
+                s = s.copy(installRequested = false, waitingPermission = false)
+                session = s
+                persist(app, s)
+                _isDismissedForSession.value = false
+                _updateStatus.value = UpdateStatus.ReadyToInstall(
+                    file,
+                    s.info,
+                    "Enable 'Install unknown apps' for WavTape in Settings, then tap Install."
+                )
             }
             return
         }
@@ -1048,6 +1068,13 @@ object AppUpdateManager {
                 file,
                 s.info,
                 "No Android package installer was found to open this update."
+            )
+        } catch (_: SecurityException) {
+            _isDismissedForSession.value = false
+            _updateStatus.value = UpdateStatus.ReadyToInstall(
+                file,
+                s.info,
+                "Installation was blocked by Android. Tap Install Update to try again."
             )
         }
     }

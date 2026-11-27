@@ -57,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -193,14 +194,22 @@ fun UpdateNotificationBar(
         visibilityState.targetState = shouldShow && !isClosing
     }
 
-    LaunchedEffect(visibilityState.currentState, visibilityState.targetState, visibilityState.isIdle, isClosing) {
+    LaunchedEffect(visibilityState.currentState, visibilityState.targetState, visibilityState.isIdle, isClosing, shouldShow) {
         if (visibilityState.isIdle && !visibilityState.currentState && !visibilityState.targetState) {
             if (isClosing) {
-                isClosing = false
                 AppUpdateManager.dismissForSession()
             }
             if (!shouldShow) {
+                isClosing = false
                 renderedStatus = null
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (isClosing) {
+                AppUpdateManager.dismissForSession()
             }
         }
     }
