@@ -38,6 +38,20 @@ class ArchiveRecordingIdentityTest {
         assertNull(ArchiveRecordingIdentity.confidence(request.copy(title = "Song Part 1"), tagged.copy(title = "Song Part 2")))
     }
 
+    @Test fun oneSharedCreditIsEnoughRegardlessOfArtistOrderOnlyForArchive() {
+        val request = selected.copy(title = "Tu Juliet Jatt Di", artist = "Diljit Dosanjh, Bunny",
+            primaryArtists = listOf("Diljit Dosanjh", "Bunny"))
+        val file = flac.copy(title = request.title, artist = "DILJIT DOSANJH")
+        assertTrue(StreamResolver.matchesInitialLossless(request, file))
+        assertTrue(StreamResolver.matchesLosslessUpgrade(request, file.copy(artist = "Bunny")))
+
+        val oneSharedCredit = file.copy(artist = "Another Performer, Bunny")
+        assertTrue(StreamResolver.matchesLosslessUpgrade(request, oneSharedCredit))
+        assertNull(RecordingIdentity.providerConfidence(request, oneSharedCredit))
+        assertFalse(StreamResolver.matchesLosslessUpgrade(request, file.copy(artist = "Another Performer")))
+        assertFalse(StreamResolver.matchesLosslessUpgrade(request, oneSharedCredit.copy(title = "Tu Juliet Jatt Di (Live)")))
+    }
+
     @Test fun verifiedIsrcSupportsButCannotReplaceOrContradictNamedRecordings() {
         val request = selected.copy(isrc = "USABC2000001")
         assertNotNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, durationMs = 0)))

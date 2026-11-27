@@ -14,9 +14,9 @@ internal object ArchiveRecordingIdentity {
         if (a.language !in unknownLanguages && b.language !in unknownLanguages && a.language != b.language) return null
 
         val exactTitle = a.title.replace(" ", "") == b.title.replace(" ", "")
-        val exactArtist = a.artists.first() == b.artists.first() || a.artists.toSet() == b.artists.toSet()
+        val exactArtist = a.artists.any { it in b.artists }
         if (!exactTitle && !CatalogNames.spellingEquivalent(a.title, b.title)) return null
-        if (!artistsAgree(a.artists, b.artists)) return null
+        if (!exactArtist && !artistsAgree(a.artists, b.artists)) return null
         val sameCode = a.isrc != null && a.isrc == b.isrc
         if (!exactTitle && !exactArtist && !sameCode) return null
 
@@ -34,15 +34,16 @@ internal object ArchiveRecordingIdentity {
     private fun hasCredits(signature: RecordingIdentity.Signature): Boolean =
         signature.title.isNotBlank() && signature.artists.isNotEmpty()
 
-    fun artistsAgree(first: List<String>, second: List<String>): Boolean {
-        if (first.isEmpty() || second.isEmpty()) return false
-        if (first.toSet() == second.toSet()) return true
-        if (!CatalogNames.spellingEquivalent(first.first(), second.first())) return false
-        val guestsA = first.drop(1)
-        val guestsB = second.drop(1)
-        return guestsA.all { a -> guestsB.any { b -> CatalogNames.spellingEquivalent(a, b) } } ||
-            guestsB.all { b -> guestsA.any { a -> CatalogNames.spellingEquivalent(a, b) } }
-    }
+    // Archive and the catalog may list different contributors for the same recording.
+    fun artistsAgree(first: List<String>, second: List<String>): Boolean =
+        first.any { a -> second.any { b -> CatalogNames.spellingEquivalent(a, b) } }
+
+    fun artistCredits(value: String): List<String> = if (value.isBlank()) emptyList() else
+        RecordingIdentity.artistNames(MusicTrack(id = "", title = "", artist = value,
+            album = "", durationMs = 0L, coverUrl = "", audioUrl = ""))
+
+    fun artistsConflict(first: List<String>, second: List<String>): Boolean =
+        first.isNotEmpty() && second.isNotEmpty() && !artistsAgree(first, second)
 
     fun isrcConflict(first: String?, second: String?): Boolean = first != null && second != null && first != second
 

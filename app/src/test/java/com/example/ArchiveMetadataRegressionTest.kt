@@ -117,6 +117,26 @@ class ArchiveMetadataRegressionTest {
         assertTrue(plans.any { it.contains("USABC2000001") })
         assertFalse(plans.any { it.contains("official audio", true) })
     }
+
+    @Test fun oneSharedArtistCreditWorksAcrossTheIndexManifestAndFlacTags() = runBlocking {
+        val request = MusicTrack("yt_song", "Tu Juliet Jatt Di", "Diljit Dosanjh, Bunny", "Album", 180_000, "", "",
+            primaryArtists = listOf("Diljit Dosanjh", "Bunny"))
+        val root = JSONObject("""{"metadata":{"title":"Album","creator":"Various Artists"},"files":[
+            {"name":"song.flac","title":"Tu Juliet Jatt Di","artist":["Another Performer","Bunny"],"format":"Flac"}
+        ]}""")
+        assertTrue(InternetArchiveApiService.recordingQueries(request).contains("creator:(\"diljit dosanjh\" OR \"bunny\")"))
+
+        val header = ArchiveAudioMetadata.Tags(request.title, "BUNNY", durationMs = 180_000)
+        val file = InternetArchiveApiService.parseLosslessItem(doc, root, request, readHeader = { header }).single()
+        assertEquals("ia_album:song.flac", file.id)
+        assertEquals("BUNNY", file.artist)
+        val exact = com.example.data.remote.ArchiveFileKey.fromId(file.id)!!
+        assertEquals(file, InternetArchiveApiService.parseLosslessItem(doc, root,
+            request.copy(id = file.id, audioUrl = file.audioUrl), exactFile = exact, readHeader = { header }).single())
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, request,
+            readHeader = { header.copy(artist = "Unrelated Performer") }).isEmpty())
+    }
+
     @Test fun incompleteIndividualTagsAreNotReportedAsAConfirmedEmptyCatalogue() = runBlocking {
         val root = JSONObject("""{"metadata":{"title":"Collection","creator":"Various Artists","rights":"public domain"},
             "files":[{"name":"track01.flac","format":"Flac"},{"name":"track02.flac","format":"Flac"}]}""")

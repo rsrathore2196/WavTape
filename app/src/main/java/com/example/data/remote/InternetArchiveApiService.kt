@@ -232,7 +232,13 @@ object InternetArchiveApiService {
     internal fun recordingQueries(track: MusicTrack): List<String> {
         fun quote(value: String) = "\"${normalized(value)}\""
         val title = StreamResolver.extractCleanTitle(track.title, track.artist)
-        val primary = RecordingIdentity.artistNames(track).firstOrNull().orEmpty()
+        // Keep the same number of index queries when several artists are credited.
+        val artistTerms = RecordingIdentity.artistNames(track).take(8).map(::quote).distinct()
+        val artists = when (artistTerms.size) {
+            0 -> ""
+            1 -> artistTerms.single()
+            else -> artistTerms.joinToString(" OR ", "(", ")")
+        }
         val album = CatalogNames.clean(track.album).takeUnless {
             normalized(it) in setOf("", "unknown", "single", "online stream", "youtube music")
         }.orEmpty()
@@ -240,11 +246,11 @@ object InternetArchiveApiService {
             RecordingIdentity.isrc(track.isrc)?.let { add("\"$it\"") }
             // Album tracks can appear in descriptions or other indexed fields while
             // being absent from the item's title. The manifest still proves identity.
-            if (title.isNotBlank() && primary.isNotBlank()) add("(${quote(title)} AND ${quote(primary)})")
-            if (album.isNotBlank() && primary.isNotBlank()) add("(title:${quote(album)} AND creator:${quote(primary)})")
-            if (title.isNotBlank() && primary.isNotBlank()) add("(title:${quote(title)} AND creator:${quote(primary)})")
+            if (title.isNotBlank() && artists.isNotBlank()) add("(${quote(title)} AND $artists)")
+            if (album.isNotBlank() && artists.isNotBlank()) add("(title:${quote(album)} AND creator:$artists)")
+            if (title.isNotBlank() && artists.isNotBlank()) add("(title:${quote(title)} AND creator:$artists)")
             if (album.isNotBlank()) add("title:${quote(album)}")
-            if (primary.isNotBlank()) add("creator:${quote(primary)}")
+            if (artists.isNotBlank()) add("creator:$artists")
             if (title.isNotBlank()) add("title:${quote(title)}")
         }.distinct()
     }
@@ -865,11 +871,8 @@ object InternetArchiveApiService {
         val embeddedCode = RecordingIdentity.isrc(tags.isrc)
         val metadataCode = RecordingIdentity.isrc(track.isrc)
         if (ArchiveRecordingIdentity.isrcConflict(embeddedCode, metadataCode)) return true
-        if (tags.artist.isNotBlank() && !unknownArtist(track.artist)) {
-            val credits = RecordingIdentity.artistNames(track)
-            val embedded = RecordingIdentity.artistNames(track.copy(artist = tags.artist, primaryArtists = emptyList()))
-            if (credits.isNotEmpty() && embedded.isNotEmpty() && !ArchiveRecordingIdentity.artistsAgree(credits, embedded)) return true
-        }
+        if (ArchiveRecordingIdentity.artistsConflict(ArchiveRecordingIdentity.artistCredits(track.artist),
+                ArchiveRecordingIdentity.artistCredits(tags.artist))) return true
         if (tags.title.isBlank()) return false
         val versions = RecordingVersions.markers(tags.title)
         if (versions.isNotEmpty() && RecordingVersions.markers(track.title) != versions) return true
@@ -881,8 +884,13 @@ object InternetArchiveApiService {
     private fun fileName(file: JSONObject?) = (file?.opt("name") as? String).orEmpty()
     private fun fileTitle(file: JSONObject?) = text(file, "title")
         .ifBlank { text(file, "track_title") }.ifBlank { text(file, "song_title") }
-    private fun fileArtist(file: JSONObject?) = text(file, "artist").ifBlank { text(file, "creator") }
-        .ifBlank { text(file, "album_artist") }.ifBlank { text(file, "albumartist") }
+    private fun artistText(value: JSONObject?, key: String): String = value?.optJSONArray(key)?.let { credits ->
+        (0 until credits.length()).mapNotNull { credits.opt(it) as? String }
+            .map(String::trim).filter(String::isNotBlank).joinToString(", ")
+    } ?: text(value, key)
+
+    private fun fileArtist(file: JSONObject?) = artistText(file, "artist").ifBlank { artistText(file, "creator") }
+        .ifBlank { artistText(file, "album_artist") }.ifBlank { artistText(file, "albumartist") }
     private fun fileDuration(file: JSONObject?) = sequenceOf("length", "duration", "runtime")
         .map { durationMillis(text(file, it)) }.firstOrNull { it > 0L }
         ?: text(file, "duration_ms").toLongOrNull()?.takeIf { it > 0L } ?: 0L
@@ -934,6 +942,7 @@ object InternetArchiveApiService {
         val selectedFile = exactFile
         val preferredFile = selectedFile ?: requested?.let { ArchiveFileKey.fromId(it.id) }
         val wantedTitle = requested?.let(RecordingIdentity::title).orEmpty()
+        val wantedArtists = requested?.let(RecordingIdentity::artistNames).orEmpty()
         val ordered = when {
             requested != null -> {
                 fun titleHint(file: JSONObject): Boolean {
@@ -976,9 +985,12 @@ object InternetArchiveApiService {
             } ?: false
 
             val origTitle = fileTitle(ancestor)
-            val itemArtist = text(metadata, "artist").ifBlank { text(metadata, "creator") }.ifBlank { text(doc, "creator") }
-            val needsIdentity = title.isBlank() || duration <= 0L || unknownArtist(artist.ifBlank { itemArtist }) ||
-                requested != null && CatalogNames.normalize(artist.ifBlank { itemArtist }) != CatalogNames.normalize(requested.artist)
+            val itemArtist = artistText(metadata, "artist").ifBlank { artistText(metadata, "creator") }
+                .ifBlank { artistText(doc, "creator") }
+            val reportedArtist = artist.ifBlank { itemArtist }
+            val needsIdentity = title.isBlank() || duration <= 0L || unknownArtist(reportedArtist) ||
+                requested != null && !ArchiveRecordingIdentity.artistsAgree(wantedArtists,
+                    ArchiveRecordingIdentity.artistCredits(reportedArtist))
             val plausible = requested == null || reportedTitle.isBlank() ||
                 CatalogNames.spellingEquivalent(wantedTitle, normalized(reportedTitle)) ||
                 wantedTitle.isNotBlank() && wantedTitle in normalized("${key.file} $origTitle")
@@ -988,7 +1000,8 @@ object InternetArchiveApiService {
                 !(requested == null && (origTitle.isNotBlank() || canUseItemTitle) && duration > 0 &&
                     !unknownArtist(fileArtist(ancestor).ifBlank { itemArtist }))) readHeader(url) else null
             if (header != null) {
-                if (conflicts(title, header.title) || (!unknownArtist(artist) && conflicts(artist, header.artist)) ||
+                if (conflicts(title, header.title) || ArchiveRecordingIdentity.artistsConflict(
+                        ArchiveRecordingIdentity.artistCredits(artist), ArchiveRecordingIdentity.artistCredits(header.artist)) ||
                     conflictingCode(header.isrc)) {
                     reject(Reason.RECORDING_MISMATCH, "embedded tags conflict with file metadata")
                     continue
@@ -1000,7 +1013,8 @@ object InternetArchiveApiService {
                 if (header.durationMs > 0L) duration = header.durationMs
             }
             val sourceCoherent = ancestor != null && !conflicts(title, origTitle) &&
-                (unknownArtist(artist) || !conflicts(artist, fileArtist(ancestor))) && !conflictingCode(text(ancestor, "isrc")) &&
+                !ArchiveRecordingIdentity.artistsConflict(ArchiveRecordingIdentity.artistCredits(artist),
+                    ArchiveRecordingIdentity.artistCredits(fileArtist(ancestor))) && !conflictingCode(text(ancestor, "isrc")) &&
                 !conflicts(text(file, "version"), text(ancestor, "version"))
             if (sourceCoherent) {
                 title = title.ifBlank { origTitle }
