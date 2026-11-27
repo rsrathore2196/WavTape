@@ -204,11 +204,17 @@ object MusicCache {
                 StreamedAudioPrefetch.preempt(selectedKey)
                 val source: DataSource = try {
                     val cache = getSimpleCache(app)
-                    StreamedAudioRepresentations.persistBinding(cache, selectedKey)
-                    CacheDataSource.Factory().setCache(cache)
-                        .setCacheKeyFactory { selectedKey }
-                        .setUpstreamDataSourceFactory(transportFactory.takeIf { online })
-                        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
+                    // A cached prefix would force a sequential Archive server to reopen at a nonzero offset.
+                    val reopenSequential = archive != null && online && spec.position == 0L &&
+                        com.example.data.remote.ArchiveFileTransport.isSequentialOnly(archive) &&
+                        cache.getCachedSpans(selectedKey).isNotEmpty() && !fullyCached(app, selectedKey)
+                    if (reopenSequential) transportFactory.createDataSource() else {
+                        StreamedAudioRepresentations.persistBinding(cache, selectedKey)
+                        CacheDataSource.Factory().setCache(cache)
+                            .setCacheKeyFactory { selectedKey }
+                            .setUpstreamDataSourceFactory(transportFactory.takeIf { online })
+                            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
+                    }
                 } catch (failure: Exception) {
                     if (!online) throw IOException("Cached audio is unavailable offline", failure)
                     transportFactory.createDataSource()

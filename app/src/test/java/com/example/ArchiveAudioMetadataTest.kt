@@ -2,6 +2,8 @@ package com.example
 
 import com.example.data.remote.ArchiveAudioMetadata
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -59,19 +61,64 @@ class ArchiveAudioMetadataTest {
         assertEquals(183000L, recovered.durationMs)
     }
 
-    @Test fun actualLosslessWaveAndAlacSignaturesAreDistinctFromLossyContainers() {
+    private fun atom(type: String, body: ByteArray, extended: Boolean = false): ByteArray {
+        val size = body.size + if (extended) 16 else 8
+        return ByteBuffer.allocate(size).apply {
+            putInt(if (extended) 1 else size)
+            put(type.toByteArray())
+            if (extended) putLong(size.toLong())
+            put(body)
+        }.array()
+    }
+
+    private fun description(sample: String = "alac", entries: Int = 1, config: Boolean = true): ByteArray {
+        val header = ByteBuffer.allocate(8).putInt(0).putInt(entries).array()
+        val cookie = if (config) atom("alac", byteArrayOf(
+            0, 0, 0, 0, 0, 0, 16, 0, 0, 16, 40, 10, 14, 2, 0, 0,
+            0, 0, 64, 4, 0, 21, -120, -128, 0, 0, -84, 68)) else ByteArray(0)
+        return atom("stsd", header + atom(sample, ByteArray(28) + cookie))
+    }
+
+    @Test fun actualLosslessWaveAndAlacSignaturesAreDistinctFromLossyContainers() = runBlocking {
         val riff = "RIFF".toByteArray() + byteArrayOf(36, 0, 0, 0) + "WAVEfmt ".toByteArray() +
             byteArrayOf(16, 0, 0, 0) + ByteArray(16).apply { this[0] = 1 }
         assertTrue(ArchiveAudioMetadata.pcmWave(riff))
         assertFalse(ArchiveAudioMetadata.pcmWave(riff.copyOf().apply { this[20] = 6 }))
-        fun atom(type: String, body: ByteArray): ByteArray = java.nio.ByteBuffer.allocate(8 + body.size)
-            .putInt(8 + body.size).put(type.toByteArray()).put(body).array()
-        fun mp4(sample: String): ByteArray = listOf("stsd", "stbl", "minf", "mdia", "trak", "moov")
-            .fold(ByteArray(8) + atom(sample, ByteArray(24))) { body, box -> atom(box, body) }
-        assertTrue(ArchiveAudioMetadata.alac(mp4("alac")))
-        assertFalse(ArchiveAudioMetadata.alac(mp4("mp4a")))
-        val mdat = java.nio.ByteBuffer.allocate(8).putInt(1_000_000).put("mdat".toByteArray()).array()
-        assertEquals(1_000_000L, ArchiveAudioMetadata.followingMp4MetadataOffset(mdat, 0L))
+        fun mp4(stsd: ByteArray): ByteArray = listOf("stbl", "minf", "mdia", "trak", "moov")
+            .fold(stsd) { body, box -> atom(box, body) }
+        suspend fun alac(bytes: ByteArray) = ArchiveAudioMetadata.alac(bytes) { _, _ -> error("File is in prefix") }
+        assertTrue(alac(mp4(description())))
+        assertFalse(alac(mp4(description("mp4a"))))
+        assertFalse(alac(mp4(description(entries = 0))))
+        assertFalse(alac(mp4(description(config = false))))
+        assertFalse(alac(atom("free", mp4(description()))))
+        assertFalse(alac(mp4(description()).copyOf(50)))
     }
 
+    @Test fun sparseScanSkipsLateExtendedMdatAndLargeNestedMoovPadding() = runBlocking {
+        val skipped = atom("mdat", ByteArray(600_000), extended = true)
+        val padding = atom("free", ByteArray(300_000))
+        val moov = atom("moov", atom("trak", atom("mdia", atom("minf",
+            atom("stbl", padding + description())))))
+        val file = skipped + moov
+        val requests = mutableListOf<Pair<Long, Int>>()
+        assertTrue(ArchiveAudioMetadata.alac(file.copyOf(256 * 1024)) { offset, length ->
+            requests += offset to length
+            file.copyOfRange(offset.toInt(), minOf(file.size, offset.toInt() + length))
+        })
+        assertEquals(listOf(skipped.size.toLong(), (skipped.size + 40 + padding.size).toLong()), requests.map { it.first })
+        assertTrue(requests.all { it.second in 1..ArchiveAudioMetadata.MP4_WINDOW_BYTES })
+    }
+
+    @Test fun sparseScanHonorsItsNetworkWindowBudget() = runBlocking {
+        val mdat = atom("mdat", ByteArray(270_000))
+        val padding = atom("free", ByteArray(20_000))
+        val file = mdat + List(20) { padding }.fold(ByteArray(0), ByteArray::plus)
+        var probes = 0
+        assertFalse(ArchiveAudioMetadata.alac(file.copyOf(256 * 1024)) { offset, length ->
+            probes++
+            file.copyOfRange(offset.toInt(), offset.toInt() + length)
+        })
+        assertEquals(12, probes)
+    }
 }

@@ -207,4 +207,39 @@ class ArchiveMetadataRegressionTest {
         assertEquals("ia_album:second.flac", result.id)
     }
 
+
+    @Test fun browseSpendsLimitedHeaderProbesOnMatchingFileHintsWithoutTrustingTheFilename() = runBlocking {
+        val manifest = JSONObject("""{"metadata":{"title":"Collection","creator":"Various Artists","rights":"public domain"},"files":[
+            {"name":"01.flac"},{"name":"02.flac"},{"name":"03.flac"},{"name":"04.flac"},{"name":"Missing Song.flac"}]}""")
+        val firstOnly = mutableListOf<String>()
+        val result = InternetArchiveApiService.parseLosslessItem(doc, manifest, browseTerms = listOf("missing", "song")) { url ->
+            if (firstOnly.isNotEmpty()) null else {
+                firstOnly += url
+                ArchiveAudioMetadata.Tags("Verified Title", "Verified Artist", durationMs = 182_000)
+            }
+        }
+        assertEquals(listOf("https://archive.org/download/album/Missing%20Song.flac"), firstOnly)
+        assertEquals("Verified Title", result.single().title)
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, manifest,
+            browseTerms = listOf("missing", "song")) { null }.isEmpty())
+    }
+
+    @Test fun genericOriginalM4aAppearsOnlyWhenItsActualCodecIsProven() = runBlocking {
+        val manifest = JSONObject("""{"metadata":{"title":"Collection","creator":"Artist","rights":"public domain"},"files":[
+            {"name":"track.m4a","title":"Song","source":"original","format":"MPEG4","length":"180"},
+            {"name":"other.m4a","title":"Other","source":"original","format":"MPEG4","length":"181"},
+            {"name":"known.m4a","title":"AAC","source":"original","format":"AAC","length":"180"},
+            {"name":"sample.m4a","title":"Sample","source":"derivative","format":"MPEG4"}]}""")
+        val examined = mutableListOf<String>()
+        val results = InternetArchiveApiService.parseLosslessItem(doc, manifest, validateUnlabeledAlac = {
+            examined += it.title
+            it.title == "Song"
+        })
+        assertEquals(listOf("Song", "Other"), examined)
+        assertEquals(listOf("ia_album:track.m4a"), results.map { it.id })
+        val direct = com.example.data.remote.ArchiveFileKey.create("album", "sample.m4a")
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, manifest, exactFile = direct).isEmpty())
+        assertEquals("ia_album:sample.m4a", InternetArchiveApiService.parseLosslessItem(doc, manifest,
+            exactFile = direct, validateUnlabeledAlac = { true }).single().id)
+    }
 }

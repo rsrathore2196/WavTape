@@ -1,6 +1,26 @@
 package com.example
 
 import android.app.Application
+import android.net.Uri
+import androidx.media3.common.C
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.ContentMetadata
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.StandaloneDatabaseProvider
+import java.nio.file.Files
+import java.time.Duration
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadows.ShadowSystemClock
 import com.example.data.model.MusicTrack
 import com.example.data.remote.ArchiveFileEvidence
 import com.example.data.remote.ArchiveFileKey
@@ -31,7 +51,8 @@ class ArchiveFileTransportTest {
     }
 
     @Test fun rangesAreBoundedAndSequentialResponsesStayAtZero() {
-        val range = ArchiveFileTransport::responseLength
+        fun range(code: Int, header: String?, length: Long, position: Long, wanted: Long) =
+            ArchiveFileTransport.responseSpan(code, header, length, position, wanted).length
         assertEquals(4096L, range(206, "bytes 1048576-1052671/27796450", 4096, 1048576, 4096))
         assertEquals(100L, range(206, "bytes 900-999/1000", 100, 900, 4096))
         assertEquals(262144L, range(200, null, 27796450, 0, 262144))
@@ -51,6 +72,234 @@ class ArchiveFileTransportTest {
         assertEquals("rate_limited", assertThrows(ArchiveFileTransport.Failure::class.java) {
             range(429, null, 0, 0, 8192)
         }.outcome)
+    }
+
+    private val file = ArchiveFileKey.create("range-fixture", "song.flac")!!
+    private val audio = "fLaC".toByteArray() + ByteArray(36) { it.toByte() }
+
+    private fun reply(request: Request, code: Int, body: ByteArray, range: String? = null, tag: String? = null,
+        chunked: Boolean = false): Response = Response.Builder()
+        .request(request).protocol(Protocol.HTTP_1_1).code(code).message("Fixture")
+        .body(if (!chunked) body.toResponseBody() else object : ResponseBody() {
+            private val input = Buffer().write(body)
+            override fun contentType() = null
+            override fun contentLength() = -1L
+            override fun source() = input
+        }).apply {
+            if (range != null) header("Content-Range", range)
+            if (tag != null) header("ETag", tag)
+        }.build()
+
+    private fun client(respond: (Request) -> Response) =
+        OkHttpClient.Builder().addInterceptor { respond(it.request()) }.build()
+
+    private fun spec(position: Long = 0) = DataSpec.Builder()
+        .setUri(Uri.parse(file.url.toString())).setPosition(position).build()
+
+    private fun androidx.media3.datasource.DataSource.readAll(): ByteArray {
+        val result = Buffer()
+        val bytes = ByteArray(9)
+        while (true) {
+            val count = read(bytes, 0, bytes.size)
+            if (count == C.RESULT_END_OF_INPUT) return result.readByteArray()
+            check(count > 0)
+            result.write(bytes, 0, count)
+        }
+    }
+
+    @Test fun shorterRangesCanStartResumeAndSeekThroughTheMedia3Cache() {
+        val requests = mutableListOf<String>()
+        val http = client { request ->
+            val header = requireNotNull(request.header("Range"))
+            requests += header
+            val start = header.substringAfter('=').substringBefore('-').toInt()
+            val requestedLast = header.substringAfter('-').toIntOrNull() ?: audio.lastIndex
+            val end = minOf(start + 6, requestedLast, audio.lastIndex)
+            reply(request, 206, audio.copyOfRange(start, end + 1), "bytes $start-$end/${audio.size}", "\"stable\"")
+        }
+        val directory = Files.createTempDirectory("wavtape-archive-cache").toFile()
+        val cache = SimpleCache(directory, NoOpCacheEvictor(), StandaloneDatabaseProvider(RuntimeEnvironment.getApplication()))
+        try {
+            val factory = CacheDataSource.Factory().setCache(cache).setCacheKeyFactory { file.id }
+                .setUpstreamDataSourceFactory { ArchiveFileTransport.FileSource(file, http) { true } }
+            val start = factory.createDataSource()
+            assertEquals(audio.size.toLong(), start.open(spec()))
+            val prefix = ByteArray(7)
+            assertEquals(7, start.read(prefix, 0, 7))
+            assertArrayEquals(audio.copyOf(7), prefix)
+            start.close()
+            assertEquals(audio.size.toLong(), ContentMetadata.getContentLength(cache.getContentMetadata(file.id)))
+            val seek = factory.createDataSource()
+            assertEquals((audio.size - 13).toLong(), seek.open(spec(13)))
+            assertArrayEquals(audio.copyOfRange(13, audio.size), seek.readAll())
+            seek.close()
+            val resume = factory.createDataSource()
+            assertEquals(audio.size.toLong(), resume.open(spec()))
+            assertArrayEquals(audio, resume.readAll())
+            resume.close()
+            assertTrue(requests.first().startsWith("bytes=0-"))
+            assertTrue(requests.any { it.startsWith("bytes=13-") })
+            assertTrue(cache.isCached(file.id, 0, audio.size.toLong()))
+        } finally {
+            cache.release()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun media3ReadsRealFlacFramesAndSeeksAcrossShortResponses() {
+        val encoded = requireNotNull(javaClass.getResourceAsStream("/audio/unindexed-silence.flac"))
+            .use { it.readBytes() }
+        val offsets = mutableListOf<Int>()
+        val sender = client { request ->
+            val start = requireNotNull(request.header("Range")).substringAfter('=').substringBefore('-').toInt()
+            offsets += start
+            if (start == encoded.size) reply(request, 416, ByteArray(0), "bytes */${encoded.size}")
+            else {
+                val end = minOf(start + 149, encoded.lastIndex)
+                reply(request, 206, encoded.copyOfRange(start, end + 1), "bytes $start-$end/${encoded.size}")
+            }
+        }
+        val source = ArchiveFileTransport.FileSource(file, sender) { true }
+        val extractor = androidx.media3.extractor.flac.FlacExtractor()
+        val samples = mutableListOf<Long>()
+        var mime: String? = null
+        var seekMap: androidx.media3.extractor.SeekMap? = null
+        val output = object : androidx.media3.extractor.TrackOutput by androidx.media3.extractor.DummyTrackOutput() {
+            override fun format(format: androidx.media3.common.Format) { mime = format.sampleMimeType }
+            override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int,
+                cryptoData: androidx.media3.extractor.TrackOutput.CryptoData?) { samples += timeUs }
+        }
+        extractor.init(object : androidx.media3.extractor.ExtractorOutput {
+            override fun track(id: Int, type: Int) = output
+            override fun endTracks() = Unit
+            override fun seekMap(value: androidx.media3.extractor.SeekMap) { seekMap = value }
+        })
+        fun open(position: Long): androidx.media3.extractor.DefaultExtractorInput {
+            source.close()
+            val length = source.open(spec(position))
+            assertEquals(encoded.size - position, length)
+            return androidx.media3.extractor.DefaultExtractorInput(source, position, encoded.size.toLong())
+        }
+        try {
+            var input = open(0L)
+            assertTrue(extractor.sniff(input))
+            input.resetPeekPosition()
+            val next = androidx.media3.extractor.PositionHolder()
+            fun readSample() {
+                repeat(128) {
+                    val before = samples.size
+                    when (extractor.read(input, next)) {
+                        androidx.media3.extractor.Extractor.RESULT_SEEK -> input = open(next.position)
+                        androidx.media3.extractor.Extractor.RESULT_END_OF_INPUT -> error("FLAC ended before delivering a frame")
+                    }
+                    if (samples.size != before) return
+                }
+                error("FLAC did not deliver a frame within the test budget")
+            }
+            readSample()
+            assertEquals(androidx.media3.common.MimeTypes.AUDIO_FLAC, mime)
+            assertEquals(0L, samples.first())
+            assertTrue(requireNotNull(seekMap).isSeekable)
+            val target = 10_000_000L
+            val point = requireNotNull(seekMap).getSeekPoints(target).first
+            extractor.seek(point.position, target)
+            input = open(point.position)
+            readSample()
+            assertTrue(samples.last() in 9_000_000L..11_000_000L)
+            assertTrue(offsets.any { it > 0 })
+        } finally {
+            source.close()
+            extractor.release()
+        }
+    }
+
+    @Test fun unknownLengthRangesEndOnlyWhenTheServerConfirmsExactEof() {
+        val requests = mutableListOf<String>()
+        val source = ArchiveFileTransport.FileSource(file, client { request ->
+            val header = requireNotNull(request.header("Range"))
+            requests += header
+            val start = header.substringAfter('=').substringBefore('-').toInt()
+            if (start == audio.size) reply(request, 416, ByteArray(0), "bytes */${audio.size}")
+            else {
+                val end = minOf(start + 18, audio.lastIndex)
+                reply(request, 206, audio.copyOfRange(start, end + 1), "bytes $start-$end/*", chunked = true)
+            }
+        }) { true }
+        try {
+            assertEquals(-1L, source.open(spec()))
+            assertArrayEquals(audio, source.readAll())
+            assertEquals(listOf("bytes=0-", "bytes=19-", "bytes=38-", "bytes=40-"), requests)
+        } finally { source.close() }
+    }
+
+    @Test fun sequentialUnknownLengthPlaysFromZeroAndNeverFakesASeek() {
+        val source = ArchiveFileTransport.FileSource(file, client { reply(it, 200, audio, chunked = true) }) { true }
+        try {
+            assertEquals(-1L, source.open(spec()))
+            assertTrue(ArchiveFileTransport.isSequentialOnly(file))
+            assertArrayEquals(audio, source.readAll())
+            source.close()
+            assertEquals("range_unavailable", assertThrows(ArchiveFileTransport.Failure::class.java) {
+                source.open(spec(7))
+            }.outcome)
+        } finally { source.close() }
+    }
+
+    @Test fun probeJoinsShortBodiesAndHonorsValidatorAndOffset() = runBlocking {
+        val seen = mutableListOf<String>()
+        val http = client { request ->
+            val header = requireNotNull(request.header("Range"))
+            seen += header
+            val start = header.substringAfter('=').substringBefore('-').toInt()
+            val end = minOf(start + 4, 16)
+            if (start != 2) assertEquals("\"probe\"", request.header("If-Range"))
+            reply(request, 206, audio.copyOfRange(start, end + 1), "bytes $start-$end/${audio.size}", "\"probe\"")
+        }
+        assertArrayEquals(audio.copyOfRange(2, 17), ArchiveFileTransport.probe(file, 2, 15, { true }, http))
+        assertEquals(listOf("bytes=2-16", "bytes=7-16", "bytes=12-16"), seen)
+    }
+
+    @Test fun invalidRangesAndChangedRepresentationsNeverProduceFalseEof() {
+        fun span(header: String) = ArchiveFileTransport.responseSpan(206, header, -1L, 0L, 20L)
+        assertEquals(ArchiveFileTransport.Span(10, -1), span("bytes 0-9/*"))
+        assertThrows(ArchiveFileTransport.Failure::class.java) { span("bytes 0-20/50") }
+        assertThrows(ArchiveFileTransport.Failure::class.java) { span("bytes 0-9/9") }
+        assertThrows(ArchiveFileTransport.Failure::class.java) { span("bytes 0-9223372036854775807/*") }
+        assertThrows(ArchiveFileTransport.Failure::class.java) {
+            ArchiveFileTransport.responseSpan(416, "bytes */40", 0, 39, -1)
+        }
+        val source = ArchiveFileTransport.FileSource(file, client { request ->
+            if (request.header("If-Range") == null)
+                reply(request, 206, audio.copyOf(5), "bytes 0-4/40", "\"before\"")
+            else reply(request, 206, audio.copyOfRange(5, 10), "bytes 5-9/40", "\"after\"")
+        }) { true }
+        try {
+            assertEquals(40L, source.open(spec()))
+            assertEquals("range_changed", assertThrows(ArchiveFileTransport.Failure::class.java) { source.readAll() }.outcome)
+        } finally { source.close() }
+    }
+
+    @Test fun prematureEndIsRetryableAndDoesNotBecomeEndOfFile() {
+        val source = ArchiveFileTransport.FileSource(file, client {
+            reply(it, 206, audio.copyOf(5), "bytes 0-9/40", chunked = true)
+        }) { true }
+        try {
+            assertEquals(40L, source.open(spec()))
+            assertThrows(java.io.EOFException::class.java) { source.readAll() }
+        } finally { source.close() }
+    }
+
+    @Test fun archiveBackoffHonorsRetryAfterAndUsesABoundedDefaultFor429() {
+        try {
+            assertFalse(ArchiveFileTransport.isRateLimited())
+            assertEquals(2L, ArchiveFileTransport.noteBackoff("2", 503))
+            assertTrue(ArchiveFileTransport.isRateLimited())
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(2))
+            assertFalse(ArchiveFileTransport.isRateLimited())
+            assertEquals(30L, ArchiveFileTransport.noteBackoff(null, 429))
+            assertTrue(ArchiveFileTransport.isRateLimited())
+        } finally { ShadowSystemClock.advanceBy(Duration.ofSeconds(30)) }
+        assertFalse(ArchiveFileTransport.isRateLimited())
     }
 
     @Test fun archiveUpgradeIsrcComesFromTheFileAndOtherProvidersKeepTheOriginalRule() {

@@ -217,6 +217,25 @@ class SourcePolicyRoutingTest {
         }
     }
 
+    @Test fun directlySelectedFlacResolvesInBothStartupPathsWithOrWithoutAtmos() = runBlocking {
+        for (atmos in listOf(false, true)) {
+            for (mode in com.example.playback.PlaybackMode.entries) {
+                val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = archiveFirst, dolbyAtmos = atmos)
+                val fastStart = mode == com.example.playback.PlaybackMode.FAST_START
+                val resolver = StreamResolver(
+                    verifyArchive = { requested -> assertEquals(archive.audioUrl, requested.audioUrl); archive },
+                    supportsLossless = { true },
+                    resolveYouTube = { _, _, _, _ -> error("A verified exact file must keep its source") },
+                    searchStandard = { _, _ -> error("A verified exact file must keep its source") }
+                )
+                val result = resolver.resolve(archive, policy.ceiling.audioQuality, sourcePolicy = policy,
+                    preferredSourceId = PlaybackSource.archive.id.takeIf { fastStart }, bestQualityFirst = !fastStart)
+                assertEquals(archive.id, result.id)
+                assertEquals(archive.audioUrl, result.audioUrl)
+            }
+        }
+    }
+
     @Test fun unverifiedArchiveFileFallsBackOnlyToTheSameRecording() = runBlocking {
         val result = resolver(verifiedArchive = null).resolve(archive, AudioQuality.HI_RES_LOSSLESS,
             sourcePolicy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = archiveFirst))

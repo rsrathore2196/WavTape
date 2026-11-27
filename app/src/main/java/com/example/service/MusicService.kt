@@ -919,8 +919,11 @@ class MusicService : MediaLibraryService() {
                     val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(address?.toString().orEmpty())
                     if (archive != null) {
                         val transport = com.example.data.remote.ArchiveFileTransport
-                        val extractors = if (transport.isSequentialOnly(archive)) transport.sequentialExtractors()
-                            else androidx.media3.extractor.DefaultExtractorsFactory()
+                        val extractors = if (transport.isSequentialOnly(archive) && address != null) {
+                            val key = item.localConfiguration?.customCacheKey ?: StreamedAudioRepresentations.keyFor(address)
+                                ?: MusicCache.safeTransportKey(address)
+                            transport.sequentialExtractors { MusicCache.fullyCached(this@MusicService, key) }
+                        } else androidx.media3.extractor.DefaultExtractorsFactory()
                         return androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(cacheDataSourceFactory, extractors)
                             .setLoadErrorHandlingPolicy(transport.loadPolicy()).createMediaSource(item)
                     }

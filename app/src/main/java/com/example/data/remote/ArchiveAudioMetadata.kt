@@ -1,6 +1,6 @@
 package com.example.data.remote
 
-/** Reads only bounded FLAC metadata, never derives recording identity from a filename. */
+/** Reads bounded lossless headers without deriving recording identity from filenames. */
 internal object ArchiveAudioMetadata {
     data class Tags(val title: String = "", val artist: String = "", val album: String = "",
         val isrc: String = "", val durationMs: Long = 0L, val sampleRate: Int = 0,
@@ -127,55 +127,118 @@ internal object ArchiveAudioMetadata {
         return false
     }
 
-    private data class Atom(val type: String, val body: Int, val end: Long)
+    internal const val MP4_WINDOW_BYTES = 16 * 1024
+    private const val MP4_FOLLOW_UP_WINDOWS = 12
+    private val alacPath = listOf("moov", "trak", "mdia", "minf", "stbl", "stsd", "alac")
 
-    private fun atom(bytes: ByteArray, start: Int): Atom? {
-        if (start > bytes.size - 8) return null
-        val size = unsigned(bytes, start)
-        val header = if (size == 1L) 16 else 8
-        val length = when {
-            size == 1L -> {
-                if (start > bytes.size - 16 || unsigned(bytes, start + 8) > Int.MAX_VALUE.toLong()) return null
-                (unsigned(bytes, start + 8) shl 32) + unsigned(bytes, start + 12)
-            }
-            size == 0L -> return null
-            else -> size
-        }
-        if (length < header || length > Long.MAX_VALUE - start) return null
-        return Atom(ascii(bytes, start + 4), start + header, start + length)
+    private data class Atom(val type: String, val body: Long, val end: Long)
+
+    /** Visit only box headers and the sample description, skipping large payloads at every level. */
+    suspend fun alac(prefix: ByteArray, read: suspend (offset: Long, length: Int) -> ByteArray): Boolean {
+        val scanner = Mp4Scanner(prefix, read)
+        return scanner.find(0, Long.MAX_VALUE, 0)
     }
 
-    fun followingMp4MetadataOffset(bytes: ByteArray, absoluteStart: Long): Long? {
-        var start = 0
-        repeat(128) {
-            val box = atom(bytes, start) ?: return (absoluteStart + start).takeIf { start > 0 }
-            if (box.type == "moov") return null
-            if (box.end > bytes.size) return (absoluteStart + box.end).takeIf { it > absoluteStart }
-            start = box.end.toInt()
-        }
-        return null
-    }
+    private class Mp4Scanner(private val prefix: ByteArray,
+        private val read: suspend (Long, Int) -> ByteArray) {
+        private var window = prefix
+        private var windowStart = 0L
+        private var eof = if (prefix.size < ArchiveFileTransport.PREFIX_BYTES) prefix.size.toLong() else Long.MAX_VALUE
+        private var windowsRead = 0
+        private var atomsRead = 0
 
-    /** A real ALAC sample description, including when the moov box is after mdat. */
-    fun alac(bytes: ByteArray): Boolean {
-        val path = listOf("moov", "trak", "mdia", "minf", "stbl", "stsd", "alac")
-        fun find(start: Int, end: Int, depth: Int): Boolean {
-            var offset = start
-            repeat(256) {
-                if (offset >= end) return false
-                val box = atom(bytes, offset) ?: return false
-                if (box.type == path[depth]) {
-                    if (depth == path.lastIndex) return box.end <= end
-                    val children = box.body + if (box.type == "stsd") 8 else 0
-                    val availableEnd = minOf(box.end, end.toLong()).toInt()
-                    if (children < availableEnd && find(children, availableEnd, depth + 1)) return true
+        private fun ByteArray.offsetOf(windowStart: Long, position: Long, count: Int): Int? =
+            (position - windowStart).takeIf { it in 0L..(size - count).toLong() }?.toInt()
+
+        private suspend fun at(position: Long, count: Int, end: Long): Pair<ByteArray, Int>? {
+            if (position < 0 || position > minOf(end, eof) - count) return null
+            prefix.offsetOf(0, position, count)?.let { return prefix to it }
+            window.offsetOf(windowStart, position, count)?.let { return window to it }
+            if (windowsRead++ >= MP4_FOLLOW_UP_WINDOWS) return null
+            val length = minOf(MP4_WINDOW_BYTES.toLong(), minOf(end, eof) - position).toInt()
+            window = read(position, length)
+            windowStart = position
+            if (window.size < length) eof = minOf(eof, position + window.size)
+            return window.offsetOf(windowStart, position, count)?.let { window to it }
+        }
+
+        private suspend fun atom(start: Long, parentEnd: Long): Atom? {
+            if (atomsRead++ >= 1024) return null
+            val (bytes, offset) = at(start, 8, parentEnd) ?: return null
+            val type = ascii(bytes, offset + 4)
+            val size = unsigned(bytes, offset)
+            val header = if (size == 1L) 16 else 8
+            val length = when (size) {
+                0L -> {
+                    val end = minOf(eof, parentEnd)
+                    if (end == Long.MAX_VALUE) return null
+                    end - start
                 }
-                if (box.end > end) return false
-                offset = box.end.toInt()
+                1L -> {
+                    val (extended, index) = at(start, 16, parentEnd) ?: return null
+                    val upper = unsigned(extended, index + 8).takeIf { it <= Int.MAX_VALUE } ?: return null
+                    (upper shl 32) + unsigned(extended, index + 12)
+                }
+                else -> size
+            }
+            if (length < header || length > minOf(parentEnd, eof) - start) return null
+            return Atom(type, start + header, start + length)
+        }
+
+        suspend fun find(start: Long, end: Long, depth: Int, count: Long = Long.MAX_VALUE): Boolean {
+            var position = start
+            var remaining = count
+            while (position < end && remaining-- > 0L) {
+                val box = atom(position, end) ?: return false
+                if (box.type == alacPath[depth]) {
+                    val found = when (box.type) {
+                        "alac" -> hasCodecConfig(box)
+                        "stsd" -> {
+                            val header = at(box.body, 8, box.end)
+                            header != null && find(box.body + 8, box.end, depth + 1,
+                                unsigned(header.first, header.second + 4))
+                        }
+                        else -> find(box.body, box.end, depth + 1)
+                    }
+                    if (found) return true
+                }
+                position = box.end
             }
             return false
         }
-        return find(0, bytes.size, 0)
+
+        private suspend fun hasCodecConfig(entry: Atom): Boolean {
+            val (sample, offset) = at(entry.body, 28, entry.end) ?: return false
+            val version = ((sample[offset + 8].toInt() and 255) shl 8) or (sample[offset + 9].toInt() and 255)
+            val sampleHeaderBytes = when (version) {
+                0 -> 28
+                1 -> 44
+                2 -> 64
+                else -> return false
+            }
+            if (entry.end - entry.body < sampleHeaderBytes) return false
+            return codecIn(entry.body + sampleHeaderBytes, entry.end, allowWave = true)
+        }
+
+        private suspend fun codecIn(start: Long, end: Long, allowWave: Boolean): Boolean {
+            var position = start
+            while (position < end) {
+                val box = atom(position, end) ?: return false
+                if (box.type == "alac" && validCodecConfig(box)) return true
+                if (allowWave && box.type == "wave" && codecIn(box.body, box.end, allowWave = false)) return true
+                position = box.end
+            }
+            return false
+        }
+
+        private suspend fun validCodecConfig(box: Atom): Boolean {
+            // FullBox header followed by the 24-byte ALACSpecificConfig.
+            val (bytes, offset) = at(box.body, 28, box.end) ?: return false
+            val config = offset + 4
+            return unsigned(bytes, config) > 0 && bytes[config + 4] == 0.toByte() &&
+                bytes[config + 5].toInt() in setOf(16, 20, 24, 32) &&
+                bytes[config + 9].toInt() in 1..8 && unsigned(bytes, config + 20) in 1L..768_000L
+        }
     }
 
     private fun ascii(bytes: ByteArray, start: Int): String = String(bytes, start, 4, Charsets.US_ASCII)
