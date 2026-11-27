@@ -594,7 +594,7 @@ internal object LosslessStreamPrebuffer {
                             LosslessDiagnostics.Reason.DECODER_UNSUPPORTED, "No compatible decoder")
                 val map = seekMap ?: return@withLock null
                 val actualDuration = map.durationUs.takeIf { it > 0L }?.div(1000L)
-                if (actualDuration != null && expectedDurationMs > 0L &&
+                if (archiveKey == null && actualDuration != null && expectedDurationMs > 0L &&
                     abs(actualDuration - expectedDurationMs) > durationToleranceMs) throw PreparationFailure(
                         LosslessDiagnostics.Reason.RECORDING_MISMATCH, "Actual duration conflicts with the recording")
                 val initialPosition = withContext(Dispatchers.Main.immediate) {
@@ -602,11 +602,12 @@ internal object LosslessStreamPrebuffer {
                 } ?: return@withLock null
                 // Unknown STREAMINFO duration does not prevent real FLAC playback
                 // from the beginning. It does prevent an unproven mid-song switch.
-                if (actualDuration == null && (!allowUnknownDuration || archiveKey != null) && initialPosition > 0L) throw PreparationFailure(
+                if (archiveKey == null && actualDuration == null && !allowUnknownDuration && initialPosition > 0L) throw PreparationFailure(
                     LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Container duration cannot verify a position-preserving replacement")
-                val bitrate = info.bitrateKbps.takeIf { it > 0 } ?: if (fullLength > 0L)
-                    (fullLength * 8 / (actualDuration ?: expectedDurationMs).coerceAtLeast(1L))
-                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
+                val bitrateDuration = actualDuration ?: expectedDurationMs
+                val bitrate = info.bitrateKbps.takeIf { it > 0 } ?: if (fullLength > 0L &&
+                    (archiveKey == null || actualDuration != null))
+                    (fullLength * 8 / bitrateDuration.coerceAtLeast(1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
 
                 // Seek using the real container index, never a bitrate-to-offset estimate.
                 repeat(2) {
@@ -614,7 +615,7 @@ internal object LosslessStreamPrebuffer {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock null
                     val required = if (fastStart) FAST_START_BUFFER_MS else 750L
-                    val duration = actualDuration ?: expectedDurationMs
+                    val duration = actualDuration ?: if (archiveKey == null) expectedDurationMs else 0L
                     if (duration > 0L && duration - position < maxOf(2_000L, required))
                         throw PreparationFailure(LosslessDiagnostics.Reason.BUFFER_COVERAGE, "Insufficient remaining audio for a safe replacement")
                     val seekable = map.isSeekable && (archiveKey == null ||

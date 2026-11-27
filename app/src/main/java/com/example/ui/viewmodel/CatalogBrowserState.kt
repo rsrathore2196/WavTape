@@ -297,7 +297,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
                     val message = when {
                         page.failure == Reason.NETWORK_TIMEOUT -> "Internet Archive timed out."
                         page.failure == Reason.UNAUTHORIZED && archiveCandidates.isEmpty() ->
-                            "Internet Archive found no files with the required playback rights."
+                            "Internet Archive found no accessible files."
                         !page.isSuccessful -> "Internet Archive could only check part of the results."
                         archiveCandidates.isEmpty() && archiveNext == null -> "No eligible Internet Archive files found."
                         else -> null

@@ -133,7 +133,7 @@ internal object ArchiveFileTransport {
             return Span(0L, size)
         }
         if (code != 206) throw Failure(when (code) {
-            401, 403, 451 -> "license_denied"
+            401, 403, 451 -> "access_denied"
             429, 503 -> "rate_limited"
             else -> "http_unavailable"
         }, code)

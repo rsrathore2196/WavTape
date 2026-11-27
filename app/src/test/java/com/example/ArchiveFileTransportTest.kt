@@ -63,9 +63,11 @@ class ArchiveFileTransportTest {
         assertEquals("range_unavailable", wrongPosition.outcome)
         assertThrows(ArchiveFileTransport.Failure::class.java) { range(200, null, 27796450, 1048576, 4096) }
         assertThrows(ArchiveFileTransport.Failure::class.java) { range(206, "bytes 0-10/500", 12, 0, 11) }
-        assertEquals("license_denied", assertThrows(ArchiveFileTransport.Failure::class.java) {
-            range(403, null, 0, 0, 8192)
-        }.outcome)
+        for (status in listOf(401, 403, 451)) {
+            assertEquals("access_denied", assertThrows(ArchiveFileTransport.Failure::class.java) {
+                range(status, null, 0, 0, 8192)
+            }.outcome)
+        }
         assertEquals("http_unavailable", assertThrows(ArchiveFileTransport.Failure::class.java) {
             range(404, null, 0, 0, 8192)
         }.outcome)

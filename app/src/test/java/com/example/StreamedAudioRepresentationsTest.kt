@@ -92,6 +92,25 @@ class StreamedAudioRepresentationsTest {
         assertEquals("jiosaavn", com.example.playback.SourceTransitionOrigin.sourceId(cached.id, Uri.parse(cached.audioUrl), policy))
     }
 
+    @Test fun onlyArchiveCacheCanReuseARecordingAfterDurationMetadataChanges() = runBlocking(Dispatchers.IO) {
+        save()
+        assertNull(StreamedAudioRepresentations.lookup(context, track.copy(durationMs = 0), policy))
+        val archive = track.copy(
+            id = "online_archive_recording", audioUrl = "https://archive.org/download/recording/song.flac",
+            source = "INTERNET_ARCHIVE", isLossless = true, bitrateKbps = 730
+        )
+        val maximum = PlaybackSourcePolicy(AudioQualityCeiling.MAX, online = false)
+        val key = save(archive, sourcePolicy = maximum)
+        val request = archive.copy(audioUrl = "", durationMs = 0)
+        val cached = StreamedAudioRepresentations.lookup(context, request, maximum)!!
+        assertEquals(key, Uri.parse(cached.audioUrl).pathSegments.single())
+        assertTrue(StreamedAudioRepresentations.validateCached(context, Uri.parse(cached.audioUrl), maximum))
+        assertNull(StreamedAudioRepresentations.lookup(context, request.copy(artist = "Other Artist"), maximum))
+        assertNull(StreamedAudioRepresentations.lookup(context, request, maximum.copy(ceiling = AudioQualityCeiling.HIGH)))
+        assertNull(StreamedAudioRepresentations.lookup(context, request,
+            maximum.copy(sources = listOf(PlaybackSource.archive.copy(enabled = false), PlaybackSource.youtube))))
+    }
+
     @Test fun missingBytesUnknownLengthWrongRecordingAndModifiedMetadataAreNeverOfflineReady() = runBlocking(Dispatchers.IO) {
         save(bytes = 64)
         assertNull(StreamedAudioRepresentations.lookup(context, track, policy))

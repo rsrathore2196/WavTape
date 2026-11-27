@@ -164,19 +164,22 @@ class SourcePolicyRoutingTest {
             val resolver = StreamResolver(ioDispatcher = dispatcher, cpuDispatcher = dispatcher,
                 findLossless = { _, _, _ ->
                     delay(9_000L)
-                    com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(listOf(archive))
+                    com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(listOf(archive.copy(durationMs = 251_000L)))
                 },
                 supportsLossless = { true },
                 resolveYouTube = { request, _, _, _ -> opus.copy(id = request.id) })
             try {
-                val direct = resolver.resolve(song, policy.ceiling.audioQuality, sourcePolicy = policy, bestQualityFirst = true)
+                val direct = resolver.resolve(song.copy(durationMs = 0L), policy.ceiling.audioQuality,
+                    sourcePolicy = policy, bestQualityFirst = true)
                 assertEquals(archive.audioUrl, direct.audioUrl)
+                assertEquals(251_000L, direct.durationMs)
                 resolver.clear()
                 val audible = opus.copy(id = song.id)
                 val background = resolver.resolve(audible, policy.ceiling.audioQuality, sourcePolicy = policy,
                     bestQualityFirst = true, cachedFallback = audible)
                 assertEquals(archive.audioUrl, background.audioUrl)
                 assertEquals(song.id, background.id)
+                assertEquals(251_000L, background.durationMs)
             } finally { resolver.clear() }
         }
     }

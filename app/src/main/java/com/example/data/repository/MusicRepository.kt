@@ -14,6 +14,7 @@ import com.example.data.remote.AudioRoutingService
 import com.example.data.remote.InternetArchiveApiService
 import com.example.data.remote.ArchiveFileEvidence
 import com.example.data.remote.ArchiveFileKey
+import com.example.data.remote.ArchiveRecordingIdentity
 import com.example.data.remote.MusicDataSource
 import com.example.data.local.MusicDatabase
 import com.example.data.local.UserProfilePreferences
@@ -679,7 +680,9 @@ class MusicRepository private constructor(
                     throw TrackUnavailableException(track.title, com.example.playback.PlaybackDiagnostics.unavailable(track.id, track.title, sourcePolicy))
                 }
                 // Sharing transports must never roll back newer cover/playlist metadata.
+                val nativeArchive = result.isLossless && ArchiveFileKey.nativeTransport(result.audioUrl) != null
                 val selected = track.copy(audioUrl = result.audioUrl, source = result.source, bitrateKbps = result.bitrateKbps,
+                    durationMs = if (nativeArchive) result.durationMs else track.durationMs,
                     qualityBadge = result.qualityBadge, isLossless = result.isLossless,
                     primaryArtists = track.primaryArtists.ifEmpty { result.primaryArtists })
                 sourcePolicy?.let { policy ->
@@ -782,7 +785,7 @@ class MusicRepository private constructor(
         val generation = streamResolver.losslessDiscoveryVersion(track.id)
         fun allowed() = streamResolver.isLosslessDiscoveryCurrent(track.id, generation) &&
             monitor?.sourcePolicySnapshot()?.let { it.allowsArchive && it.key == policy.key } == true
-        val key = withContext(AppDispatchers.CpuBounded) { RecordingIdentity.key(track) }
+        val key = withContext(AppDispatchers.CpuBounded) { ArchiveRecordingIdentity.key(track) }
         if (track.id.startsWith("ia_")) {
             val originalUrl = InternetArchiveApiService.originalFileUrl(track)
             if (originalUrl != null) InternetArchiveApiService.verifyDirectRecording(track.copy(audioUrl = originalUrl)) {
@@ -858,7 +861,7 @@ class MusicRepository private constructor(
                                         com.example.playback.LosslessDiagnostics.Reason.SOURCE_VERIFICATION_FAILED, "candidate-verification")
                                 }
                                 null
-                            } else RecordingIdentity.losslessConfidence(track, candidate)?.let { candidate to it }
+                            } else StreamResolver.archiveMatchConfidence(track, candidate)?.let { candidate to it }
                         }.sortedByDescending { it.second }.map { it.first }
                     }
                     if (candidates.isEmpty()) {
@@ -891,7 +894,7 @@ class MusicRepository private constructor(
                 com.example.playback.LosslessDiagnostics.Reason.BUFFER_COVERAGE)) {
             // Optional warmup failed to prove a seamless switch, not recording
             // validity. Keep the verified file usable for an initial start/retry.
-            losslessMisses.put(RecordingIdentity.key(track), android.os.SystemClock.elapsedRealtime() + 5_000L)
+            losslessMisses.put(ArchiveRecordingIdentity.key(track), android.os.SystemClock.elapsedRealtime() + 5_000L)
             return@withContext
         }
         // Reject the failed representation, not every authorized copy of this recording.
@@ -902,7 +905,7 @@ class MusicRepository private constructor(
             StreamResolver.rejectLosslessUrl(candidateUrl, ttl)
         }
         StreamResolver.invalidateLosslessMatch(track, candidateUrl)
-        losslessMisses.put(RecordingIdentity.key(track), android.os.SystemClock.elapsedRealtime() + 5_000L)
+        losslessMisses.put(ArchiveRecordingIdentity.key(track), android.os.SystemClock.elapsedRealtime() + 5_000L)
         Unit
     }
 

@@ -1,6 +1,8 @@
 package com.example
 
 import com.example.data.model.MusicTrack
+import com.example.data.remote.ArchiveFileEvidence
+import com.example.data.remote.ArchiveRecordingIdentity
 import com.example.data.repository.RecordingIdentity
 import com.example.data.repository.StreamResolver
 import org.junit.Assert.*
@@ -16,19 +18,52 @@ class ArchiveRecordingIdentityTest {
     private val selected = MusicTrack("online_song", "Song (Official Audio)", "Artist", "Album", 180000, "", "")
     private val flac = selected.copy(id = "ia_album:song.flac", title = "Song", source = "INTERNET_ARCHIVE",
         audioUrl = "https://archive.org/download/album/song.flac", isLossless = true)
-    @Test fun strongIdentityAllowsSmallDurationAndReleaseMetadataDifferences() {
-        assertNotNull(RecordingIdentity.losslessConfidence(selected, flac.copy(album = "Greatest Hits", durationMs = 184500)))
-        assertNull(RecordingIdentity.losslessConfidence(selected, flac.copy(durationMs = 185001)))
-        assertNotNull(RecordingIdentity.losslessConfidence(selected, flac.copy(artist = "Unknown Artist")))
-        assertNull(RecordingIdentity.losslessConfidence(selected, flac.copy(artist = "Unknown Artist", album = "")))
+    @Test fun archiveRequiresTitleAndArtistButDoesNotRequireEitherDuration() {
+        for (requested in listOf(selected, selected.copy(durationMs = 0))) {
+            for (file in listOf(flac.copy(durationMs = 0), flac.copy(durationMs = 244_000))) {
+                assertNotNull(ArchiveRecordingIdentity.confidence(requested, file))
+            }
+        }
+        assertNull(RecordingIdentity.losslessConfidence(selected, flac.copy(durationMs = 244_000)))
+        assertNull(RecordingIdentity.fallbackConfidence(selected, flac.copy(durationMs = 244_000)))
+        assertNull(ArchiveRecordingIdentity.confidence(selected, flac.copy(artist = "Unknown Artist")))
+        assertNull(ArchiveRecordingIdentity.confidence(selected, flac.copy(title = "Other Recording")))
     }
-    @Test fun verifiedIsrcCanReplaceMissingEvidenceButCannotOverrideConflictingKnownIdentity() {
+
+    @Test fun normalizedCreditsAndSmallSpellingVariationsStillMatch() {
+        val request = selected.copy(title = "The Beautiful Song", artist = "A. COOPER", durationMs = 0)
+        val tagged = flac.copy(title = "  The Beautifull Song ", artist = "A Cooper", durationMs = 0)
+        assertNotNull(ArchiveRecordingIdentity.confidence(request, tagged))
+        assertNull(ArchiveRecordingIdentity.confidence(request, tagged.copy(artist = "Other Artist")))
+        assertNull(ArchiveRecordingIdentity.confidence(request.copy(title = "Song Part 1"), tagged.copy(title = "Song Part 2")))
+    }
+
+    @Test fun verifiedIsrcSupportsButCannotReplaceOrContradictNamedRecordings() {
         val request = selected.copy(isrc = "USABC2000001")
-        assertNotNull(RecordingIdentity.losslessConfidence(request, flac.copy(isrc = request.isrc, durationMs = 0)))
-        assertNull(RecordingIdentity.losslessConfidence(request, flac.copy(isrc = "USABC2000002")))
-        assertNull(RecordingIdentity.losslessConfidence(request, flac.copy(isrc = request.isrc, artist = "Other Artist")))
-        assertNull(RecordingIdentity.losslessConfidence(request, flac.copy(isrc = request.isrc, title = "Song (Live)")))
+        assertNotNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, durationMs = 0)))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = "USABC2000002")))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, artist = "Other Artist")))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, artist = "")))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, title = "Song (Live)")))
     }
+
+    @Test fun directSelectionAndVerifiedCacheUseTheSameDurationIndependentIdentity() {
+        val exact = flac.copy(durationMs = 0)
+        val actual = flac.copy(durationMs = 241_000)
+        assertTrue(ArchiveFileEvidence.matchesSelection(exact, actual))
+        assertFalse(ArchiveFileEvidence.matchesSelection(exact, actual.copy(title = "Song (Live)")))
+        assertFalse(ArchiveFileEvidence.matchesSelection(exact, actual.copy(artist = "Different Artist")))
+        assertFalse(ArchiveFileEvidence.matchesSelection(exact, actual.copy(audioUrl = "https://archive.org/download/album/other.flac")))
+        try {
+            StreamResolver.cacheVerifiedLosslessMatch(selected, actual)
+            assertEquals(actual, StreamResolver.getCachedLosslessMatch(selected.copy(durationMs = 0)))
+            assertEquals(actual, StreamResolver.getCachedLosslessMatch(selected.copy(durationMs = 123_000)))
+            assertNull(StreamResolver.getCachedLosslessMatch(selected.copy(artist = "Other Artist")))
+        } finally {
+            StreamResolver.invalidateLosslessMatch(selected)
+        }
+    }
+
     @Test fun unsupportedVersionsSourcesAndContainersAreRejected() {
         for (version in listOf("Live", "Remix", "Cover", "Karaoke", "Instrumental", "Remastered"))
             assertFalse(StreamResolver.matchesLosslessUpgrade(selected, flac.copy(title = "Song ($version)")))

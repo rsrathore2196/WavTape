@@ -27,7 +27,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import java.text.Normalizer
 import java.util.Locale
@@ -63,7 +62,6 @@ object InternetArchiveApiService {
     private val headerRequests = Semaphore(2)
     private val pageLocks = Array(16) { Mutex() }
     private val itemLocks = Array(16) { Mutex() }
-    private val reuseLicense = Regex("/(?:licenses/(?:by|by-sa|by-nd|by-nc|by-nc-sa|by-nc-nd)/[1-4]\\.0(?:/.*)?|publicdomain/(?:zero|mark)/1\\.0(?:/.*)?)")
     private val genericTitle = Regex("(?i)^(?:track|audio|cd|disc|unknown)[ ._-]*[0-9]*$")
     private val pageCache = object : LruCache<String, Pair<Long, LosslessSearchPage>>(640) {
         override fun sizeOf(key: String, value: Pair<Long, LosslessSearchPage>): Int =
@@ -124,7 +122,7 @@ object InternetArchiveApiService {
                                     val matches = withContext(AppDispatchers.CpuBounded) {
                                         result.tracks.filter { it.audioUrl !in excludedUrls }
                                             .mapNotNull { ArchiveFileKey.fromUrl(it.audioUrl)?.let(ArchiveFileEvidence::fresh) }
-                                            .mapNotNull { verified -> RecordingIdentity.losslessConfidence(track, verified)
+                                            .mapNotNull { verified -> ArchiveRecordingIdentity.confidence(track, verified)
                                                 ?.let { verified to it } }
                                             .sortedWith(compareByDescending<Pair<MusicTrack, Int>> { isFlac(it.first) }
                                                 .thenByDescending { it.second }).map { it.first }
@@ -179,9 +177,7 @@ object InternetArchiveApiService {
             val key = ArchiveFileKey.fromId(track.id) ?: ArchiveFileKey.nativeTransport(track.audioUrl)
                 ?: return@withContext null
             if (!allowed() || !key.playableContainer) return@withContext null
-            fun matches(file: MusicTrack) = ArchiveFileEvidence.isLiteralSelection(track) ||
-                RecordingIdentity.losslessConfidence(track, file) != null ||
-                (track.durationMs <= 0L || file.durationMs <= 0L) && RecordingIdentity.same(track, file, requireAlbum = true)
+            fun matches(file: MusicTrack) = ArchiveFileEvidence.matchesSelection(track, file)
             if (!forceRefresh && policyKey != null && directPolicies.get(key) == policyKey) {
                 ArchiveFileEvidence.fresh(key)?.takeIf { matches(it) && allowed() }?.let { return@withContext it }
             }
@@ -199,7 +195,7 @@ object InternetArchiveApiService {
                 com.example.playback.LosslessDiagnostics.record(track.id, Reason.RECORDING_MISMATCH, "archive-direct-file")
                 return@withContext null
             }
-            if (!verifyContainer(file, allowed, requestId) || !allowed()) return@withContext null
+            if (!allowed()) return@withContext null
             val verified = ArchiveFileEvidence.fresh(key)?.takeIf(::matches)
             if (verified == null) {
                 ArchivePlaybackEvents.record("exact_file", "identity_conflict", key)
@@ -275,7 +271,8 @@ object InternetArchiveApiService {
             lowerFormat.contains("vorbis") ||
             lowerFormat.contains("vbr") ||
             lowerFormat.contains("opus") ||
-            lowerFormat.contains("ogg")
+            lowerFormat.contains("ogg") ||
+            lowerFormat.split(' ', '/', '-').contains("aac")
         ) {
             return false
         }
@@ -489,7 +486,7 @@ object InternetArchiveApiService {
                 val tracks = results.receive()
                 completed.add(tracks)
                 if (tracks.orEmpty().any { it.audioUrl !in excludedUrls &&
-                    RecordingIdentity.losslessConfidence(requested, it) != null && eligible(it) }) break
+                    ArchiveRecordingIdentity.confidence(requested, it) != null && eligible(it) }) break
             }
         } finally {
             jobs.forEach { it.cancel() }
@@ -547,7 +544,7 @@ object InternetArchiveApiService {
             val cached = itemCache.get(identifier)
             if (cached != null && SystemClock.elapsedRealtime() - cached.first < ITEM_TTL_MS &&
                 (recording == null || cached.second.any { it.audioUrl !in recording.excludedUrls &&
-                    RecordingIdentity.losslessConfidence(recording.track, it) != null &&
+                    ArchiveRecordingIdentity.confidence(recording.track, it) != null &&
                     ArchiveFileKey.fromUrl(it.audioUrl)?.let(ArchiveFileEvidence::fresh) != null })) {
                 return@withLock cached.second
             }
@@ -594,24 +591,6 @@ object InternetArchiveApiService {
         restriction(objectValue, "is_dark") || restriction(objectValue, "access-restricted-item") ||
             restriction(objectValue, "private")
 
-    private fun conflictingRights(objectValue: JSONObject?): Boolean =
-        values(objectValue, "rights").any { it.contains("all rights reserved", true) }
-
-    private fun restrictedFile(file: JSONObject): Boolean = restricted(file) || conflictingRights(file) ||
-        values(file, "licenseurl").isNotEmpty() && !authorized(file)
-
-    /** Keep the existing explicit grant allowlist, including for browsed filenames and derivatives. */
-    private fun authorized(metadata: JSONObject?): Boolean {
-        if (metadata == null || restricted(metadata)) return false
-        val rights = values(metadata, "rights")
-        if (conflictingRights(metadata)) return false
-        return values(metadata, "licenseurl").any { license ->
-            val url = license.toHttpUrlOrNull()
-            url != null && url.host in setOf("creativecommons.org", "www.creativecommons.org") &&
-                url.username.isEmpty() && url.password.isEmpty() && reuseLicense.matches(url.encodedPath)
-        } || rights.any { it.equals("public domain", true) }
-    }
-
     private fun durationMillis(value: String): Long {
         val seconds = if (value.contains(':')) value.split(':').fold(0.0) { total, part ->
             val amount = part.toDoubleOrNull() ?: return 0L
@@ -646,15 +625,15 @@ object InternetArchiveApiService {
                 read(metadataRequest(identifier))
             } catch (error: IOException) {
                 if (error.message != "Catalog response exceeds its metadata budget") throw error
-                // The partial API separates rights from large file lists. Keep the original
-                // item and file checks and mark a capped scan as incomplete.
+                // Check item access flags before walking the bounded partial file manifest.
                 val metadata = read(metadataRequest(identifier, "metadata")).optJSONObject("result")
                     ?: throw CatalogHttpException(404, null)
                 val dark = read(metadataRequest(identifier, "is_dark")).opt("result")
                 val restricted = read(metadataRequest(identifier, "access-restricted-item")).opt("result")
+                val privateItem = read(metadataRequest(identifier, "private")).opt("result")
                 val root = JSONObject().put("metadata", metadata)
-                    .put("is_dark", dark).put("access-restricted-item", restricted)
-                if (restricted(root) || !authorized(metadata)) return@withPermit root
+                    .put("is_dark", dark).put("access-restricted-item", restricted).put("private", privateItem)
+                if (restricted(root) || restricted(metadata)) return@withPermit root
                 val files = org.json.JSONArray()
                 for (page in 0..3) {
                     val batch = read(metadataRequest(identifier, "files", page * 128)).optJSONArray("result")
@@ -683,9 +662,9 @@ object InternetArchiveApiService {
         try {
             val root = readItem(identifier, allowed, ::issue)
             val metadata = root.optJSONObject("metadata") ?: throw CatalogHttpException(404, null)
-            if (restricted(root) || !authorized(metadata)) {
+            if (restricted(root) || restricted(metadata)) {
                 issue(Reason.UNAUTHORIZED)
-                ArchivePlaybackEvents.record("rights", "license_denied", exactFile, requestId = requestId)
+                ArchivePlaybackEvents.record("access", "access_denied", exactFile, requestId = requestId)
                 return emptyList()
             }
             val browseHeaders = AtomicInteger(4)
@@ -711,17 +690,23 @@ object InternetArchiveApiService {
                     ArchivePlaybackEvents.record("file_identity", reason.name.lowercase(), exactFile, requestId = requestId)
                 }, exactFile = exactFile, allowLiteral = allowLiteral, browseTerms = browseTerms,
                 validateUnlabeledAlac = ::validateContainer,
-                validateCandidate = { track ->
-                    validateContainer(track) && ArchiveFileKey.fromUrl(track.audioUrl)?.let(ArchiveFileEvidence::fresh)?.let { verified ->
-                        recording == null || RecordingIdentity.losslessConfidence(recording.track, verified) != null
-                    } == true
+                validateCandidate = { candidate ->
+                    if (!validateContainer(candidate)) false else {
+                        val key = ArchiveFileKey.fromUrl(candidate.audioUrl)
+                        val verified = key?.let(ArchiveFileEvidence::fresh)
+                        verified != null && when {
+                            recording == null -> true
+                            exactFile != null -> ArchiveFileEvidence.matchesSelection(recording.track, verified)
+                            else -> ArchiveRecordingIdentity.confidence(recording.track, verified) != null
+                        }
+                    }
                 }) { url ->
                 val key = ArchiveFileKey.fromUrl(url)
                 if (key == null || !admitHeader(key)) null else readFlacHeader(key, allowed, onFailure = { issue(archiveFailureReason(it)) })
             }
             if (exactFile != null && tracks.isEmpty() && recording?.failure == null)
                 issue(Reason.SOURCE_VERIFICATION_FAILED)
-            return tracks
+            return tracks.mapNotNull { candidate -> ArchiveFileKey.fromUrl(candidate.audioUrl)?.let(ArchiveFileEvidence::fresh) }
         } catch (e: CancellationException) {
             ArchivePlaybackEvents.record("metadata", "cancelled", exactFile, requestId = requestId)
             throw e
@@ -752,7 +737,7 @@ object InternetArchiveApiService {
     private fun archiveOutcome(error: Exception): String = when (error) {
         is ArchiveFileTransport.Failure -> error.outcome
         is CatalogHttpException -> when (error.status) {
-            401, 403, 451 -> "license_denied"
+            401, 403, 451 -> "access_denied"
             404, 410 -> "http_unavailable"
             429, 503 -> "rate_limited"
             else -> "http_error"
@@ -763,7 +748,7 @@ object InternetArchiveApiService {
 
     internal fun archiveFailureReason(error: Exception): Reason = when (archiveOutcome(error)) {
         "network_timeout" -> Reason.NETWORK_TIMEOUT
-        "license_denied" -> Reason.UNAUTHORIZED
+        "access_denied" -> Reason.UNAUTHORIZED
         "http_unavailable", "redirect_rejected" -> Reason.SOURCE_VERIFICATION_FAILED
         "policy_blocked" -> Reason.NETWORK_POLICY_BLOCKED
         "range_unavailable" -> Reason.SEEK_UNAVAILABLE
@@ -853,7 +838,9 @@ object InternetArchiveApiService {
                 return@withContext false
             }
             if (!allowed()) return@withContext false
-            ArchiveFileEvidence.remember(key, track.copy(isrc = flac?.isrc.orEmpty().ifBlank { track.isrc }))
+            ArchiveFileEvidence.remember(key, track.copy(
+                durationMs = flac?.durationMs?.takeIf { it > 0L } ?: track.durationMs,
+                isrc = flac?.isrc.orEmpty().ifBlank { track.isrc }))
             ArchivePlaybackEvents.record("container", "verified", key, SystemClock.elapsedRealtime() - started, requestId = requestId)
             true
         } catch (e: IOException) {
@@ -865,14 +852,11 @@ object InternetArchiveApiService {
     private fun conflictsWithEmbedded(track: MusicTrack, tags: ArchiveAudioMetadata.Tags): Boolean {
         val embeddedCode = RecordingIdentity.isrc(tags.isrc)
         val metadataCode = RecordingIdentity.isrc(track.isrc)
-        if (embeddedCode != null && metadataCode != null && embeddedCode != metadataCode) return true
-        if (track.durationMs > 0L && tags.durationMs > 0L &&
-            kotlin.math.abs(track.durationMs - tags.durationMs) > 2_000L) return true
+        if (ArchiveRecordingIdentity.isrcConflict(embeddedCode, metadataCode)) return true
         if (tags.artist.isNotBlank() && !unknownArtist(track.artist)) {
             val credits = RecordingIdentity.artistNames(track)
             val embedded = RecordingIdentity.artistNames(track.copy(artist = tags.artist, primaryArtists = emptyList()))
-            if (credits.isNotEmpty() && embedded.isNotEmpty() && credits.toSet() != embedded.toSet() &&
-                !CatalogNames.spellingEquivalent(credits.first(), embedded.first())) return true
+            if (credits.isNotEmpty() && embedded.isNotEmpty() && !ArchiveRecordingIdentity.artistsAgree(credits, embedded)) return true
         }
         if (tags.title.isBlank()) return false
         val versions = RecordingVersions.markers(tags.title)
@@ -893,7 +877,8 @@ object InternetArchiveApiService {
     private fun unknownArtist(artist: String) = artist.isBlank() ||
         artist.equals("Unknown Artist", true) || artist.equals("Various Artists", true)
     private fun conflicts(a: String, b: String): Boolean =
-        a.isNotBlank() && b.isNotBlank() && normalized(a) != normalized(b)
+        a.isNotBlank() && b.isNotBlank() &&
+            (RecordingVersions.markers(a) != RecordingVersions.markers(b) || !CatalogNames.spellingEquivalent(a, b))
 
     /** Interpret per-file evidence; a pathname can label a file but cannot identify a recording. */
     internal suspend fun parseLosslessItem(doc: JSONObject, root: JSONObject, requested: MusicTrack? = null,
@@ -905,8 +890,9 @@ object InternetArchiveApiService {
         readHeader: suspend (String) -> ArchiveAudioMetadata.Tags? = ::readFlacHeader
     ): List<MusicTrack> = withContext(AppDispatchers.CpuBounded) {
         val identifier = text(doc, "identifier")
-        val metadata = root.optJSONObject("metadata")
-        if (identifier.isBlank() || restricted(root) || !authorized(metadata)) return@withContext emptyList()
+        val metadata = root.optJSONObject("metadata") ?: return@withContext emptyList()
+        if (identifier.isBlank() || restricted(root) || restricted(metadata)) return@withContext emptyList()
+        if (exactFile != null && exactFile.item != identifier) return@withContext emptyList()
         val files = root.optJSONArray("files") ?: throw IOException("Missing Archive file metadata")
         val entries = (0 until files.length()).mapNotNull { files.optJSONObject(it) }
         val byName = entries.groupBy { fileName(it) }
@@ -914,7 +900,7 @@ object InternetArchiveApiService {
             if (text(file, "source") != "derivative") return null
             val name = file.opt("original") as? String ?: return null
             val ancestor = byName[name]?.singleOrNull() ?: return null
-            return ancestor.takeIf { text(it, "source") == "original" && !restrictedFile(it) &&
+            return ancestor.takeIf { text(it, "source") == "original" && !restricted(it) &&
                 ArchiveFileKey.create(identifier, name) != null }
         }
         fun unlabeledAlac(file: JSONObject): Boolean {
@@ -925,7 +911,7 @@ object InternetArchiveApiService {
         }
         val lossless = entries.filter {
             (isLosslessAudioFile(fileName(it), text(it, "format")) || unlabeledAlac(it)) &&
-                !restrictedFile(it) && byName[fileName(it)]?.size == 1 &&
+                byName[fileName(it)]?.size == 1 &&
                 text(it, "size").toLongOrNull()?.let { size -> size > 0 } != false
         }
         val audioNames = setOf("flac", "wav", "m4a", "aif", "aiff", "ape", "wv", "dsf", "dff", "mp3", "ogg", "opus", "wma", "aac", "mka", "mp4")
@@ -958,7 +944,11 @@ object InternetArchiveApiService {
         for (file in ordered) {
             currentCoroutineContext().ensureActive()
             val key = ArchiveFileKey.create(identifier, fileName(file)) ?: continue
-            if (selectedFile != null && selectedFile != key) continue
+            if (selectedFile != null && selectedFile != key || !key.playableContainer) continue
+            if (restricted(file)) {
+                onRejected(Reason.UNAUTHORIZED, "File access is restricted")
+                continue
+            }
             val url = key.url.toString()
             if (url in excludedUrls) continue
             val ancestor = original(file)
@@ -987,8 +977,7 @@ object InternetArchiveApiService {
                     !unknownArtist(fileArtist(ancestor).ifBlank { itemArtist }))) readHeader(url) else null
             if (header != null) {
                 if (conflicts(title, header.title) || (!unknownArtist(artist) && conflicts(artist, header.artist)) ||
-                    conflictingCode(header.isrc) || duration > 0L && header.durationMs > 0L &&
-                    kotlin.math.abs(duration - header.durationMs) > 2_000L) {
+                    conflictingCode(header.isrc)) {
                     reject(Reason.RECORDING_MISMATCH, "embedded tags conflict with file metadata")
                     continue
                 }
@@ -998,10 +987,8 @@ object InternetArchiveApiService {
                 code = header.isrc.ifBlank { code }
                 if (header.durationMs > 0L) duration = header.durationMs
             }
-            val originalDuration = fileDuration(ancestor)
             val sourceCoherent = ancestor != null && !conflicts(title, origTitle) &&
                 (unknownArtist(artist) || !conflicts(artist, fileArtist(ancestor))) && !conflictingCode(text(ancestor, "isrc")) &&
-                (duration <= 0L || originalDuration <= 0L || kotlin.math.abs(duration - originalDuration) <= 2_000L) &&
                 !conflicts(text(file, "version"), text(ancestor, "version"))
             if (sourceCoherent) {
                 title = title.ifBlank { origTitle }
@@ -1014,13 +1001,10 @@ object InternetArchiveApiService {
             album = album.ifBlank { text(metadata, "album") }.ifBlank { text(doc, "album") }
                 .ifBlank { if (audioGroups.size > 1) text(metadata, "title") else "Unknown" }
             if (duration <= 0 && singleRecording) duration = fileDuration(metadata)
-            val verifiedCode = requested != null && RecordingIdentity.isrc(code)?.let {
-                it == RecordingIdentity.isrc(requested.isrc)
-            } == true
             val missingTitle = title.isBlank() || genericTitle.matches(title.trim())
-            val missingEvidence = (unknownArtist(artist) || requested != null && duration <= 0L) && !verifiedCode
-            val literal = allowLiteral && (missingTitle || unknownArtist(artist))
-            if (missingTitle && !literal || missingEvidence && !allowLiteral && exactFile == null) {
+            val missingArtist = unknownArtist(artist)
+            val literal = allowLiteral && (missingTitle || missingArtist)
+            if (!literal && (missingTitle || missingArtist)) {
                 reject(Reason.METADATA_INCOMPLETE, "missing individual recording evidence")
                 continue
             }
@@ -1038,30 +1022,24 @@ object InternetArchiveApiService {
                     header.bitDepth > 16 && header.sampleRate >= 44_100) "Hi-Res • Lossless" else losslessQuality(file),
                 genre = text(file, "genre").ifBlank { "Unknown" },
                 year = text(file, "year").ifBlank { text(metadata, "year") }.ifBlank { text(doc, "year") },
-                isrc = if (literal) "" else code, source = "INTERNET_ARCHIVE", isLossless = true)
-            if (unlabeledAlac(file)) {
-                if (requested != null && selectedFile == null &&
-                    RecordingIdentity.losslessConfidence(requested, candidate) == null) continue
-                if (!validateUnlabeledAlac(candidate)) {
-                    if (selectedFile != null) reject(Reason.SOURCE_VERIFICATION_FAILED, "ALAC codec could not be verified")
+                isrc = code, source = "INTERNET_ARCHIVE", isLossless = true)
+            if (requested != null) {
+                val matched = if (selectedFile == null) ArchiveRecordingIdentity.confidence(requested, candidate) != null
+                    else ArchiveFileEvidence.matchesSelection(requested, candidate)
+                if (!matched) {
+                    reject(Reason.RECORDING_MISMATCH, "title, artist or version did not match")
                     continue
                 }
+            }
+            if (unlabeledAlac(file) && !validateUnlabeledAlac(candidate) || !validateCandidate(candidate)) {
+                if (requested != null || selectedFile != null)
+                    reject(Reason.SOURCE_VERIFICATION_FAILED, "lossless container could not be verified")
+                continue
             }
             val codec = when (key.extension) { "flac" -> "FLAC"; "m4a" -> "ALAC"; "wav" -> "PCM"; else -> "" }
             if (codec.isNotBlank() && bitrate > 0) sourceBitrates.put(url, codec to bitrate)
 
-            if (selectedFile != null) return@withContext listOf(candidate)
-            if (requested != null) {
-                if (RecordingIdentity.losslessConfidence(requested, candidate) == null) {
-                    accepted.add(candidate)
-                    continue
-                }
-                if (!key.playableContainer || !validateCandidate(candidate)) {
-                    reject(Reason.SOURCE_VERIFICATION_FAILED, "recording matched but transport did not verify")
-                    continue
-                }
-                return@withContext listOf(candidate)
-            }
+            if (selectedFile != null || requested != null) return@withContext listOf(candidate)
             accepted.add(candidate)
         }
         accepted

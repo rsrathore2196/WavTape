@@ -41,13 +41,18 @@ class ArchiveMetadataRegressionTest {
         assertEquals("Another Song", namedFile.title)
         assertEquals(0L, namedFile.durationMs)
     }
-    @Test fun aSingleRecordingMayUseItsActualItemDurationButStillRequiresPlaybackRights() = runBlocking {
-        val root = JSONObject("""{"metadata":{"title":"Single Song","creator":"Artist","duration":"181",
-            "rights":"public domain"},"files":[{"name":"song.flac","format":"Flac"}]}""")
-        assertEquals(181000L, InternetArchiveApiService.parseLosslessItem(doc, root).single().durationMs)
+    @Test fun licenseTextDoesNotDeterminePlaybackEligibility() = runBlocking {
+        val root = JSONObject("""{"metadata":{"title":"Single Song","creator":"Artist","duration":"181"},
+            "files":[{"name":"song.flac","format":"Flac"}]}""")
+        assertEquals(181000L, InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null }).single().durationMs)
         root.getJSONObject("metadata").put("rights", "all rights reserved")
-        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root).isEmpty())
+        root.getJSONObject("metadata").put("licenseurl", "https://example.org/unknown-license")
+        root.getJSONArray("files").getJSONObject(0).put("rights", "all rights reserved")
+        root.getJSONArray("files").getJSONObject(0).put("licenseurl", "unknown")
+        val candidate = InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null }).single()
+        assertEquals("ia_album:song.flac", candidate.id)
     }
+
     @Test fun missingCollectionFileTagsAreRecoveredFromTheActualFlacHeader() = runBlocking {
         val request = MusicTrack("online_song", "Song", "Artist", "Original Album", 180000, "", "")
         val root = JSONObject("""{"metadata":{"title":"Original Album","creator":"Various Artists",
@@ -66,16 +71,42 @@ class ArchiveMetadataRegressionTest {
         assertEquals("Artist", recovered.artist)
         assertEquals("INTERNET_ARCHIVE", recovered.source)
     }
-    @Test fun probingNeverBypassesRightsOrInventsIdentityFromAnAttractiveFilename() = runBlocking {
-        val request = MusicTrack("online_song", "Song", "Artist", "Album", 180000, "", "")
-        val root = JSONObject("""{"metadata":{"title":"Collection","creator":"Artist",
-            "rights":"all rights reserved"},"files":[{"name":"Artist - Song.flac","format":"Flac"}]}""")
-        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, request) {
-            fail("An unauthorized item must not even fetch a header"); null
-        }.isEmpty())
-        root.getJSONObject("metadata").put("rights", "public domain")
+    @Test fun accessFlagsPreventProbesAndFilenamesCannotInventRecordingIdentity() = runBlocking {
+        val request = MusicTrack("online_song", "Song", "Artist", "Album", 0, "", "")
+        val root = JSONObject("""{"metadata":{"title":"Collection","creator":"Artist"},
+            "files":[{"name":"Artist - Song.flac","format":"Flac"},{"name":"other.flac","format":"Flac"}]}""")
+        val file = root.getJSONArray("files").getJSONObject(0)
+        val key = com.example.data.remote.ArchiveFileKey.create("album", "Artist - Song.flac")!!
+        for (place in listOf(root, root.getJSONObject("metadata"), file)) {
+            for (flag in listOf("is_dark", "private", "access-restricted-item")) {
+                place.put(flag, true)
+                assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, exactFile = key, allowLiteral = true,
+                    readHeader = { error("An inaccessible file must not fetch a header") }).isEmpty())
+                place.remove(flag)
+            }
+        }
         assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, request) { null }.isEmpty())
     }
+
+    @Test fun targetedAndExactMatchesUseEmbeddedDurationEvenWhenTheManifestDisagrees() = runBlocking {
+        val request = MusicTrack("online_song", "Song", "Artist", "Album", 0, "", "")
+        val root = JSONObject("""{"metadata":{"title":"Album","creator":"Artist"},
+            "files":[{"name":"song.flac","title":"Song","format":"Flac"}]}""")
+        val key = com.example.data.remote.ArchiveFileKey.create("album", "song.flac")!!
+        val named = request.copy(id = key.id, audioUrl = key.url.toString(), durationMs = 330_000L)
+        val unknown = InternetArchiveApiService.parseLosslessItem(doc, root, request, readHeader = { null }).single()
+        assertEquals(0L, unknown.durationMs)
+        // Missing file title forces metadata extraction even if a duration was reported.
+        root.getJSONArray("files").getJSONObject(0).remove("title")
+        root.getJSONArray("files").getJSONObject(0).put("length", "100")
+        val actual = ArchiveAudioMetadata.Tags("Song", "Artist", durationMs = 251_000L)
+        val direct = InternetArchiveApiService.parseLosslessItem(doc, root, named, exactFile = key,
+            readHeader = { actual }).single()
+        assertEquals(251_000L, direct.durationMs)
+        assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, named, exactFile = key,
+            readHeader = { actual.copy(title = "Song (Live)") }).isEmpty())
+    }
+
     @Test fun structuredDiscoveryIncludesAlbumCreatorAndIsrcQueriesRatherThanOnlySongAndTerms() {
         val request = MusicTrack("song", "Song (Official Audio)", "Artist", "Original Album", 180000, "", "",
             isrc = "US-ABC-20-00001")
@@ -97,7 +128,8 @@ class ArchiveMetadataRegressionTest {
         assertTrue(rejected.first().second.contains("track01.flac"))
     }
     @Test fun archiveAccessDenialMissingFilesAndTimeoutsHaveDifferentDiagnosticOutcomes() {
-        assertEquals(Reason.UNAUTHORIZED, InternetArchiveApiService.archiveFailureReason(com.example.data.remote.CatalogHttpException(403, null)))
+        for (status in listOf(401, 403, 451))
+            assertEquals(Reason.UNAUTHORIZED, InternetArchiveApiService.archiveFailureReason(com.example.data.remote.CatalogHttpException(status, null)))
         assertEquals(Reason.SOURCE_VERIFICATION_FAILED, InternetArchiveApiService.archiveFailureReason(com.example.data.remote.CatalogHttpException(404, null)))
         assertEquals(Reason.NETWORK_TIMEOUT, InternetArchiveApiService.archiveFailureReason(java.net.SocketTimeoutException()))
     }
@@ -177,16 +209,17 @@ class ArchiveMetadataRegressionTest {
         assertEquals(listOf(chosen.single().audioUrl), checked)
     }
 
-    @Test fun archiveFlacDerivativesUseOnlyTheirExplicitAuthorizedOriginal() = runBlocking {
+    @Test fun archiveFlacDerivativesUseOnlyTheirExplicitAccessibleOriginal() = runBlocking {
         val root = JSONObject("""{"metadata":{"title":"Late Surrender","creator":"selene XIV",
-            "licenseurl":"https://creativecommons.org/licenses/by/4.0/"},"files":[
+            "rights":"all rights reserved"},"files":[
             {"name":"catboi-album3.flac","source":"derivative","original":"catboi-album3.wav","format":"Flac","length":"244.83"},
-            {"name":"catboi-album3.wav","source":"original","format":"WAVE","length":"244.83","title":"Back Counting","artist":"selene XIV"},
+            {"name":"catboi-album3.wav","source":"original","format":"WAVE","length":"220","title":"Back Counting","artist":"selene XIV","rights":"all rights reserved"},
             {"name":"unlinked.flac","format":"Flac","length":"244.83"}
         ]}""")
         val candidates = InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null })
         assertEquals(listOf("ia_album:catboi-album3.flac", "ia_album:catboi-album3.wav"), candidates.map { it.id })
-        assertTrue(candidates.all { it.title == "Back Counting" && it.artist == "selene XIV" && it.durationMs == 244830L })
+        assertTrue(candidates.all { it.title == "Back Counting" && it.artist == "selene XIV" })
+        assertEquals(listOf(244830L, 220000L), candidates.map { it.durationMs })
         root.getJSONArray("files").getJSONObject(1).put("private", "1")
         assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, readHeader = { null }).isEmpty())
     }
@@ -202,10 +235,9 @@ class ArchiveMetadataRegressionTest {
         assertTrue(com.example.data.remote.ArchiveFileEvidence.isLiteralSelection(result))
         assertEquals(selected.id, result.id)
         assertFalse(StreamResolver.matchesLosslessUpgrade(result.copy(id = "yt_ordinarySong", title = "Song"), result))
-        root.getJSONObject("metadata").put("rights", org.json.JSONArray(listOf("public domain", "all rights reserved")))
+        root.put("is_dark", true)
         assertTrue(InternetArchiveApiService.parseLosslessItem(doc, root, exactFile = selected, allowLiteral = true) {
-            fail("Contradictory rights must be detected before file probing")
-            null
+            error("A dark item must be rejected before file probing")
         }.isEmpty())
     }
 
@@ -239,6 +271,21 @@ class ArchiveMetadataRegressionTest {
         assertEquals("Verified Title", result.single().title)
         assertTrue(InternetArchiveApiService.parseLosslessItem(doc, manifest,
             browseTerms = listOf("missing", "song")) { null }.isEmpty())
+    }
+
+    @Test fun unsupportedAndFalselyLabeledFilesAreNeverPublishedAsPlayableLossless() = runBlocking {
+        val root = JSONObject("""{"metadata":{"title":"Song","creator":"Artist"},"files":[
+            {"name":"song.aiff","title":"Song","format":"AIFF"},
+            {"name":"song.mp3","title":"Song","format":"FLAC"},
+            {"name":"aac-in-disguise.flac","title":"Song","format":"AAC"},
+            {"name":"fake.flac","title":"Song","format":"FLAC"}]}""")
+        val verified = mutableListOf<String>()
+        val tracks = InternetArchiveApiService.parseLosslessItem(doc, root, validateCandidate = {
+            verified += it.id
+            ArchiveAudioMetadata.flac("not a FLAC file".toByteArray()) != null
+        }, readHeader = { null })
+        assertTrue(tracks.isEmpty())
+        assertEquals(listOf("ia_album:fake.flac"), verified)
     }
 
     @Test fun genericOriginalM4aAppearsOnlyWhenItsActualCodecIsProven() = runBlocking {

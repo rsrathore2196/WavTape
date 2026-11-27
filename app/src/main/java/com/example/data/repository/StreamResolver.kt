@@ -8,6 +8,7 @@ import com.example.data.remote.OnlineMusicApiService
 import com.example.data.remote.InternetArchiveApiService
 import com.example.data.remote.ArchiveFileEvidence
 import com.example.data.remote.ArchiveFileKey
+import com.example.data.remote.ArchiveRecordingIdentity
 import com.example.data.remote.ArchivePlaybackEvents
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.remote.YouTubeMusicApiService
@@ -96,7 +97,7 @@ internal class StreamResolver(
     // for these exact, previously verified cross-provider matches.
     private val providerMatches = android.util.LruCache<String, Pair<Long, MusicTrack>>(256)
     suspend fun hasRecentLosslessAttempt(track: MusicTrack): Boolean = withContext(cpuDispatcher) {
-        val key = RecordingIdentity.key(track)
+        val key = ArchiveRecordingIdentity.key(track)
         synchronized(archiveAttempts) { (archiveAttempts[key] ?: 0L) > android.os.SystemClock.elapsedRealtime() }
     }
     private val archiveMisses = LinkedHashMap<String, Long>()
@@ -166,7 +167,7 @@ internal class StreamResolver(
         val version = requestedVersion ?: losslessDiscoveryVersion(track.id)
         val allowed = { requestAllowed() && isLosslessDiscoveryCurrent(track.id, version) }
         val excludedArchive = excluded.filterTo(sortedSetOf(), ::archiveTransport)
-        val identity = withContext(cpuDispatcher) { RecordingIdentity.key(track) }
+        val identity = withContext(cpuDispatcher) { ArchiveRecordingIdentity.key(track) }
         suspend fun lookup(isAllowed: () -> Boolean = allowed): InternetArchiveApiService.LosslessSearchPage {
             if (!isAllowed()) return InternetArchiveApiService.LosslessSearchPage(isSuccessful = false,
                 exhaustive = false, failure = com.example.playback.LosslessDiagnostics.Reason.NETWORK_POLICY_BLOCKED)
@@ -285,7 +286,10 @@ internal class StreamResolver(
                 PlaybackDiagnostics.Reason.TIMEOUT, PlaybackDiagnostics.Reason.INVALID_URL, PlaybackDiagnostics.Reason.POLICY,
                 PlaybackDiagnostics.Reason.INCOMPLETE_METADATA) })
         val recordingKey = withContext(cpuDispatcher) { RecordingIdentity.key(track) }
-        if (manualUpgrade) synchronized(archiveMisses) { archiveMisses.remove(recordingKey) }
+        if (manualUpgrade && policy.allowsArchive) {
+            val archiveIdentity = withContext(cpuDispatcher) { ArchiveRecordingIdentity.key(track) }
+            synchronized(archiveMisses) { archiveMisses.remove(archiveIdentity) }
+        }
         val archiveFile = ArchiveFileKey.fromId(track.id) ?: ArchiveFileKey.nativeTransport(track.audioUrl)
         val archiveUrl = archiveFile?.url?.toString() ?: track.audioUrl.takeIf { archiveTransport(it) }
         val selectedArchive = archiveUrl != null
@@ -489,9 +493,8 @@ internal class StreamResolver(
         }
         suspend fun archive(): MusicTrack? {
             if (quality != AudioQuality.HI_RES_LOSSLESS || ceilingBps != Int.MAX_VALUE ||
-                !archiveCurrent() || currentSourceOnly || title.isBlank() ||
-                (RecordingIdentity.isrc(track.isrc) == null && (track.durationMs <= 0L || primary.isBlank()))) return null
-            val identity = recordingKey
+                !archiveCurrent() || currentSourceOnly || !ArchiveRecordingIdentity.hasCredits(track)) return null
+            val identity = withContext(cpuDispatcher) { ArchiveRecordingIdentity.key(track) }
             // Fast cache check: return verified lossless match if already discovered
             val cachedLossless = getCachedLosslessMatch(track)
             if (cachedLossless != null && usable(cachedLossless) && supportsLossless(cachedLossless) && !isLosslessUrlRejected(cachedLossless.audioUrl)) {
@@ -705,7 +708,7 @@ internal class StreamResolver(
             return@withContext cached
         }
         val allExcluded = (excludedUrls + getActiveRejectedUrls()).toSet()
-        val identity = withContext(cpuDispatcher) { RecordingIdentity.key(track) }
+        val identity = withContext(cpuDispatcher) { ArchiveRecordingIdentity.key(track) }
         if (synchronized(archiveMisses) { (archiveMisses[identity] ?: 0L) > android.os.SystemClock.elapsedRealtime() }) {
             com.example.playback.LosslessDiagnostics.record(track.id, com.example.playback.LosslessDiagnostics.Reason.NO_RESULTS, "discovery")
             return@withContext null
@@ -728,7 +731,7 @@ internal class StreamResolver(
                             "file=${Uri.parse(candidate.audioUrl).lastPathSegment}")
                     }
                     null
-                } else RecordingIdentity.losslessConfidence(track, candidate)?.let { candidate to it }
+                } else ArchiveRecordingIdentity.confidence(track, candidate)?.let { candidate to it }
             }.sortedByDescending { it.second }.map { it.first }
         }
         val match = matches.firstOrNull()
@@ -749,6 +752,8 @@ internal class StreamResolver(
     }
 
     private fun withStream(track: MusicTrack, stream: MusicTrack) = track.copy(audioUrl = stream.audioUrl,
+        durationMs = if (stream.isLossless && ArchiveFileKey.nativeTransport(stream.audioUrl) != null)
+            stream.durationMs else track.durationMs,
         bitrateKbps = stream.bitrateKbps, qualityBadge = stream.qualityBadge,
         isLossless = stream.isLossless, source = stream.source,
         primaryArtists = track.primaryArtists.ifEmpty { stream.primaryArtists })
@@ -787,7 +792,7 @@ internal class StreamResolver(
         }
 
         fun invalidateLosslessMatch(track: MusicTrack, candidateUrl: String? = null) = synchronized(verifiedLosslessCache) {
-            val key = RecordingIdentity.key(track)
+            val key = ArchiveRecordingIdentity.key(track)
             val entry = verifiedLosslessCache[key]
             if (entry != null && (candidateUrl == null || entry.first.audioUrl == candidateUrl)) {
                 verifiedLosslessCache.remove(key)
@@ -795,12 +800,12 @@ internal class StreamResolver(
         }
 
         fun getCachedLosslessMatch(track: MusicTrack): MusicTrack? = synchronized(verifiedLosslessCache) {
-            val key = RecordingIdentity.key(track)
+            val key = ArchiveRecordingIdentity.key(track)
             val entry = verifiedLosslessCache[key] ?: return null
             if (entry.second < android.os.SystemClock.elapsedRealtime()) {
                 verifiedLosslessCache.remove(key)
                 null
-            } else if (isLosslessUrlRejected(entry.first.audioUrl)) {
+            } else if (isLosslessUrlRejected(entry.first.audioUrl) || !matchesLosslessUpgrade(track, entry.first)) {
                 verifiedLosslessCache.remove(key)
                 null
             } else {
@@ -809,7 +814,8 @@ internal class StreamResolver(
         }
 
         fun cacheVerifiedLosslessMatch(track: MusicTrack, lossless: MusicTrack) = synchronized(verifiedLosslessCache) {
-            val key = RecordingIdentity.key(track)
+            if (!matchesLosslessUpgrade(track, lossless)) return@synchronized
+            val key = ArchiveRecordingIdentity.key(track)
             verifiedLosslessCache[key] = Pair(lossless, android.os.SystemClock.elapsedRealtime() + 600_000L)
             while (verifiedLosslessCache.size > 128) verifiedLosslessCache.remove(verifiedLosslessCache.keys.first())
         }
@@ -829,16 +835,14 @@ internal class StreamResolver(
         private val unknownArtistNames = setOf("", "unknown", "unknown artist", "various", "various artists", "internet archive")
 
         internal fun matchesInitialLossless(requested: MusicTrack, candidate: MusicTrack): Boolean =
-            candidate.isLossless && candidate.audioUrl.startsWith("https://") && archiveTransport(candidate.audioUrl) &&
-                uriPath(candidate.audioUrl).let { path -> path.endsWith(".flac") || path.endsWith(".wav") || path.endsWith(".m4a") } &&
-                RecordingIdentity.losslessConfidence(requested, candidate) != null
+            matchesLosslessUpgrade(requested, candidate)
 
         internal fun matchesLosslessUpgrade(requested: MusicTrack, candidate: MusicTrack): Boolean =
-            candidate.isLossless && candidate.audioUrl.startsWith("https://") && archiveTransport(candidate.audioUrl) &&
-                uriPath(candidate.audioUrl).let { it.endsWith(".flac") || it.endsWith(".wav") || it.endsWith(".m4a") } &&
-                RecordingIdentity.losslessConfidence(requested, candidate) != null
+            archiveMatchConfidence(requested, candidate) != null
 
-        private fun uriPath(url: String): String = runCatching { Uri.parse(url).path.orEmpty().lowercase(java.util.Locale.ROOT) }.getOrDefault("")
+        internal fun archiveMatchConfidence(requested: MusicTrack, candidate: MusicTrack): Int? =
+            if (candidate.isLossless && ArchiveFileKey.nativeTransport(candidate.audioUrl)?.playableContainer == true)
+                ArchiveRecordingIdentity.confidence(requested, candidate) else null
 
         private fun uriHost(url: String?): String? {
             if (url.isNullOrBlank()) return null

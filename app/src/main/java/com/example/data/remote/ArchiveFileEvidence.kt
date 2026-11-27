@@ -95,6 +95,18 @@ internal object ArchiveFileEvidence {
     fun isLiteralSelection(track: MusicTrack): Boolean =
         ArchiveFileKey.fromId(track.id)?.let { track.title == it.file } == true
 
+    fun matchesSelection(requested: MusicTrack, candidate: MusicTrack): Boolean {
+        val selected = ArchiveFileKey.explicitSelection(requested) ?: return false
+        if (selected != ArchiveFileKey.fromUrl(candidate.audioUrl)) return false
+        if (!isLiteralSelection(requested)) return ArchiveRecordingIdentity.confidence(requested, candidate) != null
+        // An explicitly selected filename identifies just that file. It never supplies
+        // title evidence for a catalog match or overrides contradictory metadata.
+        val expected = RecordingIdentity.artistNames(requested)
+        val actual = RecordingIdentity.artistNames(candidate)
+        return !ArchiveRecordingIdentity.isrcConflict(RecordingIdentity.isrc(requested.isrc), RecordingIdentity.isrc(candidate.isrc)) &&
+            (expected.isEmpty() || ArchiveRecordingIdentity.artistsAgree(expected, actual))
+    }
+
     /** The replacement keeps the original catalog ISRC in MusicTrack. Only file proof can verify it. */
     fun verifiedReplacementIsrc(track: MusicTrack): String? {
         if (track.source.startsWith("Streaming Addon:")) return RecordingIdentity.isrc(track.isrc)
