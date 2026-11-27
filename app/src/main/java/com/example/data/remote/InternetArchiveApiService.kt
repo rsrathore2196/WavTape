@@ -8,7 +8,6 @@ import com.example.data.model.MusicTrack
 import com.example.data.repository.CatalogNames
 import com.example.data.repository.RecordingIdentity
 import com.example.data.repository.RecordingVersions
-import com.example.data.repository.StreamResolver
 import com.example.playback.LosslessDiagnostics.Reason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
@@ -221,18 +220,20 @@ object InternetArchiveApiService {
         val collections = "($expression) AND (mediatype:audio OR mediatype:etree OR collection:etree)"
         // Album-level format indexes may be incomplete. Targeted artist/album/ISRC
         // searches inspect bounded individual files instead of excluding the item.
-        return if (targeted) collections else collections + " AND " +
-            "(format:(\"FLAC\" OR \"24bit Flac\" OR \"Flac\" OR \"WAV\" OR \"WAVE\" OR " +
-            "\"Waveform Audio\" OR \"AIFF\" OR \"ALAC\" OR \"Apple Lossless Audio\" OR \"Apple Lossless\" OR \"Monkey's Audio\" OR " +
-            "\"APE\" OR \"WavPack\" OR \"DSD\"))"
+        return if (targeted) collections else "$collections AND $losslessFormats"
     }
+
+    private const val losslessFormats =
+        "(format:(\"FLAC\" OR \"24bit Flac\" OR \"Flac\" OR \"WAV\" OR \"WAVE\" OR " +
+        "\"Waveform Audio\" OR \"AIFF\" OR \"ALAC\" OR \"Apple Lossless Audio\" OR \"Apple Lossless\" OR \"Monkey's Audio\" OR " +
+        "\"APE\" OR \"WavPack\" OR \"DSD\"))"
 
     private fun isFlac(track: MusicTrack): Boolean = ArchiveFileKey.fromUrl(track.audioUrl)?.extension == "flac"
 
     internal fun recordingQueries(track: MusicTrack): List<String> {
         fun quote(value: String) = "\"${normalized(value)}\""
-        val title = StreamResolver.extractCleanTitle(track.title, track.artist)
-        // Keep the same number of index queries when several artists are credited.
+        val title = ArchiveRecordingIdentity.title(track)
+        // Bound the size of the alternative credits in an index query.
         val artistTerms = RecordingIdentity.artistNames(track).take(8).map(::quote).distinct()
         val artists = when (artistTerms.size) {
             0 -> ""
@@ -246,12 +247,22 @@ object InternetArchiveApiService {
             RecordingIdentity.isrc(track.isrc)?.let { add("\"$it\"") }
             // Album tracks can appear in descriptions or other indexed fields while
             // being absent from the item's title. The manifest still proves identity.
+            if (title.isNotBlank() && artistTerms.size > 1) {
+                // Common collaborator names elsewhere in the item can crowd the
+                // first result page. Start with the narrower creator query.
+                add("(${quote(title)} AND creator:$artists)")
+            }
             if (title.isNotBlank() && artists.isNotBlank()) add("(${quote(title)} AND $artists)")
             if (album.isNotBlank() && artists.isNotBlank()) add("(title:${quote(album)} AND creator:$artists)")
-            if (title.isNotBlank() && artists.isNotBlank()) add("(title:${quote(title)} AND creator:$artists)")
+            if (title.isNotBlank()) {
+                // Like browse, use separate title words to find item descriptions
+                // with inserted punctuation or track numbering. File metadata still proves identity.
+                val words = normalized(title).split(' ').take(8).joinToString(" AND ", transform = ::quote)
+                add("($words AND $losslessFormats)")
+                add("title:${quote(title)}")
+            }
             if (album.isNotBlank()) add("title:${quote(album)}")
             if (artists.isNotBlank()) add("creator:$artists")
-            if (title.isNotBlank()) add("title:${quote(title)}")
         }.distinct()
     }
 
@@ -381,7 +392,9 @@ object InternetArchiveApiService {
             if (!withContext(AppDispatchers.Io) { admitted() }) return@withLock blockedPage()
             val started = SystemClock.elapsedRealtime()
             val requestId = ArchivePlaybackEvents.nextRequestId()
-            val cached = pageCache.get(key)
+            // Recording scans share a per-request manifest budget and dedupe set.
+            // Their empty pages and expiring file proofs cannot answer a later lookup.
+            val cached = if (recording == null) pageCache.get(key) else null
             if (cached != null && SystemClock.elapsedRealtime() - cached.first <
                 if (cached.second.tracks.isEmpty()) 60_000L else PAGE_TTL_MS) {
                 return@withLock cached.second
@@ -431,7 +444,7 @@ object InternetArchiveApiService {
                         else -> "discovered"
                     }, elapsedMs = SystemClock.elapsedRealtime() - started, count = tracks.size, requestId = requestId)
                     // Partial failures must be retried instead of being cached as exhausted.
-                    if (value.isSuccessful && recording?.truncated != true)
+                    if (recording == null && value.isSuccessful)
                         pageCache.put(key, SystemClock.elapsedRealtime() to value)
                     value
                 } catch (e: CancellationException) {
@@ -481,6 +494,8 @@ object InternetArchiveApiService {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    val status = (e as? CatalogHttpException)?.status ?: (e as? ArchiveFileTransport.Failure)?.status
+                    ArchivePlaybackEvents.record("index_request", archiveOutcome(e), status = status)
                     ItemPage(emptyList(), false, archiveFailureReason(e))
                 }
             }
@@ -876,9 +891,9 @@ object InternetArchiveApiService {
         if (tags.title.isBlank()) return false
         val versions = RecordingVersions.markers(tags.title)
         if (versions.isNotEmpty() && RecordingVersions.markers(track.title) != versions) return true
-        val embeddedTitle = RecordingIdentity.title(track.copy(title = tags.title, originalProviderTitle = ""))
+        val embeddedTitle = ArchiveRecordingIdentity.title(track.copy(title = tags.title, originalProviderTitle = ""))
         val expected = if (versions.isEmpty() && track.title.endsWith(" (Live)")) track.copy(title = track.title.removeSuffix(" (Live)")) else track
-        return !CatalogNames.spellingEquivalent(RecordingIdentity.title(expected), embeddedTitle)
+        return !CatalogNames.spellingEquivalent(ArchiveRecordingIdentity.title(expected), embeddedTitle)
     }
 
     private fun fileName(file: JSONObject?) = (file?.opt("name") as? String).orEmpty()
@@ -941,7 +956,7 @@ object InternetArchiveApiService {
         val singleRecording = audioGroups.size == 1 && !isConcert && !root.optBoolean("wavtape_partial")
         val selectedFile = exactFile
         val preferredFile = selectedFile ?: requested?.let { ArchiveFileKey.fromId(it.id) }
-        val wantedTitle = requested?.let(RecordingIdentity::title).orEmpty()
+        val wantedTitle = requested?.let(ArchiveRecordingIdentity::title).orEmpty()
         val wantedArtists = requested?.let(RecordingIdentity::artistNames).orEmpty()
         val ordered = when {
             requested != null -> {

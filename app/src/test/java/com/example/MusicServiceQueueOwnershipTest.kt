@@ -253,6 +253,33 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(1, exactArchiveRequests.get())
     }
 
+    @Test fun catalogTrackUpgradesAfterFastStartAndStartsDirectlyInBestQuality() = runBlocking {
+        val catalog = selected.copy(id = "yt_abcdefghijk", audioUrl = "", artist = "Artist, Collaborator",
+            originalProviderTitle = "Artist - Song (From ‘Album’)")
+        youtubeAvailable = true
+        archiveDelayMs = 0L
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        val start = withTimeout(3_000L) { repository.resolvePlaybackStart(catalog) }
+        assertEquals("xtreme-youtube", Uri.parse(start.track.audioUrl).scheme)
+        assertEquals(0, requests.get())
+
+        val upgrade = withTimeout(3_000L) {
+            repository.resolveFastStartUpgrade(start.track, monitor.sourcePolicy.value) { replacement ->
+                assertEquals(catalog.id, replacement.id)
+                assertEquals(archive.audioUrl, replacement.audioUrl)
+                true
+            }
+        }
+        assertEquals(archive.audioUrl, upgrade?.audioUrl)
+        resolver.clear()
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.BEST_QUALITY)
+        val queued = withTimeout(3_000L) { resolveQueued(catalog.toMediaItem()) }
+        assertEquals(catalog.id, queued.mediaId)
+        assertEquals(archive.audioUrl, queued.localConfiguration?.uri.toString())
+        assertEquals(2, requests.get())
+        assertEquals(0, exactArchiveRequests.get())
+    }
+
     @Test fun fastStartTriesTheExactArchiveFileAfterYoutubeIsUnavailable() = runBlocking {
         AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
         standardAvailable = false

@@ -118,6 +118,27 @@ class ArchiveMetadataRegressionTest {
         assertFalse(plans.any { it.contains("official audio", true) })
     }
 
+    @Test fun playbackCanFindAnIndexedAlbumWhenOnlyItsDescriptionNamesTheTrack() = runBlocking {
+        val request = MusicTrack("yt_song", "Backed Off", "selene XIV, Contributor", "Single", 179_970, "", "",
+            originalProviderTitle = "selene XIV - Backed Off (From ‘Late Surrender’)")
+        val queries = InternetArchiveApiService.recordingQueries(request)
+        assertTrue(queries.none { "from" in it || "late surrender" in it })
+        assertEquals("(\"backed off\" AND creator:(\"selene xiv\" OR \"contributor\"))", queries.first())
+        val fallback = queries.single { "format:" in it }
+        assertTrue(fallback.startsWith("(\"backed\" AND \"off\" AND"))
+
+        val index = InternetArchiveApiService.discoverItemPage(fallback, targeted = true, page = 1, rows = 4) {
+            assertTrue(it.contains(fallback))
+            JSONObject("""{"response":{"numFound":1,"docs":[{"identifier":"album","title":"Late Surrender"}]}}""")
+        }
+        val root = JSONObject("""{"metadata":{"title":"Late Surrender","creator":"selene XIV"},"files":[
+            {"name":"part1.flac","format":"FLAC","title":"Backed Off (Live)","artist":"selene XIV","length":"180"},
+            {"name":"part2.flac","format":"FLAC","title":"Backed Off","artist":"selene XIV","length":"179.97"}
+        ]}""")
+        val result = InternetArchiveApiService.parseLosslessItem(index.items.single(), root, request, readHeader = { null })
+        assertEquals("ia_album:part2.flac", result.single().id)
+    }
+
     @Test fun oneSharedArtistCreditWorksAcrossTheIndexManifestAndFlacTags() = runBlocking {
         val request = MusicTrack("yt_song", "Tu Juliet Jatt Di", "Diljit Dosanjh, Bunny", "Album", 180_000, "", "",
             primaryArtists = listOf("Diljit Dosanjh", "Bunny"))

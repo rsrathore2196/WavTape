@@ -6,10 +6,24 @@ import com.example.data.repository.RecordingIdentity
 
 /** Archive manifests often omit durations. Title, artist and version identify the recording. */
 internal object ArchiveRecordingIdentity {
+    private val soundtrackCredit = Regex("""(?i)\s*[\[(]\s*from\s+(?:"[^"]+"|'[^']+'|“[^”]+”|‘[^’]+’)\s*[\])]\s*$""")
+
+    private fun recordingTrack(track: MusicTrack): MusicTrack {
+        var title = track.fullTitle
+        val prefix = title.substringBefore(" - ", "")
+        // Video titles can include any one performer before the song name.
+        if (prefix.isNotBlank() && RecordingIdentity.artistNames(track).any { CatalogNames.same(prefix, it) })
+            title = title.substringAfter(" - ")
+        title = title.replace(soundtrackCredit, "").trim()
+        return if (title == track.fullTitle) track else track.copy(title = title, originalProviderTitle = "")
+    }
+
+    fun title(track: MusicTrack): String = RecordingIdentity.title(recordingTrack(track))
+
     fun confidence(requested: MusicTrack, candidate: MusicTrack): Int? {
         if (ArchiveFileEvidence.isLiteralSelection(requested) || ArchiveFileEvidence.isLiteralSelection(candidate)) return null
-        val a = RecordingIdentity.signature(requested)
-        val b = RecordingIdentity.signature(candidate)
+        val a = RecordingIdentity.signature(recordingTrack(requested))
+        val b = RecordingIdentity.signature(recordingTrack(candidate))
         if (!hasCredits(a) || !hasCredits(b) || a.versions != b.versions || isrcConflict(a.isrc, b.isrc)) return null
         if (a.language !in unknownLanguages && b.language !in unknownLanguages && a.language != b.language) return null
 

@@ -52,6 +52,16 @@ class ArchiveRecordingIdentityTest {
         assertFalse(StreamResolver.matchesLosslessUpgrade(request, oneSharedCredit.copy(title = "Tu Juliet Jatt Di (Live)")))
     }
 
+    @Test fun catalogTitleCreditsDoNotPreventMatchingTheArchiveRecording() {
+        val request = selected.copy(title = "Song", artist = "Artist, Another Performer",
+            originalProviderTitle = "Artist - Song (From ‘Album’)")
+        assertNotNull(ArchiveRecordingIdentity.confidence(request, flac))
+        assertNull(RecordingIdentity.providerConfidence(request, flac))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(title = "Song (Live)")))
+        assertNull(ArchiveRecordingIdentity.confidence(request.copy(originalProviderTitle = "Different Artist - Song"), flac))
+        assertNull(ArchiveRecordingIdentity.confidence(request, flac.copy(artist = "Different Artist")))
+    }
+
     @Test fun verifiedIsrcSupportsButCannotReplaceOrContradictNamedRecordings() {
         val request = selected.copy(isrc = "USABC2000001")
         assertNotNull(ArchiveRecordingIdentity.confidence(request, flac.copy(isrc = request.isrc, durationMs = 0)))
