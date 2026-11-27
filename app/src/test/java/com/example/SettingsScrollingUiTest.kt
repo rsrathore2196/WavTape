@@ -93,6 +93,8 @@ class SettingsScrollingUiTest {
         assertEquals("A different subpage starts at its own position", 0f, music.scrollOffset(), .5f)
         music.swipe()
         assertTrue(music.scrollOffset() > 0f)
+        compose.onNodeWithText("Output Precision").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Local Stutter-Free LRU Cache").assertDoesNotExist()
     }
 
     @Test @Config(qualifiers = "w740dp-h400dp-land")

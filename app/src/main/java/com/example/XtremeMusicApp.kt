@@ -129,6 +129,7 @@ class XtremeMusicApp : Application(), ImageLoaderFactory, androidx.work.Configur
 
     override fun onCreate() {
         super.onCreate()
+        com.example.network.AppNetworkProxy.install(this)
         com.example.data.local.AppLanguage.refresh(this)
         _instance = this
         com.example.performance.DisplayRefreshRatePolicy.applyAdaptiveRefreshRatePolicy()

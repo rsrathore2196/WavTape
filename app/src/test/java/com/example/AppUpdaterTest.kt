@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
@@ -30,6 +31,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -215,6 +217,60 @@ class AppUpdaterTest {
         compose.onNodeWithTag("auto_update_popup_dialog").assertDoesNotExist()
         compose.runOnIdle { AppUpdateManager.showUpdatePopup() }
         compose.onNodeWithTag("auto_update_popup_dialog").assertIsDisplayed()
+    }
+
+    @Test fun foregroundRecoveryRejectsAnApkTruncatedAfterItWasReady() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("apk_update_session_v2", Context.MODE_PRIVATE)
+        val oldPreference = prefs.getString("session", null)
+        val initialized = AppUpdateManager::class.java.getDeclaredField("initialized").apply { isAccessible = true }
+        val session = AppUpdateManager::class.java.getDeclaredField("session").apply { isAccessible = true }
+        val oldInitialized = initialized.getBoolean(AppUpdateManager)
+        val oldSession = session.get(AppUpdateManager)
+        val file = File(context.filesDir, "update_apks/xtreme-update-deadbeef.apk")
+        val info = UpdateInfo(
+            versionName = "${BuildConfig.VERSION_NAME}.1",
+            releaseTitle = "WavTape update",
+            releaseNotes = "",
+            apkDownloadUrl = "https://github.com/rsrathore2196/WavTape/releases/download/v2.2/WavTape.apk",
+            apkFileName = "WavTape.apk",
+            apkSizeBytes = 16L
+        )
+        try {
+            file.parentFile!!.mkdirs()
+            file.writeBytes(ByteArray(4))
+            assertTrue(prefs.edit().putString("session", JSONObject()
+                .put("id", 1L)
+                .put("info", JSONObject()
+                    .put("version", info.versionName)
+                    .put("title", info.releaseTitle)
+                    .put("notes", info.releaseNotes)
+                    .put("url", info.apkDownloadUrl)
+                    .put("asset", info.apkFileName)
+                    .put("size", info.apkSizeBytes))
+                .put("name", file.name)
+                .put("created", System.currentTimeMillis())
+                .put("ready", true)
+                .put("requested", false)
+                .toString()).commit())
+            initialized.setBoolean(AppUpdateManager, false)
+            session.set(AppUpdateManager, null)
+            setUpdateState(UpdateStatus.ReadyToInstall(file, info, "Verified"), progress = 100)
+
+            compose.runOnUiThread { AppUpdateManager.onForeground(context) }
+            compose.waitUntil(5_000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                AppUpdateManager.updateStatus.value is UpdateStatus.Error && AppUpdateManager.downloadProgress.value == 0
+            }
+            assertFalse(file.exists())
+            assertFalse(prefs.contains("session"))
+        } finally {
+            AppUpdateManager.onBackground()
+            initialized.setBoolean(AppUpdateManager, oldInitialized)
+            session.set(AppUpdateManager, oldSession)
+            prefs.edit().putString("session", oldPreference).commit()
+            file.delete()
+        }
     }
 
     @Test fun streamResponseToFileReportsProgressAndRejectsTruncatedOrOversizedStreams() {

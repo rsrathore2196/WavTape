@@ -304,12 +304,14 @@ object AppUpdateManager {
                             true
                         } else if (currentSession.ready) {
                             try {
-                                inspectReadySession(app)
+                                inspectReadySession(app, reverify = manualCheckRequested)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (_: Exception) {
                                 // Clear a corrupt or incompatible staged APK so a fresh update check can run.
                                 clear(app)
+                                _downloadProgress.value = 0
+                                _updateStatus.value = UpdateStatus.Idle
                             }
                             if (session != null) {
                                 if (manualCheckRequested) _isDismissedForSession.value = false
@@ -882,7 +884,7 @@ object AppUpdateManager {
         throw IOException("Too many redirects while downloading update.")
     }
 
-    private suspend fun inspectReadySession(app: Context): String? {
+    private suspend fun inspectReadySession(app: Context, reverify: Boolean = false): String? {
         val s = session ?: return null
         if (!s.ready) {
             if (downloadJob?.isActive != true) {
@@ -896,12 +898,17 @@ object AppUpdateManager {
             return null
         }
         val file = staged(app, s)
-        if (!withContext(Dispatchers.IO) { file.isFile }) {
+        val fileSize = withContext(Dispatchers.IO) { file.takeIf { it.isFile }?.length() }
+        if (fileSize == null) {
             clear(app)
             _updateStatus.value = UpdateStatus.Idle
             return null
         }
-        if (_updateStatus.value !is UpdateStatus.ReadyToInstall) {
+        // A previously verified file can still be truncated before the user installs it.
+        require(fileSize > 0L && fileSize == s.info.apkSizeBytes) {
+            "The APK size does not match the release. Download it again."
+        }
+        if (reverify || _updateStatus.value !is UpdateStatus.ReadyToInstall) {
             try {
                 val message = withContext(Dispatchers.IO) { ApkVerifier.verify(app, file, s.info) }
                 _downloadProgress.value = 100

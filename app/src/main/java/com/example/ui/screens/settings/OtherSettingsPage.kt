@@ -138,15 +138,61 @@ fun OtherSettingsPage(
     val isAccentWhite = accentColor == Color.White || (appColors.isAmoled && accentColor == Color.White) || ((0.299 * accentColor.red + 0.587 * accentColor.green + 0.114 * accentColor.blue) > 0.70f)
     val pillActiveTextColor = contrastingContentColor(if (isAccentWhite) Color.White else accentColor)
 
-    // Proxy state
-    var isProxyEnabled by remember { mutableStateOf(OtherSettingsPreferences.isProxyEnabled(context)) }
-    var proxyHost by remember { mutableStateOf(OtherSettingsPreferences.getProxyHost(context)) }
-    var proxyPort by remember { mutableStateOf(OtherSettingsPreferences.getProxyPort(context).toString()) }
-    var proxyType by remember { mutableStateOf(OtherSettingsPreferences.getProxyType(context)) }
-    var proxySavedMessage by remember { mutableStateOf(false) }
-
     // Cache state backed by SmartCacheManager
     val coroutineScope = rememberCoroutineScope()
+    var storedProxy by remember(context) { mutableStateOf<com.example.network.ProxySettings?>(null) }
+    var runningProxy by remember(context) { mutableStateOf<com.example.network.ProxySettings?>(null) }
+    var isProxyEnabled by remember(context) { mutableStateOf(false) }
+    var proxyHost by remember(context) { mutableStateOf("") }
+    var proxyPort by remember(context) { mutableStateOf("") }
+    var proxyType by remember(context) { mutableStateOf("HTTP") }
+    var proxySaving by remember(context) { mutableStateOf(false) }
+    var proxySaved by remember(context) { mutableStateOf(false) }
+    var proxyError by remember(context) { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(context) {
+        val (saved, running) = kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.Io) {
+            val settings = OtherSettingsPreferences.readPersistedProxySettings(context)
+            settings to (com.example.network.AppNetworkProxy.activeSettings() ?: settings)
+        }
+        storedProxy = saved
+        runningProxy = running
+        isProxyEnabled = saved.enabled
+        proxyHost = saved.host
+        proxyPort = saved.port.toString()
+        proxyType = saved.protocol
+    }
+
+    fun saveProxy(settings: com.example.network.ProxySettings) {
+        if (proxySaving) return
+        proxyError = null
+        if (settings.enabled && settings.validatedProxy() == null) {
+            proxyError = "Enter a proxy hostname or IP address and a port from 1 to 65535."
+            return
+        }
+        proxySaving = true
+        coroutineScope.launch {
+            try {
+                val saved = kotlinx.coroutines.withContext(com.example.performance.AppDispatchers.Io) {
+                    OtherSettingsPreferences.saveProxySettings(context, settings)
+                }
+                if (saved) {
+                    storedProxy = settings
+                    proxySaved = true
+                } else {
+                    isProxyEnabled = storedProxy?.enabled == true
+                    proxyError = "Proxy settings could not be saved. Try again."
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                isProxyEnabled = storedProxy?.enabled == true
+                proxyError = "Proxy settings could not be saved. Try again."
+            } finally {
+                proxySaving = false
+            }
+        }
+    }
+
     val cacheStats by SmartCacheManager.stats.collectAsStateWithLifecycle()
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var cacheClearedMessage by remember { mutableStateOf(false) }
@@ -658,6 +704,16 @@ fun OtherSettingsPage(
         Spacer(modifier = Modifier.height(16.dp))
 
         // 4. Proxy Settings Card (Privacy & Custom Network - moved to last & bottom)
+        val savedProxy = storedProxy
+        val feedback = proxyError ?: when {
+            savedProxy?.enabled == true && savedProxy.validatedProxy() == null ->
+                "The saved proxy address is invalid. Save a valid address or turn Proxy Settings off."
+            savedProxy != null && runningProxy?.sameRoute(savedProxy) == false ->
+                "Proxy change saved. Fully close WavTape, then reopen it to apply."
+            isProxyEnabled && savedProxy?.enabled != true -> "Save the configuration to enable the proxy."
+            proxySaved -> "Proxy settings saved."
+            else -> null
+        }
         ProxySettingsCard(
             cardBg = cardBg,
             cardBorder = cardBorder,
@@ -665,31 +721,34 @@ fun OtherSettingsPage(
             dividerColor = dividerColor,
             inputBg = inputBg,
             isProxyEnabled = isProxyEnabled,
+            optionsEnabled = savedProxy != null && !proxySaving,
             onProxyEnabledChange = {
                 isProxyEnabled = it
-                OtherSettingsPreferences.setProxyEnabled(context, it)
+                proxyError = null
+                proxySaved = false
+                if (!it && savedProxy?.enabled == true) saveProxy(savedProxy.copy(enabled = false))
             },
             proxyType = proxyType,
             onProxyTypeChange = {
                 proxyType = it
-                OtherSettingsPreferences.setProxyType(context, it)
+                proxyError = null
+                proxySaved = false
             },
             proxyHost = proxyHost,
-            onProxyHostChange = { proxyHost = it },
+            onProxyHostChange = { proxyHost = it; proxyError = null; proxySaved = false },
             proxyPort = proxyPort,
             onProxyPortChange = { input ->
                 if (input.all { it.isDigit() } && input.length <= 5) {
                     proxyPort = input
+                    proxyError = null
+                    proxySaved = false
                 }
             },
             onSaveProxy = {
-                val portInt = proxyPort.toIntOrNull() ?: 8080
-                OtherSettingsPreferences.setProxyHost(context, proxyHost)
-                OtherSettingsPreferences.setProxyPort(context, portInt)
-                OtherSettingsPreferences.setProxyType(context, proxyType)
-                proxySavedMessage = true
+                saveProxy(com.example.network.ProxySettings(true, proxyHost.trim(), proxyPort.toIntOrNull() ?: 0, proxyType))
             },
-            proxySavedMessage = proxySavedMessage
+            feedback = feedback,
+            isError = proxyError != null
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -790,6 +849,7 @@ private fun ProxySettingsCard(
     dividerColor: Color,
     inputBg: Color,
     isProxyEnabled: Boolean,
+    optionsEnabled: Boolean,
     onProxyEnabledChange: (Boolean) -> Unit,
     proxyType: String,
     onProxyTypeChange: (String) -> Unit,
@@ -798,7 +858,8 @@ private fun ProxySettingsCard(
     proxyPort: String,
     onProxyPortChange: (String) -> Unit,
     onSaveProxy: () -> Unit,
-    proxySavedMessage: Boolean,
+    feedback: String?,
+    isError: Boolean,
     modifier: Modifier = Modifier
 ) {
     val appColors = LocalAppColors.current
@@ -840,7 +901,7 @@ private fun ProxySettingsCard(
                             color = appColors.textPrimary
                         )
                         Text(
-                            text = "Route network traffic through private proxy",
+                            text = "Route music and app requests through a private proxy",
                             fontSize = 11.5.sp,
                             color = appColors.textMuted
                         )
@@ -849,6 +910,7 @@ private fun ProxySettingsCard(
 
                 com.example.ui.theme.AccentSwitch(
                     checked = isProxyEnabled,
+                    enabled = optionsEnabled,
                     onCheckedChange = onProxyEnabledChange,
                     colors = liquidGlassSwitchColors(appColors),
                     modifier = Modifier.testTag("switch_proxy_enabled")
@@ -882,7 +944,7 @@ private fun ProxySettingsCard(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { onProxyTypeChange(type) }
+                                .clickable(enabled = optionsEnabled) { onProxyTypeChange(type) }
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.Center,
@@ -913,6 +975,7 @@ private fun ProxySettingsCard(
                 OutlinedTextField(
                     value = proxyHost,
                     onValueChange = onProxyHostChange,
+                    enabled = optionsEnabled,
                     placeholder = { Text("127.0.0.1 or proxy.example.com", fontSize = 12.sp, color = appColors.textMuted) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -943,6 +1006,7 @@ private fun ProxySettingsCard(
                 OutlinedTextField(
                     value = proxyPort,
                     onValueChange = onProxyPortChange,
+                    enabled = optionsEnabled,
                     placeholder = { Text("8080", fontSize = 12.sp, color = appColors.textMuted) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
@@ -971,6 +1035,7 @@ private fun ProxySettingsCard(
                 val proxyBtnTextColor = contrastingContentColor(proxyBtnBg)
                 Button(
                     onClick = onSaveProxy,
+                    enabled = optionsEnabled,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = proxyBtnBg,
                         contentColor = proxyBtnTextColor
@@ -996,15 +1061,11 @@ private fun ProxySettingsCard(
                     )
                 }
 
-                if (proxySavedMessage) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "✓ Proxy configuration applied successfully",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor
-                    )
-                }
+            }
+            if (feedback != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(feedback, fontSize = 11.5.sp,
+                    color = if (isError) androidx.compose.material3.MaterialTheme.colorScheme.error else appColors.textSecondary)
             }
         }
     }

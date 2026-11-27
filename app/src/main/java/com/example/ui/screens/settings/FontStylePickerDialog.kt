@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +21,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,9 +101,9 @@ fun FontStylePickerDialog(
             ),
             shadowElevation = 18.dp,
             modifier = Modifier
+                .widthIn(max = 440.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 24.dp)
-                .widthIn(max = 400.dp)
                 .testTag("font_style_picker_dialog")
         ) {
             Column(
@@ -230,6 +232,7 @@ fun FontStylePickerDialog(
                         .fillMaxWidth()
                         .weight(1f, fill = false)
                         .heightIn(max = 316.dp)
+                        .selectableGroup()
                         .testTag("font_style_options_list"),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -265,7 +268,7 @@ fun FontStylePickerDialog(
                                     color = rowBorderColor,
                                     shape = RoundedCornerShape(13.dp)
                                 )
-                                .clickable {
+                                .selectable(selected = isSelected, role = Role.RadioButton) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onSelectFont(option)
                                 }

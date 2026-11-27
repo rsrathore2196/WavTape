@@ -70,6 +70,7 @@ class ConnectionLoginActivity : ComponentActivity() {
                 var pendingSpotify by remember { mutableStateOf<SpotifyConnection?>(null) }
                 var pageUrl by remember { mutableStateOf("") }
                 var youtubeAttempt by remember { mutableIntStateOf(0) }
+                var youtubeNavigation by remember { mutableIntStateOf(0) }
                 var youtubeLoadFailed by remember { mutableStateOf(false) }
                 var browserStopped by remember { mutableStateOf(false) }
                 val onYouTubeMusic = provider == "youtube" && isYouTubeMusicPage(pageUrl)
@@ -82,11 +83,13 @@ class ConnectionLoginActivity : ComponentActivity() {
                         val session = awaitYouTubeWebSession(
                             currentUrl = { browser.url },
                             readIdentity = { browser.readYouTubeIdentity() },
-                            readCookie = { ConnectionBrowserProfile.cookies().getCookie(YOUTUBE_MUSIC_HOME).orEmpty() }
+                            readCookie = { ConnectionBrowserProfile.cookies().getCookie(YOUTUBE_MUSIC_HOME).orEmpty() },
+                            currentNavigation = { youtubeNavigation }
                         )
                         if (session == null) {
                             status = "Finish signing in on YouTube Music, then tap Use account."
-                        } else if (view === browser && !isFinishing && isYouTubeMusicPage(browser.url)) {
+                        } else if (view === browser && !isFinishing &&
+                            session.pageUrl == browser.url && session.navigation == youtubeNavigation) {
                             val store = ConnectionStore.get(this@ConnectionLoginActivity)
                             val saved = store.addYouTube(session.name, session.cookie, session.visitor, session.profile, session.user)
                             store.refreshYouTubeProfileName(saved)
@@ -129,6 +132,7 @@ class ConnectionLoginActivity : ComponentActivity() {
                                     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                                         super.onPageStarted(view, url, favicon)
                                         if (provider == "youtube") {
+                                            youtubeNavigation++
                                             youtubeLoadFailed = false
                                             pageUrl = url.orEmpty()
                                             if (!isYouTubeMusicPage(url)) {
@@ -251,7 +255,13 @@ private open class SpotifySessionClient(private val onSession: (SpotifyConnectio
         if (cookie.isNotBlank()) onSession(SpotifyConnection(cookie, bearer, expiry, clientToken = clientToken))
     }
     companion object {
-        private val http by lazy { OkHttpClient.Builder().followRedirects(false).connectTimeout(10, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build() }
+        private val http by lazy {
+            OkHttpClient.Builder().apply {
+                // This first-party token fetch is part of the browser's sign-in flow.
+                val platformProxy = com.example.network.AppNetworkProxy.platformSelector()
+                if (platformProxy == null) proxy(java.net.Proxy.NO_PROXY) else proxySelector(platformProxy)
+            }.followRedirects(false).connectTimeout(10, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build()
+        }
     }
 }
 
@@ -304,7 +314,16 @@ internal suspend fun refreshSpotifySession(context: Context, saved: SpotifyConne
     }
 }
 
-internal suspend fun clearConnectionBrowserData(provider: String) = withContext(Dispatchers.Main) {
+/** Removing credentials and clearing their browser session must survive leaving Settings. */
+internal suspend fun disconnectBrowserAccount(
+    provider: String, clearBrowserData: suspend (String) -> Unit = ::clearConnectionBrowserData,
+    removeConnection: suspend () -> Unit
+) = withContext(NonCancellable) {
+    removeConnection()
+    clearBrowserData(provider)
+}
+
+private suspend fun clearConnectionBrowserData(provider: String) = withContext(Dispatchers.Main) {
     if (!ConnectionBrowserProfile.isSupported()) return@withContext
     val profile = ConnectionBrowserProfile.profile()
     val sites = if (provider == "youtube") listOf("youtube.com", "google.com") else listOf("spotify.com")

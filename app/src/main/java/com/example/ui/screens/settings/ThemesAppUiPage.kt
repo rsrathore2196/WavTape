@@ -28,18 +28,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.ViewCarousel
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -69,7 +61,6 @@ import com.example.data.local.PlayerEffect
 import com.example.ui.theme.LocalAppColors
 import com.example.ui.theme.LiquidGlass
 import com.example.ui.theme.liquidGlassCard
-import com.example.ui.theme.liquidGlassPill
 import com.example.ui.theme.liquidGlassSwitchColors
 import com.example.ui.theme.bouncyClickable
 import com.example.ui.theme.contrastingContentColor
@@ -164,11 +155,10 @@ private fun ThemesAppUiOverview(
     onOpenCustomTheming: () -> Unit = {}
 ) {
     val appColors = LocalAppColors.current
-    val cardBg = appColors.cardBackground
-    val cardBorder = appColors.cardBorder
     val accentColor = appColors.primaryAccent
     val dividerColor = appColors.dividerColor
     val dynamicGlassAvailable = com.example.ui.components.LocalLiquidGlassProfile.current.supportsDynamicGlass
+    val dynamicGlassActive = isDynamicGlassEnabled && dynamicGlassAvailable
 
     val settingsContext = androidx.compose.ui.platform.LocalContext.current
     val playerExperienceFlow = remember(settingsContext) {
@@ -278,127 +268,86 @@ private fun ThemesAppUiOverview(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // App UI & Mini Player Card
+        var showFontStyleDialog by remember { mutableStateOf(false) }
+
+        if (showFontStyleDialog) {
+            FontStylePickerDialog(
+                selectedFont = appFontStyle,
+                onSelectFont = onSelectAppFontStyle,
+                onDismiss = { showFontStyleDialog = false }
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .liquidGlassCard(appColors, shape = RoundedCornerShape(22.dp), elevation = 6.dp, translucency = 0.82f, tintAccent = false)
+                .liquidGlassCard(
+                    appColors,
+                    shape = RoundedCornerShape(22.dp),
+                    elevation = 6.dp,
+                    translucency = 0.82f,
+                    tintAccent = false
+                )
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(appColors.cardBackgroundElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tv,
-                            contentDescription = null,
-                            tint = appColors.textSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Mini Player Controls",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = appColors.textPrimary
-                        )
-                        Text(
-                            text = "Customize persistent playback bar",
-                            fontSize = 11.5.sp,
-                            color = appColors.textMuted
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .bouncyClickable(onClick = { showFontStyleDialog = true })
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .testTag("appearance_font_style_button")
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = if (isDarkMode) 0.18f else 0.12f))
+                        .border(1.dp, accentColor.copy(alpha = 0.28f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Favorite,
-                            contentDescription = null,
-                            tint = appColors.textSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Favorite Heart in Mini Player",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = appColors.textPrimary
-                            )
-                            Text(
-                                text = "One-tap like/unlike while browsing",
-                                fontSize = 11.sp,
-                                color = appColors.textMuted
-                            )
-                        }
-                    }
-                    com.example.ui.theme.AccentSwitch(
-                        checked = playerExperience.showMiniHeart,
-                        onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setMiniHeartVisible(settingsContext, it) },
-                        colors = liquidGlassSwitchColors(appColors),
-                        modifier = Modifier.testTag("switch_mini_player_heart")
+                    Text(
+                        text = "Aa",
+                        fontFamily = appFontStyle.fontFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        maxLines = 1
                     )
                 }
 
-                HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = null,
-                            tint = appColors.textSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Next Track Control",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = appColors.textPrimary
-                            )
-                            Text(
-                                text = "Quick skip button on bottom bar",
-                                fontSize = 11.sp,
-                                color = appColors.textMuted
-                            )
-                        }
-                    }
-                    com.example.ui.theme.AccentSwitch(
-                        checked = playerExperience.showMiniNext,
-                        onCheckedChange = { com.example.data.local.OtherSettingsPreferences.setMiniNextVisible(settingsContext, it) },
-                        colors = liquidGlassSwitchColors(appColors),
-                        modifier = Modifier.testTag("switch_mini_player_next")
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Font Style",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = appColors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = appFontStyle.displayName,
+                        fontFamily = appFontStyle.fontFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("appearance_font_style_current")
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = "Choose font style",
+                    tint = appColors.textMuted,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
@@ -493,7 +442,8 @@ private fun ThemesAppUiOverview(
                             color = appColors.textPrimary
                         )
                         Text(
-                            text = "Diffuses album artwork color onto player background",
+                            text = if (dynamicGlassActive) "Diffuses album artwork color onto the player background"
+                            else "Applies when Dynamic Blur & Liquid Glass is active",
                             fontSize = 11.sp,
                             color = appColors.textMuted
                         )
@@ -508,7 +458,8 @@ private fun ThemesAppUiOverview(
 
                 HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
 
-                PlayerEffectSetting(playerExperience.playerEffect) { effect ->
+                PlayerEffectSetting(playerExperience.playerEffect,
+                    dynamicGlassActive && playerExperience.dynamicAlbumGlow) { effect ->
                     OtherSettingsPreferences.setPlayerEffect(settingsContext, effect)
                 }
 
@@ -566,14 +517,14 @@ private fun ThemesAppUiOverview(
                             text = if (dynamicGlassAvailable) {
                                 "Live backdrop blur on the mini player, bottom bar, and player pop-ups."
                             } else {
-                                "Paused while Fast rendering or Battery Saver is active."
+                                "Paused when the rendering profile or device conditions disable live blur."
                             },
                             fontSize = 11.sp,
                             color = appColors.textMuted
                         )
                     }
                     com.example.ui.theme.AccentSwitch(
-                        checked = isDynamicGlassEnabled && dynamicGlassAvailable,
+                        checked = dynamicGlassActive,
                         onCheckedChange = onToggleDynamicGlass,
                         enabled = dynamicGlassAvailable,
                         colors = liquidGlassSwitchColors(appColors),
@@ -581,145 +532,57 @@ private fun ThemesAppUiOverview(
                     )
                 }
 
-                if (isDynamicGlassEnabled || !dynamicGlassAvailable) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Rendering Profile",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = appColors.textPrimary
-                    )
-                    Text(
-                        text = "Premium uses deeper blur and richer glass. Balanced uses lighter blur. Fast uses static surfaces.",
-                        fontSize = 11.sp,
-                        color = appColors.textMuted
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        com.example.performance.LiquidGlassProfileSetting.values().forEach { setting ->
-                            val isSelected = liquidGlassProfile == setting
-                            val label = when (setting) {
-                                com.example.performance.LiquidGlassProfileSetting.AUTO -> "Auto"
-                                com.example.performance.LiquidGlassProfileSetting.PREMIUM -> "Premium"
-                                com.example.performance.LiquidGlassProfileSetting.BALANCED -> "Balanced"
-                                com.example.performance.LiquidGlassProfileSetting.PERFORMANCE -> "Fast"
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (isSelected) appColors.primaryAccent.copy(alpha = if (appColors.isDark) 0.30f else 0.18f)
-                                        else appColors.cardBackgroundElevated
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) appColors.primaryAccent else appColors.cardBorder,
-                                        RoundedCornerShape(10.dp)
-                                    )
-                                    .bouncyClickable(onClick = { onSelectLiquidGlassProfile(setting) })
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) appColors.primaryAccent else appColors.textPrimary
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "Rendering Profile",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = appColors.textPrimary
+                )
+                Text(
+                    text = "Premium uses deeper blur and richer glass. Balanced uses lighter blur. Fast uses static surfaces.",
+                    fontSize = 11.sp,
+                    color = appColors.textMuted
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    com.example.performance.LiquidGlassProfileSetting.values().forEach { setting ->
+                        val isSelected = liquidGlassProfile == setting
+                        val label = when (setting) {
+                            com.example.performance.LiquidGlassProfileSetting.AUTO -> "Auto"
+                            com.example.performance.LiquidGlassProfileSetting.PREMIUM -> "Premium"
+                            com.example.performance.LiquidGlassProfileSetting.BALANCED -> "Balanced"
+                            com.example.performance.LiquidGlassProfileSetting.PERFORMANCE -> "Fast"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isSelected) appColors.primaryAccent.copy(alpha = if (appColors.isDark) 0.30f else 0.18f)
+                                    else appColors.cardBackgroundElevated
                                 )
-                            }
+                                .border(
+                                    1.dp,
+                                    if (isSelected) appColors.primaryAccent else appColors.cardBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .bouncyClickable(onClick = { onSelectLiquidGlassProfile(setting) })
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) appColors.primaryAccent else appColors.textPrimary
+                            )
                         }
                     }
                 }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        var showFontStyleDialog by remember { mutableStateOf(false) }
-
-        if (showFontStyleDialog) {
-            FontStylePickerDialog(
-                selectedFont = appFontStyle,
-                onSelectFont = onSelectAppFontStyle,
-                onDismiss = { showFontStyleDialog = false }
-            )
-        }
-
-        // Font Style Selector (Bottom End of Appearance Settings)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .liquidGlassCard(
-                    appColors,
-                    shape = RoundedCornerShape(22.dp),
-                    elevation = 6.dp,
-                    translucency = 0.82f,
-                    tintAccent = false
-                )
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .bouncyClickable(onClick = { showFontStyleDialog = true })
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
-                    .testTag("appearance_font_style_button")
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(accentColor.copy(alpha = if (isDarkMode) 0.18f else 0.12f))
-                        .border(1.dp, accentColor.copy(alpha = 0.28f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Aa",
-                        fontFamily = appFontStyle.fontFamily,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor,
-                        maxLines = 1
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Font Style",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = appColors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = appFontStyle.displayName,
-                        fontFamily = appFontStyle.fontFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = accentColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("appearance_font_style_current")
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = "Choose font style",
-                    tint = appColors.textMuted,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
 
@@ -728,10 +591,11 @@ private fun ThemesAppUiOverview(
 }
 
 @Composable
-private fun PlayerEffectSetting(selected: PlayerEffect, onSelect: (PlayerEffect) -> Unit) {
+private fun PlayerEffectSetting(selected: PlayerEffect, isActive: Boolean, onSelect: (PlayerEffect) -> Unit) {
     val colors = LocalAppColors.current
     Text("Player Effect", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-    Text("With Dynamic Ambient Album Glow on, Default mirrors the artwork and Legacy blends its top and bottom colors.",
+    Text(if (isActive) "Default mirrors the artwork and Legacy blends its top and bottom colors."
+        else "Applies when Dynamic Blur & Liquid Glass and Dynamic Ambient Album Glow are both active.",
         fontSize = 11.sp, color = colors.textMuted)
     Row(Modifier.padding(top = 10.dp).fillMaxWidth()
         .clip(RoundedCornerShape(16.dp)).background(colors.textPrimary.copy(alpha = .07f))

@@ -161,5 +161,10 @@ class PairedAppearanceUiTest {
         glass.assertIsEnabled().assertIsOn()
         setBatterySaver(false)
         glass.assertIsEnabled().assertIsOn()
+        glass.performClick().assertIsOff()
+        compose.onNodeWithText("Premium").performScrollTo().performClick()
+        assertEquals(LiquidGlassProfileSetting.PREMIUM, selected)
+        glass.assertIsEnabled().assertIsOff()
+        glass.performClick().assertIsOn()
     }
 }

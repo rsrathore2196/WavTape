@@ -492,36 +492,27 @@ object OtherSettingsPreferences {
         getPrefs(context).edit().putString(KEY_APP_FONT_STYLE, fontStyle.id).apply()
     }
 
-    fun isProxyEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_PROXY_ENABLED, false)
+    // Read the actual persisted values on the proxy selector's first network request.
+    // An uninitialized UI preference snapshot cannot silently disable proxy routing.
+    internal fun readPersistedProxySettings(context: Context): com.example.network.ProxySettings {
+        val values = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
+        val defaults = com.example.network.ProxySettings()
+        return com.example.network.ProxySettings(
+            enabled = values[KEY_PROXY_ENABLED] as? Boolean ?: defaults.enabled,
+            host = values[KEY_PROXY_HOST] as? String ?: defaults.host,
+            port = values[KEY_PROXY_PORT] as? Int ?: defaults.port,
+            protocol = values[KEY_PROXY_TYPE] as? String ?: defaults.protocol
+        )
     }
 
-    fun setProxyEnabled(context: Context, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_PROXY_ENABLED, enabled).apply()
-    }
-
-    fun getProxyHost(context: Context): String {
-        return getPrefs(context).getString(KEY_PROXY_HOST, "127.0.0.1") ?: "127.0.0.1"
-    }
-
-    fun setProxyHost(context: Context, host: String) {
-        getPrefs(context).edit().putString(KEY_PROXY_HOST, host.trim()).apply()
-    }
-
-    fun getProxyPort(context: Context): Int {
-        return getPrefs(context).getInt(KEY_PROXY_PORT, 8080)
-    }
-
-    fun setProxyPort(context: Context, port: Int) {
-        getPrefs(context).edit().putInt(KEY_PROXY_PORT, port).apply()
-    }
-
-    fun getProxyType(context: Context): String {
-        return getPrefs(context).getString(KEY_PROXY_TYPE, "HTTP") ?: "HTTP"
-    }
-
-    fun setProxyType(context: Context, type: String) {
-        getPrefs(context).edit().putString(KEY_PROXY_TYPE, type).apply()
+    internal fun saveProxySettings(context: Context, settings: com.example.network.ProxySettings): Boolean {
+        if (settings.enabled && settings.validatedProxy() == null) return false
+        return getPrefs(context).edit()
+            .putBoolean(KEY_PROXY_ENABLED, settings.enabled)
+            .putString(KEY_PROXY_HOST, settings.host.trim())
+            .putInt(KEY_PROXY_PORT, settings.port)
+            .putString(KEY_PROXY_TYPE, settings.protocol)
+            .commit()
     }
 
     // Default haptic feedback is OFF for new users (false)

@@ -1,7 +1,9 @@
 package com.example.connections
 
 import android.app.Application
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
@@ -36,6 +38,53 @@ class YouTubeWebSignInTest {
             identity
         }, readCookie = { error("Cookies must only be read on YouTube Music") }, timeoutMs = 1_000L)
         assertNull(session)
+    }
+
+    @Test fun doesNotPairThePreviousProfilesIdentityWithCookiesAfterSameOriginNavigation() = runTest {
+        var url = "${music}?authuser=1"
+        var evaluations = 0
+        val session = awaitYouTubeWebSession({ url }, readIdentity = {
+            if (++evaluations == 1) {
+                url = "${music}?authuser=2"
+                """{"loggedIn":true,"name":"Previous profile","user":"1"}"""
+            } else identity
+        }, readCookie = {
+            assertEquals(2, evaluations)
+            "SAPISID=fixture"
+        })
+        assertEquals("2", session?.user)
+        assertEquals(url, session?.pageUrl)
+    }
+
+    @Test fun retriesAfterTheDocumentReloadsAtTheSameUrl() = runTest {
+        var navigation = 5
+        var evaluations = 0
+        val session = awaitYouTubeWebSession({ music }, readIdentity = {
+            if (++evaluations == 1) navigation++
+            identity
+        }, readCookie = {
+            assertEquals(2, evaluations)
+            "SAPISID=fixture"
+        }, currentNavigation = { navigation })
+        assertEquals(6, session?.navigation)
+    }
+
+    @Test fun disconnectCleanupContinuesWhenTheSettingsPageCloses() = runTest {
+        val credentialsRemoved = CompletableDeferred<Unit>()
+        val completeRemoval = CompletableDeferred<Unit>()
+        val browserCleared = CompletableDeferred<String>()
+        val disconnect = launch {
+            disconnectBrowserAccount("youtube", clearBrowserData = { browserCleared.complete(it) }) {
+                credentialsRemoved.complete(Unit)
+                completeRemoval.await()
+            }
+        }
+        credentialsRemoved.await()
+        disconnect.cancel()
+        completeRemoval.complete(Unit)
+        disconnect.join()
+        assertTrue(browserCleared.isCompleted)
+        assertEquals("youtube", browserCleared.await())
     }
 
     @Test fun aStalledScriptCallbackTimesOutAndLeavesThePageRetryable() = runTest {

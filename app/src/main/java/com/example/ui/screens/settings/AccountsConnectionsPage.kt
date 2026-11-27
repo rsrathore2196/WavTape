@@ -81,9 +81,10 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
                         clearingYouTube = true
                         action {
                             try {
-                                store.change { current -> val remaining = current.youtube.filterNot { it.id == account.id }
-                                    current.copy(youtube = remaining, selectedYouTube = if (current.selectedYouTube == account.id) remaining.firstOrNull()?.id.orEmpty() else current.selectedYouTube) }
-                                clearConnectionBrowserData("youtube")
+                                disconnectBrowserAccount("youtube") {
+                                    store.change { current -> val remaining = current.youtube.filterNot { it.id == account.id }
+                                        current.copy(youtube = remaining, selectedYouTube = if (current.selectedYouTube == account.id) remaining.firstOrNull()?.id.orEmpty() else current.selectedYouTube) }
+                                }
                             } finally { clearingYouTube = false }
                         }
                     })
@@ -137,8 +138,7 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
                         clearingSpotify = true
                         action {
                             try {
-                                store.change { it.copy(spotify = null) }
-                                clearConnectionBrowserData("spotify")
+                                disconnectBrowserAccount("spotify") { store.change { it.copy(spotify = null) } }
                             } finally { clearingSpotify = false }
                         }
                     })

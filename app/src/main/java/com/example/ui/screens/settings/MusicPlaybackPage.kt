@@ -32,7 +32,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -392,44 +391,6 @@ fun MusicPlaybackPage(
                     skipSilence = playerExperience.skipSilence,
                     onSelect = { com.example.data.local.OtherSettingsPreferences.setOutputPrecision(settingsContext, it) }
                 )
-
-                HorizontalDivider(color = dividerColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp)
-                    ) {
-                        Text(
-                            text = "Local Stutter-Free LRU Cache",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = textPrimary
-                        )
-                        Text(
-                            text = "Predictive audio pre-buffering to prevent network lag",
-                            fontSize = 11.sp,
-                            color = textMuted
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = accentColor.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "ENABLED",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = LiquidGlass.lightContentColor(appColors, accentColor),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-                }
             }
         }
 
