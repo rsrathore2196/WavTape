@@ -101,69 +101,81 @@ object InternetArchiveApiService {
             var remainingMs = BACKGROUND_TIMEOUT_MS
             val pages = plans.associateWith { 1 as Int? }.toMutableMap()
             val coordinator = com.example.performance.BackgroundWorkCoordinator
-            // Charge only admitted work to the existing network budget. Navigation
-            // pauses are neither network timeouts nor evidence of a missing song.
-            for (round in 0..1) {
-                for (batch in plans.chunked(2)) {
-                    coordinator.awaitOptionalBatch()
-                    currentCoroutineContext().ensureActive()
-                    if (!allowed()) return@withContext LosslessSearchPage(isSuccessful = false,
-                        failure = Reason.NETWORK_POLICY_BLOCKED, exhaustive = false)
-                    if (search.items.size >= 20) return@withContext LosslessSearchPage(isSuccessful = false,
-                        failure = Reason.METADATA_INCOMPLETE, exhaustive = false)
-                    val started = SystemClock.elapsedRealtime()
-                    val fetched = coordinator.finishBoundedBatch {
-                        withTimeoutOrNull(remainingMs) {
-                            coroutineScope {
-                                val active = batch.mapNotNull { expression -> pages[expression]?.let { expression to it } }
-                                val results = Channel<Triple<String, LosslessSearchPage, List<MusicTrack>>>(active.size.coerceAtLeast(1))
-                                val jobs = active.map { (expression, page) -> launch {
-                                    val result = searchPage(expression, expression, page, 4, true, search)
-                                    val matches = withContext(AppDispatchers.CpuBounded) {
-                                        result.tracks.filter { it.audioUrl !in excludedUrls }
-                                            .mapNotNull { ArchiveFileKey.fromUrl(it.audioUrl)?.let(ArchiveFileEvidence::fresh) }
-                                            .mapNotNull { verified -> ArchiveRecordingIdentity.confidence(track, verified)
-                                                ?.let { verified to it } }
-                                            .sortedWith(compareByDescending<Pair<MusicTrack, Int>> { isFlac(it.first) }
-                                                .thenByDescending { it.second }).map { it.first }
-                                    }
-                                    results.send(Triple(expression, result, matches))
-                                } }
-                                val completed = mutableListOf<Triple<String, LosslessSearchPage, List<MusicTrack>>>()
-                                try {
-                                    for (ignored in active.indices) {
-                                        val result = results.receive()
-                                        completed.add(result)
-                                        if (result.third.any(::isFlac)) break
-                                    }
-                                } finally {
-                                    jobs.forEach { it.cancel() }
-                                    results.cancel()
-                                }
-                                completed
+            // Start the next query as soon as either of the two active ones
+            // finishes. An unrelated slow item should only occupy its own slot.
+            repeat(2) {
+                val active = pages.mapNotNull { (expression, page) -> page?.let { expression to it } }
+                if (active.isEmpty()) return@repeat
+                coordinator.awaitOptionalBatch()
+                currentCoroutineContext().ensureActive()
+                if (!allowed()) return@withContext blockedPage()
+                if (synchronized(search.items) { search.items.size >= 20 })
+                    return@withContext failedPage(Reason.METADATA_INCOMPLETE)
+                val started = SystemClock.elapsedRealtime()
+                val completed = coordinator.finishBoundedBatch {
+                    withTimeoutOrNull(remainingMs) {
+                        collectRecordingSearches(active, acceptable = { it.third.isNotEmpty() },
+                            preferred = { result -> result.third.any(::isFlac) }) { (expression, page) ->
+                            val result = searchPage(expression, expression, page, 4, true, search)
+                            val matches = withContext(AppDispatchers.CpuBounded) {
+                                result.tracks.filter { it.audioUrl !in excludedUrls }
+                                    .mapNotNull { ArchiveFileKey.fromUrl(it.audioUrl)?.let(ArchiveFileEvidence::fresh) }
+                                    .mapNotNull { verified -> ArchiveRecordingIdentity.confidence(track, verified)
+                                        ?.let { verified to it } }
+                                    .sortedWith(compareByDescending<Pair<MusicTrack, Int>> { isFlac(it.first) }
+                                        .thenByDescending { it.second }).map { it.first }
                             }
+                            Triple(expression, result, matches)
                         }
-                    } ?: return@withContext LosslessSearchPage(isSuccessful = false,
-                        failure = Reason.NETWORK_TIMEOUT, exhaustive = false)
-                    remainingMs -= (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
-                    fetched.firstOrNull { (_, _, matches) -> matches.any(::isFlac) }?.let { (_, result, matches) ->
-                        return@withContext result.copy(tracks = matches, failure = null)
                     }
-                    for ((expression, result, matches) in fetched) {
-                        sawCandidates = sawCandidates || result.tracks.isNotEmpty()
-                        successful = successful && result.isSuccessful
-                        failure = result.failure ?: failure
-                        if (matches.isNotEmpty()) return@withContext result.copy(tracks = matches, failure = null)
-                        pages[expression] = result.nextPage
-                    }
-                    if (remainingMs <= 0) return@withContext LosslessSearchPage(isSuccessful = false,
-                        failure = Reason.NETWORK_TIMEOUT, exhaustive = false)
+                } ?: return@withContext failedPage(Reason.NETWORK_TIMEOUT)
+                if (!allowed()) return@withContext blockedPage()
+                remainingMs -= (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
+                completed.firstOrNull { it.third.any(::isFlac) }?.let { (_, result, matches) ->
+                    return@withContext result.copy(tracks = matches, failure = null)
                 }
+                for ((expression, result, matches) in completed) {
+                    sawCandidates = sawCandidates || result.tracks.isNotEmpty()
+                    successful = successful && result.isSuccessful
+                    failure = result.failure ?: failure
+                    if (matches.isNotEmpty()) return@withContext result.copy(tracks = matches, failure = null)
+                    pages[expression] = result.nextPage
+                }
+                if (remainingMs <= 0) return@withContext failedPage(Reason.NETWORK_TIMEOUT)
             }
             LosslessSearchPage(isSuccessful = successful, failure = failure ?: if (sawCandidates)
                 Reason.RECORDING_MISMATCH else Reason.NO_RESULTS,
                 exhaustive = pages.values.all { it == null } && !search.truncated)
         }
+
+    internal suspend fun <Q, T> collectRecordingSearches(queries: List<Q>, acceptable: (T) -> Boolean,
+        preferred: (T) -> Boolean, fetch: suspend (Q) -> T): List<T> = coroutineScope {
+        val results = Channel<T>(2)
+        val jobs = mutableListOf<kotlinx.coroutines.Job>()
+        var next = 0
+        var pending = 0
+        fun startQuery() {
+            if (next == queries.size) return
+            val query = queries[next++]
+            pending++
+            jobs += launch { results.send(fetch(query)) }
+        }
+        val completed = mutableListOf<T>()
+        try {
+            repeat(2) { startQuery() }
+            while (pending > 0) {
+                val result = results.receive()
+                pending--
+                completed += result
+                if (preferred(result)) break
+                if (completed.none(acceptable)) startQuery()
+            }
+        } finally {
+            jobs.forEach { it.cancel() }
+            results.cancel()
+        }
+        completed
+    }
 
     internal fun originalFileUrl(track: MusicTrack): String? =
         ArchiveFileKey.fromId(track.id)?.url?.toString()

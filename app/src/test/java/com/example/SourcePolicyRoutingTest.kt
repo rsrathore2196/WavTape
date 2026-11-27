@@ -184,6 +184,29 @@ class SourcePolicyRoutingTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun bestQualityUsesOptimizedAddonLookupAndStillWaitsForPreferredArchive() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val base = "https://addons.example/preferred"
+        val addon = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Library", baseUrl = base)
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(addon, PlaybackSource.archive, PlaybackSource.youtube))
+        var addonRequests = 0
+        val resolver = StreamResolver(ioDispatcher = dispatcher, cpuDispatcher = dispatcher,
+            resolveAddon = { _, _, _, _ -> error("Best Quality should use the optimized add-on lookup") },
+            resolveBestQualityAddon = { _, _, _, _ -> addonRequests++; null },
+            findLossless = { _, _, _ ->
+                delay(9_000L)
+                com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(listOf(archive))
+            },
+            supportsLossless = { true }, resolveYouTube = { request, _, _, _ -> opus.copy(id = request.id) })
+        try {
+            val result = resolver.resolve(song, policy.ceiling.audioQuality, sourcePolicy = policy, bestQualityFirst = true)
+            assertEquals(1, addonRequests)
+            assertEquals(archive.audioUrl, result.audioUrl)
+            assertEquals(9_000L, currentTime)
+        } finally { resolver.clear() }
+    }
+
     @Test fun cappedModesUseOnlyEligibleSourcesAndPreserveCatalogIdentityWithEnhancerOff() = runBlocking {
         for (ceiling in AudioQualityCeiling.entries.filter { it != AudioQualityCeiling.MAX }) {
             val result = resolver().resolve(song, ceiling.audioQuality,
@@ -343,7 +366,7 @@ class SourcePolicyRoutingTest {
             }
         }
         val result = resolver.resolve(archive, policy.ceiling.audioQuality, sourcePolicy = policy,
-            bestQualityFirst = true, skipExactArchive = true)
+            bestQualityFirst = true, rejectedUrls = setOf(archive.audioUrl))
         assertEquals(jio.audioUrl, result.audioUrl)
         assertEquals(listOf("archive", "jio"), calls)
     }

@@ -306,7 +306,7 @@ object StreamingAddons {
         sources.flatMap { completed[it.id].orEmpty() }
     }
     suspend fun resolve(context: Context, track: MusicTrack, policy: PlaybackSourcePolicy,
-        rejected: Set<String> = emptySet(), source: PlaybackSource? = null): MusicTrack? = withContext(AppDispatchers.Io) {
+        rejected: Set<String> = emptySet(), source: PlaybackSource? = null, overlapStreamRequests: Boolean = false): MusicTrack? = withContext(AppDispatchers.Io) {
         if (!policy.online) return@withContext null
         val active = activeAddons(context, policy)
         val selectedSource = (if (source == null) active.firstOrNull() else source.takeIf { it in active })
@@ -325,9 +325,9 @@ object StreamingAddons {
                 cached.track.audioUrl !in rejected && isVerified(cached.track.audioUrl, policy))) {
             return@withContext reuse(cached.track).takeIf { stillEnabled(context, selectedSource, policy) }
         }
-        val result = com.example.recommendation.DiscoveryRequestCoordinator.shared("addon:$key:${rejected.hashCode()}",
+        val result = com.example.recommendation.DiscoveryRequestCoordinator.shared("addon:$key:${rejected.hashCode()}:$overlapStreamRequests",
             essential = true, network = false) {
-            val value = resolveUncached(selectedSource, track, policy, rejected, key)
+            val value = resolveUncached(selectedSource, track, policy, rejected, key, overlapStreamRequests)
             if (resolutions.size >= 128) resolutions.entries.minByOrNull { it.value.expires }?.let { resolutions.remove(it.key) }
             resolutions[key] = Cached(value, System.currentTimeMillis() + if (value == null) 5_000L else 120_000L)
             listOfNotNull(value)
@@ -335,7 +335,7 @@ object StreamingAddons {
         reuse(result).takeIf { stillEnabled(context, selectedSource, policy) }
     }
     private suspend fun resolveUncached(source: PlaybackSource, track: MusicTrack, policy: PlaybackSourcePolicy,
-        rejected: Set<String>, key: String): MusicTrack? = withContext(AppDispatchers.Io) {
+        rejected: Set<String>, key: String, overlapStreamRequests: Boolean): MusicTrack? = withContext(AppDispatchers.Io) {
         if (!source.available(policy.ceiling) || !policy.online ||
             Uri.parse(track.audioUrl).scheme in setOf("file", "content")) return@withContext null
         val base = source.baseUrl
@@ -359,23 +359,70 @@ object StreamingAddons {
                 // lossy response as a fallback.
                 val tiers = listOf("hi_res", "LOSSLESS", "CD")
                 val tried = mutableSetOf<HttpUrl>()
+                fun streamUrl(id: String, tier: String, atmos: Boolean) =
+                    configuredEndpoint(base, "stream", tier = tier, config = config, dolbyAtmos = atmos)
+                        .newBuilder().addPathSegment(id).build()
+                suspend fun streamBody(url: HttpUrl): String? =
+                    try { get(url, "stream", MAX_STREAM_BYTES) } catch (_: IOException) { null }
+                suspend fun verify(body: String?, candidate: MusicTrack, atmos: Boolean): MusicTrack? {
+                    if (body == null) return null
+                    return withContext(AppDispatchers.CpuBounded) {
+                        try { parseStream(body, base, track, candidate, policy.copy(dolbyAtmos = atmos), source.id) }
+                        catch (_: org.json.JSONException) { null }
+                    }
+                }
+                fun accepted(result: MusicTrack?) = result?.takeIf {
+                    it.audioUrl !in rejected && (it.isLossless || transports[it.audioUrl]?.atmos == true)
+                }
+
                 suspend fun stream(candidates: List<MusicTrack>): MusicTrack? {
+                    if (overlapStreamRequests) return coroutineScope {
+                        // Overlap a slow higher tier with the next request under the
+                        // existing HTTP permits. Verify in order so a later response
+                        // cannot overwrite registered transport metadata.
+                        val atmos = policy.allowsDolbyAtmos
+                        data class Option(val url: HttpUrl, val stereoUrl: HttpUrl, val candidate: MusicTrack)
+                        val options = buildList {
+                            for (tier in tiers) for (candidate in candidates) {
+                                val id = providerId(base, candidate.id) ?: continue
+                                val url = streamUrl(id, tier, atmos)
+                                if (tried.add(url)) add(Option(url, streamUrl(id, tier, false), candidate))
+                            }
+                        }
+                        suspend fun verifyOption(option: Option, body: String?): MusicTrack? =
+                            accepted(verify(body, option.candidate, atmos) ?:
+                                if (atmos && tried.add(option.stereoUrl))
+                                    verify(streamBody(option.stereoUrl), option.candidate, false) else null)
+                        for (pair in options.chunked(2)) {
+                            val first = async { streamBody(pair[0].url) }
+                            val tryNext = kotlinx.coroutines.CompletableDeferred<Unit>()
+                            val second = pair.getOrNull(1)?.let { option -> async {
+                                // A quick successful response should need just one HTTP call.
+                                withTimeoutOrNull(200L) { tryNext.await() }
+                                streamBody(option.url)
+                            } }
+                            val preferred = verifyOption(pair[0], first.await())
+                            if (preferred != null) {
+                                second?.cancel()
+                                return@coroutineScope preferred
+                            }
+                            tryNext.complete(Unit)
+                            if (second != null) verifyOption(pair[1], second.await())?.let {
+                                return@coroutineScope it
+                            }
+                        }
+                        null
+                    }
                     for (tier in tiers) for (candidate in candidates) {
                         val id = providerId(base, candidate.id) ?: continue
                         suspend fun request(atmos: Boolean): MusicTrack? {
-                            val url = configuredEndpoint(base, "stream", tier = tier, config = config, dolbyAtmos = atmos)
-                                .newBuilder().addPathSegment(id).build()
+                            val url = streamUrl(id, tier, atmos)
                             if (!tried.add(url)) return null
-                            val body = try { get(url, "stream", MAX_STREAM_BYTES) } catch (_: IOException) { return null }
-                            return withContext(AppDispatchers.CpuBounded) {
-                                try { parseStream(body, base, track, candidate, policy.copy(dolbyAtmos = atmos), source.id) }
-                                catch (_: org.json.JSONException) { null }
-                            }
+                            return verify(streamBody(url), candidate, atmos)
                         }
                         val resolved = (request(policy.allowsDolbyAtmos) ?:
                             if (policy.allowsDolbyAtmos) request(false) else null) ?: continue
-                        if (resolved.audioUrl !in rejected &&
-                            (resolved.isLossless || transports[resolved.audioUrl]?.atmos == true)) return resolved
+                        accepted(resolved)?.let { return it }
                     }
                     return null
                 }

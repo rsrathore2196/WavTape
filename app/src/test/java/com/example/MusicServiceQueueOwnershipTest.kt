@@ -73,6 +73,7 @@ class MusicServiceQueueOwnershipTest {
     private var youtubeAvailable = false
     private val youtubeRequests = AtomicInteger()
     private var standardGate: CompletableDeferred<Unit>? = null
+    private val exactArchiveRequests = AtomicInteger()
     private var archiveDelayMs: Long? = null
     private val addonAddress = "https://files.example/fast-start.flac"
     private var addonGate: CompletableDeferred<Unit>? = null
@@ -124,6 +125,10 @@ class MusicServiceQueueOwnershipTest {
                 addonGate?.await()
                 StreamingAddons.parseStream("""{"url":"$addonAddress","codec":"flac","bitrate":900000}""",
                     source.baseUrl, track, track, policy, source.id)
+            },
+            verifyArchive = { exact ->
+                exactArchiveRequests.incrementAndGet()
+                archive.takeIf { exact.audioUrl == it.audioUrl && exact.title == it.title }
             },
             archiveAllowed = { monitor.sourcePolicySnapshot().key == it.key },
             findLossless = { _, _, allowed ->
@@ -228,6 +233,32 @@ class MusicServiceQueueOwnershipTest {
         assertEquals(listOf(addonAddress, selected.audioUrl), checked)
         assertEquals(selected.audioUrl, manual?.audioUrl)
         assertEquals(playing.id, manual?.id)
+    }
+
+    @Test fun fastStartPlaysYoutubeBeforePreparingEvenAnExplicitArchiveRecording() = runBlocking {
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        youtubeAvailable = true
+        val start = withTimeout(3_000L) { repository.resolvePlaybackStart(archive) }
+        assertEquals(PlaybackMode.FAST_START, start.mode)
+        assertEquals(archive.id, start.track.id)
+        assertEquals("xtreme-youtube", Uri.parse(start.track.audioUrl).scheme)
+        assertEquals(0, exactArchiveRequests.get())
+
+        val replacement = repository.resolveFastStartUpgrade(start.track, monitor.sourcePolicy.value) {
+            assertEquals(archive.id, it.id)
+            assertEquals(archive.audioUrl, it.audioUrl)
+            true
+        }
+        assertEquals(archive.audioUrl, replacement?.audioUrl)
+        assertEquals(1, exactArchiveRequests.get())
+    }
+
+    @Test fun fastStartTriesTheExactArchiveFileAfterYoutubeIsUnavailable() = runBlocking {
+        AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.FAST_START)
+        standardAvailable = false
+        val start = withTimeout(3_000L) { repository.resolvePlaybackStart(archive) }
+        assertEquals(archive.audioUrl, start.track.audioUrl)
+        assertEquals(1, exactArchiveRequests.get())
     }
 
     @Test fun fastStartReturnsYoutubeThenWaitsForTheBestQualityAddon() = runBlocking {

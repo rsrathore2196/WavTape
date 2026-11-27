@@ -74,6 +74,7 @@ internal class StreamResolver(
     },
     private val verifyArchive: (suspend (MusicTrack) -> MusicTrack?)? = null,
     private val resolveAddon: suspend (PlaybackSource, MusicTrack, PlaybackSourcePolicy, Set<String>) -> MusicTrack? = { _, _, _, _ -> null },
+    private val resolveBestQualityAddon: suspend (PlaybackSource, MusicTrack, PlaybackSourcePolicy, Set<String>) -> MusicTrack? = resolveAddon,
     private val ioDispatcher: CoroutineDispatcher = AppDispatchers.Io,
     private val findLossless: suspend (MusicTrack, Set<String>, () -> Boolean) -> InternetArchiveApiService.LosslessSearchPage =
         { request, excluded, allowed -> InternetArchiveApiService.findLosslessRecording(request, excluded, allowed) },
@@ -91,7 +92,7 @@ internal class StreamResolver(
     private data class StreamKey(val id: String, val quality: AudioQuality, val recommendation: Boolean, val cap: Int,
         val recording: String, val policy: String?, val selectedArchiveUrl: String? = null,
         val preferredSource: String? = null, val currentOnly: Boolean = false, val manualUpgrade: Boolean = false,
-        val bestQualityFirst: Boolean = false, val skipExactArchive: Boolean = false)
+        val bestQualityFirst: Boolean = false)
     private val archiveAttempts = LinkedHashMap<String, Long>()
     // Catalog identities outlive signed URLs. Playback re-extracts the transport
     // for these exact, previously verified cross-provider matches.
@@ -266,7 +267,7 @@ internal class StreamResolver(
         sourcePolicy: com.example.playback.PlaybackSourcePolicy? = null,
         preferredSourceId: String? = null, manualUpgrade: Boolean = false,
         retainLosslessLookup: Boolean = true, losslessVersion: Long? = null, bestQualityFirst: Boolean = false,
-        cachedFallback: MusicTrack? = null, skipExactArchive: Boolean = false
+        cachedFallback: MusicTrack? = null
     ): MusicTrack = withContext(ioDispatcher) {
         // Older saved tracks may have a shortened display title alongside the full provider title.
         val track = if (track.title == track.fullTitle) track else track.copy(title = track.fullTitle)
@@ -297,7 +298,7 @@ internal class StreamResolver(
         // Cross-provider playback retains its catalog ID. Revalidate a known
         // Archive file before reusing that identity's cached lossy fallback.
         val key = StreamKey(track.id, quality, track.recommendationOnly, ceilingBps, recordingKey, policy.key,
-            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade, bestQualityFirst, skipExactArchive)
+            archiveUrl.takeIf { selectedArchive }, preferredSourceId, currentSourceOnly, manualUpgrade, bestQualityFirst)
         fun capped(candidate: MusicTrack): MusicTrack {
             val host = uriHost(candidate.audioUrl).orEmpty()
             if (candidate.source.startsWith("Streaming Addon:")) return candidate
@@ -344,7 +345,7 @@ internal class StreamResolver(
         fun cachedFor(sourceId: String?): MusicTrack? {
             if (sourceId == null || sourceId != cachedSourceId || cached == null || cached.expiresAt <= System.currentTimeMillis()) return null
             if (selectedArchive && sourceId == policy.sourceId(PlaybackSourceKind.INTERNET_ARCHIVE) &&
-                (skipExactArchive || verifyArchive == null)) return null
+                verifyArchive == null) return null
             val candidate = capped(cached.track)
             val addon = candidate.source.startsWith("Streaming Addon:") &&
                 com.example.data.remote.StreamingAddons.isVerified(candidate.audioUrl, policy)
@@ -383,11 +384,12 @@ internal class StreamResolver(
             candidate.audioUrl !in rejectedUrls && capped(candidate).audioUrl !in rejectedUrls &&
             !isLosslessUrlRejected(candidate.audioUrl)
 
-        suspend fun addon(source: PlaybackSource, timeoutMs: Long): MusicTrack? = attempt(timeoutMs) {
+        suspend fun addon(source: PlaybackSource, timeoutMs: Long, bestQuality: Boolean = false): MusicTrack? = attempt(timeoutMs) {
             // A failed add-on URL can still be in the provider's own resolution cache.
             // Include the active lossless quarantine when asking for another representation.
             val excluded = rejectedUrls + listOfNotNull(rejected) + getActiveRejectedUrls()
-            resolveAddon(source, track, policy, excluded)?.takeUnless {
+            val resolve = if (bestQuality) resolveBestQualityAddon else resolveAddon
+            resolve(source, track, policy, excluded)?.takeUnless {
                 it.audioUrl in excluded || isLosslessUrlRejected(it.audioUrl)
             }
         }
@@ -613,7 +615,7 @@ internal class StreamResolver(
                                 val refused = (rejectedUrls + listOfNotNull(failedUrl)).any {
                                     it == archiveUrl || archiveFile != null && ArchiveFileKey.fromUrl(it) == archiveFile
                                 }
-                                val direct = if (skipExactArchive || refused || isLosslessUrlRejected(archiveUrl)) null
+                                val direct = if (refused || isLosslessUrlRejected(archiveUrl)) null
                                     else attempt(MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS) {
                                         val exact = track.copy(audioUrl = archiveUrl, isLossless = true, source = "INTERNET_ARCHIVE")
                                         if (verifyArchive != null) verifyArchive.invoke(exact)
@@ -626,7 +628,8 @@ internal class StreamResolver(
                                     supportsLossless(it) }
                             } else archive()
                             PlaybackSourceKind.ADDON -> addon(provider,
-                                if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS)
+                                if (bestQualityFirst) BEST_QUALITY_SOURCE_WAIT_MS else ADDON_STARTUP_TIMEOUT_MS,
+                                bestQuality = bestQualityFirst && !manualUpgrade)
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {

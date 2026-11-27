@@ -47,6 +47,32 @@ class ArchiveDiscoveryBatchTest {
         assertTrue(result.filterNotNull().flatten().any { it.audioUrl != recording.audioUrl })
     }
 
+    @Test fun aSlowIndexQueryDoesNotBlockTheNextQueryWhenTheOtherSlotIsFree() = runTest {
+        val slowStarted = CompletableDeferred<Unit>()
+        var slowCancelled = false
+        var active = 0
+        var peak = 0
+        val results = InternetArchiveApiService.collectRecordingSearches(
+            listOf("slow", "miss", "verified"), acceptable = { it == "verified" },
+            preferred = { it == "verified" }) { query ->
+            active++
+            peak = maxOf(peak, active)
+            try {
+                when (query) {
+                    "slow" -> {
+                        slowStarted.complete(Unit)
+                        try { awaitCancellation() } finally { slowCancelled = true }
+                    }
+                    "miss" -> { slowStarted.await(); query }
+                    else -> query
+                }
+            } finally { active-- }
+        }
+        assertEquals(listOf("miss", "verified"), results)
+        assertEquals(2, peak)
+        assertTrue(slowCancelled)
+    }
+
     private fun index(total: Int, vararg identifiers: String) = JSONObject().put("response", JSONObject().apply {
         put("numFound", total)
         put("docs", org.json.JSONArray(identifiers.map { JSONObject().put("identifier", it) }))

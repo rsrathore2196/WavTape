@@ -167,6 +167,8 @@ class MusicRepository private constructor(
         context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it).sourcePolicySnapshot().key == policy.key } ?: true
     }, resolveAddon = { source, track, policy, rejected ->
         context?.let { com.example.data.remote.StreamingAddons.resolve(it, track, policy, rejected, source) }
+    }, resolveBestQualityAddon = { source, track, policy, rejected ->
+        context?.let { com.example.data.remote.StreamingAddons.resolve(it, track, policy, rejected, source, overlapStreamRequests = true) }
     })
     internal suspend fun searchArchive(query: String, page: Int,
         policy: PlaybackSourcePolicy, recordings: List<MusicTrack>): InternetArchiveApiService.LosslessSearchPage =
@@ -482,25 +484,6 @@ class MusicRepository private constructor(
             val mode = context?.let(com.example.data.local.AudioQualityPreferences::playbackMode) ?: PlaybackMode.BEST_QUALITY
             val online = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it).snapshot() }
                 ?.connectionType != com.example.playback.NetworkConnectionType.OFFLINE
-            var attemptedArchive = false
-            val explicitArchive = ArchiveFileKey.explicitSelection(track)
-            if (mode == PlaybackMode.FAST_START && online && preferredSourceId == null && explicitArchive != null) {
-                val policy = context?.let {
-                    com.example.data.local.OtherSettingsPreferences.loadPlaybackSources(it)
-                    com.example.playback.NetworkQualityMonitor.getInstance(it).sourcePolicySnapshot()
-                }
-                val archive = policy?.sourceId(PlaybackSourceKind.INTERNET_ARCHIVE)
-                    ?.takeIf { policy.allowsArchive && !policy.returnsToYouTube(track.id) }
-                if (archive != null) {
-                    attemptedArchive = true
-                    try {
-                        val exact = resolvePlayableTrack(track, preferredSourceId = archive, retainLosslessLookup = false)
-                        return@withContext PlaybackStart(exact, mode)
-                    } catch (e: TrackUnavailableException) {
-                        if (ArchiveFileEvidence.isLiteralSelection(track)) throw e
-                    }
-                }
-            }
             if (mode == PlaybackMode.FAST_START && online && preferredSourceId == null &&
                 !ArchiveFileEvidence.isLiteralSelection(track)) {
                 try {
@@ -510,17 +493,16 @@ class MusicRepository private constructor(
                     // Failure of a single provider does not make the recording unavailable.
                 }
             }
-            PlaybackStart(resolveBestQualityTrack(track, preferredSourceId, jioDeadlineMs, onAddonLookupFinished,
-                skipExactArchive = attemptedArchive), mode)
+            PlaybackStart(resolveBestQualityTrack(track, preferredSourceId, jioDeadlineMs, onAddonLookupFinished), mode)
         }
 
     private suspend fun resolveBestQualityTrack(track: MusicTrack, preferredSourceId: String? = null,
         jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null,
-        audibleFallback: MusicTrack? = null, skipExactArchive: Boolean = false,
+        audibleFallback: MusicTrack? = null,
         rejectedArchiveUrls: Set<String> = emptySet()): MusicTrack =
         resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
             onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true,
-            audibleFallback = audibleFallback, skipExactArchive = skipExactArchive, rejectedUrls = rejectedArchiveUrls)
+            audibleFallback = audibleFallback, rejectedUrls = rejectedArchiveUrls)
 
     internal suspend fun resolveFastStartUpgrade(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
@@ -610,8 +592,7 @@ class MusicRepository private constructor(
         manualUpgrade: Boolean = false,
         retainLosslessLookup: Boolean = true,
         bestQualityFirst: Boolean = false,
-        audibleFallback: MusicTrack? = null,
-        skipExactArchive: Boolean = false
+        audibleFallback: MusicTrack? = null
     ): MusicTrack = withContext(AppDispatchers.Io) {
         if (android.net.Uri.parse(track.audioUrl).scheme == com.example.downloads.OfflineDownloads.SCHEME) return@withContext track
         context?.let { ctx ->
@@ -661,15 +642,14 @@ class MusicRepository private constructor(
             val quality = sourcePolicy?.ceiling?.audioQuality ?: AudioQuality.ULTRA_HD_320
             try {
                 val identity = withContext(AppDispatchers.CpuBounded) { RecordingIdentity.key(track) }
-                val requestKey = "playback-source:${track.id}:$identity:${sourcePolicy?.key}:$forceRefresh:$currentSourceOnly:$preferYouTube:$preferredSourceId:$manualUpgrade:$retainLosslessLookup:$bestQualityFirst:$losslessVersion:$skipExactArchive:${cachedFallback?.audioUrl}:${failedUrl.orEmpty()}:${rejectedUrls.sorted().joinToString()}"
+                val requestKey = "playback-source:${track.id}:$identity:${sourcePolicy?.key}:$forceRefresh:$currentSourceOnly:$preferYouTube:$preferredSourceId:$manualUpgrade:$retainLosslessLookup:$bestQualityFirst:$losslessVersion:${cachedFallback?.audioUrl}:${failedUrl.orEmpty()}:${rejectedUrls.sorted().joinToString()}"
                 val result = com.example.recommendation.DiscoveryRequestCoordinator.shared(requestKey, essential = true, network = false) {
                     com.example.recommendation.DiscoveryRequestCoordinator.playback {
                         streamResolver.resolve(track, quality, forceRefresh, failedUrl, preferYouTube = preferYouTube, jioDeadlineMs = jioDeadlineMs,
                             currentSourceOnly = currentSourceOnly, rejectedUrls = rejectedUrls,
                             maxBitrateBps = sourcePolicy?.ceiling?.maxBitrateBps ?: Int.MAX_VALUE, sourcePolicy = sourcePolicy,
                             preferredSourceId = preferredSourceId, manualUpgrade = manualUpgrade, retainLosslessLookup = retainLosslessLookup,
-                            losslessVersion = losslessVersion, bestQualityFirst = bestQualityFirst, cachedFallback = cachedFallback,
-                            skipExactArchive = skipExactArchive)
+                            losslessVersion = losslessVersion, bestQualityFirst = bestQualityFirst, cachedFallback = cachedFallback)
                     }.let(::listOf)
                 }.firstOrNull() ?: throw TrackUnavailableException(track.title)
                 currentCoroutineContext().ensureActive()
