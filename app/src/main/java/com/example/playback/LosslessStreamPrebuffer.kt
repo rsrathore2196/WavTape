@@ -620,17 +620,14 @@ internal object LosslessStreamPrebuffer {
                     val seekable = map.isSeekable && (archiveKey == null ||
                         !com.example.data.remote.ArchiveFileTransport.isSequentialOnly(archiveKey) ||
                         archiveCacheKey?.let { MusicCache.fullyCached(context, it) } == true)
-                    if (!seekable && archiveKey != null && position > 0L &&
-                        com.example.data.remote.ArchiveFileTransport.isSequentialOnly(archiveKey))
-                        throw PreparationFailure(LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Archive transport has no ranges")
                     if (seekable) {
                         val point = map.getSeekPoints(position * 1000).first
                         input = openAt(point.position)
                         extractor.seek(point.position, point.timeUs)
                         firstSampleUs = Long.MAX_VALUE; lastSampleUs = Long.MIN_VALUE
                     }
-                    // No fabricated byte offsets. For an unindexed file, continue
-                    // reading real samples from the start within the same byte/time cap.
+                    // Unindexed and sequential files can still be prepared from zero
+                    // within the existing byte/time cap. Handoff requires a complete cache.
                     val requestedEnd = position + if (fastStart) FAST_START_READ_AHEAD_MS else 3_000L
                     while (lastSampleUs < requestedEnd * 1000) if (!step()) {
                         if (fastStart && lastSampleUs >= (position + required) * 1000) break

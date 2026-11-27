@@ -505,7 +505,7 @@ internal class StreamResolver(
             // can finish the same bounded lookup while the existing stream plays.
             val lookupBudget = when {
                 manualUpgrade -> MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS
-                bestQualityFirst -> BEST_QUALITY_SOURCE_WAIT_MS
+                bestQualityFirst -> ARCHIVE_BEST_QUALITY_WAIT_MS
                 retainLosslessLookup -> LOSSLESS_LOOKUP_TIMEOUT_MS
                 // An unretained queue reader must stay attached while it is
                 // the only usable provider. The deferred race still cancels it
@@ -761,6 +761,7 @@ internal class StreamResolver(
         const val PROVIDER_PRIORITY_GRACE_MS = 6_000L
         const val LOSSLESS_LOOKUP_TIMEOUT_MS = 2_500L
         private const val BEST_QUALITY_SOURCE_WAIT_MS = 8_000L
+        private const val ARCHIVE_BEST_QUALITY_WAIT_MS = 24_000L
         private const val MANUAL_LOSSLESS_LOOKUP_TIMEOUT_MS = 20_000L
         private val verifiedLosslessCache = LinkedHashMap<String, Pair<MusicTrack, Long>>(128, 0.75f, true)
         private val rejectedLosslessUrls = LinkedHashMap<String, Long>(256, 0.75f, true)

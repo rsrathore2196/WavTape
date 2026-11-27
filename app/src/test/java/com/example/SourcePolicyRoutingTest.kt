@@ -156,6 +156,31 @@ class SourcePolicyRoutingTest {
         assertEquals(8_000L, currentTime)
     }
 
+    @Test fun bothBestQualitySelectionsWaitForVerifiedArchivePastTheAddonDeadline() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        for (atmos in listOf(false, true)) {
+            val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = listOf(PlaybackSource.archive, PlaybackSource.youtube),
+                dolbyAtmos = atmos)
+            val resolver = StreamResolver(ioDispatcher = dispatcher, cpuDispatcher = dispatcher,
+                findLossless = { _, _, _ ->
+                    delay(9_000L)
+                    com.example.data.remote.InternetArchiveApiService.LosslessSearchPage(listOf(archive))
+                },
+                supportsLossless = { true },
+                resolveYouTube = { request, _, _, _ -> opus.copy(id = request.id) })
+            try {
+                val direct = resolver.resolve(song, policy.ceiling.audioQuality, sourcePolicy = policy, bestQualityFirst = true)
+                assertEquals(archive.audioUrl, direct.audioUrl)
+                resolver.clear()
+                val audible = opus.copy(id = song.id)
+                val background = resolver.resolve(audible, policy.ceiling.audioQuality, sourcePolicy = policy,
+                    bestQualityFirst = true, cachedFallback = audible)
+                assertEquals(archive.audioUrl, background.audioUrl)
+                assertEquals(song.id, background.id)
+            } finally { resolver.clear() }
+        }
+    }
+
     @Test fun cappedModesUseOnlyEligibleSourcesAndPreserveCatalogIdentityWithEnhancerOff() = runBlocking {
         for (ceiling in AudioQualityCeiling.entries.filter { it != AudioQualityCeiling.MAX }) {
             val result = resolver().resolve(song, ceiling.audioQuality,

@@ -126,7 +126,8 @@ object InternetArchiveApiService {
                                             .mapNotNull { ArchiveFileKey.fromUrl(it.audioUrl)?.let(ArchiveFileEvidence::fresh) }
                                             .mapNotNull { verified -> RecordingIdentity.losslessConfidence(track, verified)
                                                 ?.let { verified to it } }
-                                            .sortedByDescending { it.second }.map { it.first }
+                                            .sortedWith(compareByDescending<Pair<MusicTrack, Int>> { isFlac(it.first) }
+                                                .thenByDescending { it.second }).map { it.first }
                                     }
                                     results.send(Triple(expression, result, matches))
                                 } }
@@ -135,7 +136,7 @@ object InternetArchiveApiService {
                                     for (ignored in active.indices) {
                                         val result = results.receive()
                                         completed.add(result)
-                                        if (result.third.isNotEmpty()) break
+                                        if (result.third.any(::isFlac)) break
                                     }
                                 } finally {
                                     jobs.forEach { it.cancel() }
@@ -147,6 +148,9 @@ object InternetArchiveApiService {
                     } ?: return@withContext LosslessSearchPage(isSuccessful = false,
                         failure = Reason.NETWORK_TIMEOUT, exhaustive = false)
                     remainingMs -= (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
+                    fetched.firstOrNull { (_, _, matches) -> matches.any(::isFlac) }?.let { (_, result, matches) ->
+                        return@withContext result.copy(tracks = matches, failure = null)
+                    }
                     for ((expression, result, matches) in fetched) {
                         sawCandidates = sawCandidates || result.tracks.isNotEmpty()
                         successful = successful && result.isSuccessful
@@ -215,6 +219,8 @@ object InternetArchiveApiService {
             "\"APE\" OR \"WavPack\" OR \"DSD\"))"
     }
 
+    private fun isFlac(track: MusicTrack): Boolean = ArchiveFileKey.fromUrl(track.audioUrl)?.extension == "flac"
+
     internal fun recordingQueries(track: MusicTrack): List<String> {
         fun quote(value: String) = "\"${normalized(value)}\""
         val title = StreamResolver.extractCleanTitle(track.title, track.artist)
@@ -224,12 +230,15 @@ object InternetArchiveApiService {
         }.orEmpty()
         return buildList {
             RecordingIdentity.isrc(track.isrc)?.let { add("\"$it\"") }
+            // Album tracks can appear in descriptions or other indexed fields while
+            // being absent from the item's title. The manifest still proves identity.
+            if (title.isNotBlank() && primary.isNotBlank()) add("(${quote(title)} AND ${quote(primary)})")
             if (album.isNotBlank() && primary.isNotBlank()) add("(title:${quote(album)} AND creator:${quote(primary)})")
             if (title.isNotBlank() && primary.isNotBlank()) add("(title:${quote(title)} AND creator:${quote(primary)})")
             if (album.isNotBlank()) add("title:${quote(album)}")
             if (primary.isNotBlank()) add("creator:${quote(primary)}")
             if (title.isNotBlank()) add("title:${quote(title)}")
-        }.distinct().take(6)
+        }.distinct()
     }
 
     private val httpClient by lazy {
@@ -381,7 +390,8 @@ object InternetArchiveApiService {
                     val issue = java.util.concurrent.atomic.AtomicReference<Reason>()
                     val parsed = collectRecordingFiles(recording?.track,
                         index.items, recording?.excludedUrls.orEmpty(),
-                        eligible = { candidate -> ArchiveFileKey.fromUrl(candidate.audioUrl)?.let { ArchiveFileEvidence.fresh(it) } != null }) {
+                        eligible = { candidate -> isFlac(candidate) &&
+                            ArchiveFileKey.fromUrl(candidate.audioUrl)?.let { ArchiveFileEvidence.fresh(it) } != null }) {
                         cachedLosslessItem(it, recording, terms, admitted, requestId) { reason ->
                             issue.getAndUpdate { previous -> if (previous == null || previous == Reason.UNAUTHORIZED) reason else previous }
                         }?.also(partial::addAll)
@@ -927,13 +937,14 @@ object InternetArchiveApiService {
         val preferredFile = selectedFile ?: requested?.let { ArchiveFileKey.fromId(it.id) }
         val wantedTitle = requested?.let(RecordingIdentity::title).orEmpty()
         val ordered = when {
-            requested != null -> lossless.sortedByDescending { file ->
-                val hint = normalized(fileTitle(file) + " " + fileTitle(original(file)) + " " + fileName(file))
-                when {
-                    preferredFile?.file == fileName(file) -> 2
-                    wantedTitle.isNotBlank() && wantedTitle in hint -> 1
-                    else -> 0
+            requested != null -> {
+                fun titleHint(file: JSONObject): Boolean {
+                    val hint = normalized(fileTitle(file) + " " + fileTitle(original(file)) + " " + fileName(file))
+                    return wantedTitle.isNotBlank() && wantedTitle in hint
                 }
+                lossless.sortedWith(compareByDescending<JSONObject> { preferredFile?.file == fileName(it) }
+                    .thenByDescending(::titleHint)
+                    .thenByDescending { fileName(it).endsWith(".flac", ignoreCase = true) })
             }
             browseTerms.isNotEmpty() -> lossless.sortedByDescending { file ->
                 // Use filenames to spend the existing probe budget on likelier matches.

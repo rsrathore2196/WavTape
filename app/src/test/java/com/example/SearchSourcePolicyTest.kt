@@ -37,6 +37,19 @@ class SearchSourcePolicyTest {
     }
     private suspend fun awaitCondition(test: () -> Boolean) = withTimeout(3_000) { while (!test()) delay(10) }
 
+    @Test fun catalogWithoutArchiveSearchKeepsArchiveRowsAndStatusOutOfResults() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val browser = CatalogBrowserState(CatalogRepository(), scope)
+        try {
+            seed(browser, listOf(archive, jio, youtube))
+            browser.setSourcePolicy(PlaybackSourcePolicy(AudioQualityCeiling.MAX))
+            awaitCondition { browser.search.value.page.tracks.map { it.id }.toSet() == setOf(jio.id, youtube.id) }
+            assertFalse(browser.search.value.archiveLoading)
+            assertNull(browser.search.value.archiveMessage)
+            assertNull(browser.search.value.archiveNextPage)
+        } finally { scope.cancel() }
+    }
+
     @Test fun lowerQualityRemovesArchiveWhileKeepingOriginalYoutubeAndJioRows() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val browser = CatalogBrowserState(CatalogRepository(), scope,

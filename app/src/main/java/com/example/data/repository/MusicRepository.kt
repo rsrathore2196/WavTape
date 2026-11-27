@@ -515,10 +515,11 @@ class MusicRepository private constructor(
 
     private suspend fun resolveBestQualityTrack(track: MusicTrack, preferredSourceId: String? = null,
         jioDeadlineMs: Long = 0L, onAddonLookupFinished: (suspend (Long) -> Unit)? = null,
-        audibleFallback: MusicTrack? = null, skipExactArchive: Boolean = false): MusicTrack =
+        audibleFallback: MusicTrack? = null, skipExactArchive: Boolean = false,
+        rejectedArchiveUrls: Set<String> = emptySet()): MusicTrack =
         resolvePlayableTrack(track, preferredSourceId = preferredSourceId, jioDeadlineMs = jioDeadlineMs,
             onAddonLookupFinished = onAddonLookupFinished, retainLosslessLookup = false, bestQualityFirst = true,
-            audibleFallback = audibleFallback, skipExactArchive = skipExactArchive)
+            audibleFallback = audibleFallback, skipExactArchive = skipExactArchive, rejectedUrls = rejectedArchiveUrls)
 
     internal suspend fun resolveFastStartUpgrade(
         track: MusicTrack, policy: PlaybackSourcePolicy, manual: Boolean = false,
@@ -528,7 +529,10 @@ class MusicRepository private constructor(
             if (!stillCurrent() || candidate.id != track.id || candidate.audioUrl == track.audioUrl ||
                 !policy.acceptsRemoteTrack(candidate)) return false
             // Leave the original stream playing while the chosen transport warms at the live position.
-            val preparationBudget = if (source.kind == PlaybackSourceKind.ADDON) 24_000L else 10_000L
+            val preparationBudget = when (source.kind) {
+                PlaybackSourceKind.ADDON, PlaybackSourceKind.INTERNET_ARCHIVE -> 24_000L
+                else -> 10_000L
+            }
             return kotlinx.coroutines.withTimeoutOrNull(preparationBudget) { prepare(candidate) } == true
         }
         if (!manual) {
@@ -552,6 +556,17 @@ class MusicRepository private constructor(
             val candidatesInOrder = higherPriority.dropWhile { it.id != candidateSource }
             val replacement = candidatesInOrder.firstOrNull() ?: return@withTimeoutOrNull null
             if (prepareCandidate(candidate, replacement) && stillCurrent()) return@withTimeoutOrNull candidate
+            if (replacement.kind == PlaybackSourceKind.INTERNET_ARCHIVE && stillCurrent()) {
+                val alternate = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                    try {
+                        resolveBestQualityTrack(lookupTrack, preferredSourceId = replacement.id,
+                            rejectedArchiveUrls = setOf(candidate.audioUrl))
+                    } catch (_: TrackUnavailableException) { null }
+                }
+                if (alternate != null && alternate.audioUrl != candidate.audioUrl &&
+                    SourceTransitionOrigin.sourceId(alternate.id, android.net.Uri.parse(alternate.audioUrl), policy) == replacement.id &&
+                    prepareCandidate(alternate, replacement) && stillCurrent()) return@withTimeoutOrNull alternate
+            }
 
             // A provider may resolve a valid URL that cannot resume at the live playhead.
             // Keep playing while trying the remaining providers ranked above the active one.

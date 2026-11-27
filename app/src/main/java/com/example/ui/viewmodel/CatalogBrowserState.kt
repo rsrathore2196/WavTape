@@ -120,7 +120,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             com.example.data.remote.StreamingAddons.ownsTrack(source, track.id) }
     private fun archiveTrack(track: MusicTrack) = com.example.data.remote.AudioRoutingService.isArchiveResult(track)
     private fun eligible(track: MusicTrack, policy: com.example.playback.PlaybackSourcePolicy): Boolean =
-        if (track.id.startsWith("addon_")) addonEligible(track, policy) else if (archiveTrack(track)) policy.allowsArchive else true
+        if (track.id.startsWith("addon_")) addonEligible(track, policy) else if (archiveTrack(track)) archiveSearch != null && policy.allowsArchive else true
 
     fun setStreamingAddon(settings: com.example.data.local.PlaybackIntegrationSettings) {
         addonSettings = settings
@@ -202,7 +202,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
             val tracks = catalogCandidates.filter { !archiveTrack(it) && eligible(it, policy) } +
                 archive.takeUnless { archiveLink }.orEmpty() + addonCandidates
             val ranked = com.example.data.remote.AudioRoutingService.rankTracks(state.query, tracks,
-                includeArchive = policy.allowsArchive, deduplicateRecordings = false) +
+                includeArchive = archiveSearch != null && policy.allowsArchive, deduplicateRecordings = false) +
                 archive.takeIf { archiveLink }.orEmpty()
             // Build presentation on CpuBounded, outside the publication lock.
             // The lock only protects the final generation/revision check and CAS.
@@ -222,7 +222,7 @@ class CatalogBrowserState(private val repository: CatalogRepository, private val
     }
 
     private fun archiveBlockedMessage(query: String, policy: com.example.playback.PlaybackSourcePolicy): String? {
-        if (ArchiveFileKey.itemLink(query) == null) return null
+        if (archiveSearch == null || ArchiveFileKey.itemLink(query) == null) return null
         return when {
             !policy.online -> "Internet Archive needs an internet connection."
             !policy.maximum -> "Internet Archive requires Maximum/Lossless on the active network."

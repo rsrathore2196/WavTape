@@ -160,6 +160,23 @@ class ArchiveMetadataRegressionTest {
         } finally { resolver.clear() }
     }
 
+    @Test fun playbackFindsEmbeddedAlbumTrackAndPrefersFlacOverOriginalWav() = runBlocking {
+        val request = MusicTrack("yt_backed_off", "Backed Off", "selene XIV", "", 179_970L, "", "")
+        val root = JSONObject("""{"metadata":{"title":"selene XIV - Late Surrender","creator":"selene XIV",
+            "licenseurl":"https://creativecommons.org/licenses/by/4.0/"},"files":[
+            {"name":"catboi-album1.wav","source":"original","format":"WAVE","length":"179.97","title":"Backed Off","artist":"selene XIV"},
+            {"name":"catboi-album1.flac","source":"derivative","original":"catboi-album1.wav","format":"Flac","length":"179.97"}]}""")
+        val queries = InternetArchiveApiService.recordingQueries(request)
+        assertEquals("(\"backed off\" AND \"selene xiv\")", queries.first())
+        val checked = mutableListOf<String>()
+        val chosen = InternetArchiveApiService.parseLosslessItem(doc, root, request, validateCandidate = { file ->
+            checked += file.audioUrl
+            true
+        }, readHeader = { ArchiveAudioMetadata.Tags(durationMs = 179_970L, sampleRate = 44100, bitDepth = 16) })
+        assertEquals("ia_album:catboi-album1.flac", chosen.single().id)
+        assertEquals(listOf(chosen.single().audioUrl), checked)
+    }
+
     @Test fun archiveFlacDerivativesUseOnlyTheirExplicitAuthorizedOriginal() = runBlocking {
         val root = JSONObject("""{"metadata":{"title":"Late Surrender","creator":"selene XIV",
             "licenseurl":"https://creativecommons.org/licenses/by/4.0/"},"files":[
