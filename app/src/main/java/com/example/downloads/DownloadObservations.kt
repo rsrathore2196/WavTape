@@ -7,7 +7,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
-internal data class DownloadSummary(val bytes: Long, val saved: Int, val partial: Boolean, val hasRecords: Boolean)
+internal data class DownloadSummary(
+    val bytes: Long = 0L, val lossless: Int = 0, val high: Int = 0, val standard: Int = 0,
+    val partial: Boolean = false, val hasRecords: Boolean = false
+) {
+    val saved get() = lossless + high + standard
+}
 
 /** Progress from another track must not invalidate a track menu or a saved collection. */
 internal fun OfflineDownloads.observeRecord(id: String?) = records.map { it[id] }.distinctUntilChanged()
@@ -23,17 +28,28 @@ internal fun OfflineDownloads.observeSavedRecords() = records.map { records ->
     saved.sortedWith(compareByDescending<DownloadRecord> { it.addedAt }.thenBy { it.track.id })
 }.flowOn(AppDispatchers.CpuBounded)
 
-internal fun OfflineDownloads.observeSummary() = records.map { records ->
+internal fun OfflineDownloads.observeSummary() = records.map { summarizeDownloads(it.values) }
+    .distinctUntilChanged().flowOn(AppDispatchers.CpuBounded)
+
+internal fun summarizeDownloads(records: Collection<DownloadRecord>): DownloadSummary {
     var bytes = 0L
-    var saved = 0
+    var lossless = 0
+    var high = 0
+    var standard = 0
     var partial = false
-    for (record in records.values) {
+    for (record in records) {
         bytes += record.bytes.coerceAtLeast(0)
-        if (record.status == DownloadStatus.COMPLETE) saved++
-        else if (record.bytes > 0) partial = true
+        if (record.status == DownloadStatus.COMPLETE && record.plan != null) {
+            // The worker persists the resolved representation's quality, including fallback downloads.
+            when {
+                record.track.isLossless -> lossless++
+                record.track.bitrateKbps > DownloadQuality.STANDARD.kbps -> high++
+                else -> standard++
+            }
+        } else if (record.status != DownloadStatus.COMPLETE && record.bytes > 0) partial = true
     }
-    DownloadSummary(bytes, saved, partial, records.isNotEmpty())
-}.distinctUntilChanged().flowOn(AppDispatchers.CpuBounded)
+    return DownloadSummary(bytes, lossless, high, standard, partial, records.isNotEmpty())
+}
 
 internal fun OfflineDownloads.observeCollectionProgress(tracks: List<MusicTrack>, key: String, complete: Boolean) =
     collections.map { it[key] }.distinctUntilChanged()

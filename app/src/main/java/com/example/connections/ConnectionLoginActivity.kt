@@ -5,7 +5,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
-import android.webkit.CookieManager
+import android.view.WindowManager
+import android.webkit.WebResourceError
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -21,12 +22,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.WebStorageCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 internal object ConnectionHosts {
     fun allowed(url: String, provider: String): Boolean = runCatching {
@@ -45,6 +49,7 @@ class ConnectionLoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val provider = intent.getStringExtra("provider")?.takeIf { it == "youtube" || it == "spotify" } ?: run { finish(); return }
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (!ConnectionBrowserProfile.isSupported()) {
             setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.Center) {
@@ -56,6 +61,7 @@ class ConnectionLoginActivity : ComponentActivity() {
             } } }
             return
         }
+        val manageYouTube = provider == "youtube" && intent.getBooleanExtra("manage", false)
         setContent {
             MaterialTheme {
                 var view by remember { mutableStateOf<WebView?>(null) }
@@ -63,6 +69,33 @@ class ConnectionLoginActivity : ComponentActivity() {
                 var saving by remember { mutableStateOf(false) }
                 var pendingSpotify by remember { mutableStateOf<SpotifyConnection?>(null) }
                 var pageUrl by remember { mutableStateOf("") }
+                var youtubeAttempt by remember { mutableIntStateOf(0) }
+                var youtubeLoadFailed by remember { mutableStateOf(false) }
+                var browserStopped by remember { mutableStateOf(false) }
+                val onYouTubeMusic = provider == "youtube" && isYouTubeMusicPage(pageUrl)
+                LaunchedEffect(view, onYouTubeMusic, youtubeAttempt, youtubeLoadFailed) {
+                    val browser = view ?: return@LaunchedEffect
+                    if (!onYouTubeMusic || youtubeLoadFailed || manageYouTube && youtubeAttempt == 0) return@LaunchedEffect
+                    saving = true
+                    status = "Connecting YouTube Music…"
+                    try {
+                        val session = awaitYouTubeWebSession(
+                            currentUrl = { browser.url },
+                            readIdentity = { browser.readYouTubeIdentity() },
+                            readCookie = { ConnectionBrowserProfile.cookies().getCookie(YOUTUBE_MUSIC_HOME).orEmpty() }
+                        )
+                        if (session == null) {
+                            status = "Finish signing in on YouTube Music, then tap Use account."
+                        } else if (view === browser && !isFinishing && isYouTubeMusicPage(browser.url)) {
+                            val store = ConnectionStore.get(this@ConnectionLoginActivity)
+                            val saved = store.addYouTube(session.name, session.cookie, session.visitor, session.profile, session.user)
+                            store.refreshYouTubeProfileName(saved)
+                            finish()
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { status = "The secure connection could not be saved. Try again." }
+                    finally { saving = false }
+                }
                 fun saveSpotify(session: SpotifyConnection) {
                     pendingSpotify = session
                     if (saving || isFinishing) return
@@ -81,44 +114,49 @@ class ConnectionLoginActivity : ComponentActivity() {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = { finish() }) { Text("Close") }
                             Text(if (provider == "youtube") "YouTube Music" else "Spotify", modifier = Modifier.padding(top = 14.dp))
-                            if (provider == "youtube") TextButton(enabled = !saving && pageUrl.startsWith("https://music.youtube.com/"), onClick = {
-                                val browser = view ?: return@TextButton
-                                saving = true
-                                browser.evaluateJavascript(YOUTUBE_IDENTITY) { result ->
-                                    try {
-                                        val identity = JSONObject(result)
-                                        val cookie = ConnectionBrowserProfile.cookies().getCookie("https://music.youtube.com").orEmpty()
-                                        if (!identity.optBoolean("loggedIn")) throw IllegalStateException()
-                                        lifecycleScope.launch {
-                                            try {
-                                                ConnectionStore.get(this@ConnectionLoginActivity).addYouTube(identity.optString("name"), cookie,
-                                                    identity.optString("visitor"), identity.optString("page").ifBlank {
-                                                        identity.optString("sync").substringBefore("||") }, identity.optString("user", "0"))
-                                                val store = ConnectionStore.get(this@ConnectionLoginActivity)
-                                                val selected = store.state.value.selectedYouTube
-                                                try {
-                                                    val name = withTimeoutOrNull(10_000) { youtubeProfileName(JSONObject(
-                                                        com.example.data.remote.YouTubeAudioStreamService.discoveryResponse("accountMenu", "", "US", includeAccount = true))) }
-                                                    if (!name.isNullOrBlank()) store.change { current -> current.copy(youtube = current.youtube.map {
-                                                        if (it.id == selected) it.copy(name = name) else it }) }
-                                                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
-                                                ConnectionBrowserProfile.cookies().flush(); finish()
-                                            } catch (_: Exception) { saving = false; status = "Finish signing in and choose your profile, then try again." }
-                                        }
-                                    } catch (_: Exception) { saving = false; status = "Finish signing in on YouTube Music, then tap Use account." }
+                            if (provider == "youtube") TextButton(
+                                enabled = view != null && !saving && (onYouTubeMusic || youtubeLoadFailed),
+                                onClick = {
+                                    if (youtubeLoadFailed) view?.reload() else youtubeAttempt++
                                 }
-                            }) { Text("Use account") }
+                            ) { Text(if (youtubeLoadFailed) "Retry" else "Use account") }
                         }
                         Text(status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
-                        AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { context ->
+                        if (!browserStopped) AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { context ->
                             sessionWebView(context).apply {
                                 webViewClient = object : SpotifySessionClient({ session -> runOnUiThread { saveSpotify(session) } }) {
                                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = !ConnectionHosts.allowed(request.url.toString(), provider)
+                                    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                                        super.onPageStarted(view, url, favicon)
+                                        if (provider == "youtube") {
+                                            youtubeLoadFailed = false
+                                            pageUrl = url.orEmpty()
+                                            if (!isYouTubeMusicPage(url)) {
+                                                youtubeAttempt = 0
+                                                status = "Sign in on the service’s secure website."
+                                            }
+                                        }
+                                    }
+                                    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                                        if (provider == "youtube") pageUrl = (view.url ?: url).orEmpty()
+                                    }
                                     override fun onPageFinished(view: WebView, url: String?) {
-                                        pageUrl = url.orEmpty()
+                                        if (provider == "youtube") pageUrl = (view.url ?: url).orEmpty()
                                         if (provider == "spotify" && Uri.parse(url).host == "open.spotify.com") {
                                             status = "Completing your Spotify connection…"
                                             view.evaluateJavascript("document.querySelectorAll('audio,video').forEach(function(m){m.pause();});", null)
+                                        }
+                                    }
+                                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                                        if (provider == "youtube" && request.isForMainFrame) {
+                                            youtubeLoadFailed = true
+                                            status = "YouTube Music couldn’t load. Tap Retry to try again."
+                                        }
+                                    }
+                                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, error: WebResourceResponse) {
+                                        if (provider == "youtube" && request.isForMainFrame) {
+                                            youtubeLoadFailed = true
+                                            status = "YouTube Music couldn’t load. Tap Retry to try again."
                                         }
                                     }
                                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -126,16 +164,20 @@ class ConnectionLoginActivity : ComponentActivity() {
                                     override fun onRenderProcessGone(deadView: WebView, detail: RenderProcessGoneDetail): Boolean {
                                         if (view === deadView) view = null
                                         status = "The browser process stopped unexpectedly. Close and try again."
-                                        runCatching { deadView.destroy() }
+                                        browserStopped = true
                                         return true
                                     }
                                 }
                                 view = this
-                                loadUrl(if (provider == "youtube" && intent.getBooleanExtra("manage", false)) "https://music.youtube.com/"
+                                loadUrl(if (manageYouTube) YOUTUBE_MUSIC_HOME
                                     else if (provider == "youtube") "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F"
                                     else "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F")
                             }
-                        }, onRelease = { it.stopLoading(); it.destroy() })
+                        }, onRelease = {
+                            if (view === it) view = null
+                            if (!browserStopped) it.stopLoading()
+                            it.destroy()
+                        })
                     }
                 }
                 BackHandler { if (view?.canGoBack() == true) view?.goBack() else finish() }
@@ -262,24 +304,47 @@ internal suspend fun refreshSpotifySession(context: Context, saved: SpotifyConne
     }
 }
 
-internal suspend fun clearConnectionCookies(provider: String) = withContext(Dispatchers.Main) {
-    val roots = if (provider == "youtube") listOf("https://music.youtube.com", "https://www.youtube.com", "https://accounts.google.com", "https://google.com")
-        else listOf("https://open.spotify.com", "https://accounts.spotify.com", "https://spotify.com")
-    val cookies = ConnectionBrowserProfile.cookies()
-    roots.forEach { origin ->
+internal suspend fun clearConnectionBrowserData(provider: String) = withContext(Dispatchers.Main) {
+    if (!ConnectionBrowserProfile.isSupported()) return@withContext
+    val profile = ConnectionBrowserProfile.profile()
+    val sites = if (provider == "youtube") listOf("youtube.com", "google.com") else listOf("spotify.com")
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)) {
+        val removed = withTimeoutOrNull(5_000L) {
+            sites.forEach { site ->
+                suspendCancellableCoroutine { continuation ->
+                    WebStorageCompat.deleteBrowsingDataForSite(profile.webStorage, "https://$site/") {
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+                }
+            }
+            true
+        }
+        if (removed == true) return@withContext
+    }
+    val origins = if (provider == "youtube") listOf(YOUTUBE_MUSIC_HOME, "https://www.youtube.com/", "https://accounts.google.com/", "https://google.com/")
+        else listOf("https://open.spotify.com/", "https://accounts.spotify.com/", "https://spotify.com/")
+    val cookies = profile.cookieManager
+    origins.forEach { origin ->
+        profile.webStorage.deleteOrigin(origin.removeSuffix("/"))
         val host = Uri.parse(origin).host.orEmpty()
-        val domain = if (host.endsWith("youtube.com")) "youtube.com" else if (host.endsWith("google.com")) "google.com" else "spotify.com"
+        val domain = sites.firstOrNull { host == it || host.endsWith(".$it") } ?: return@forEach
         cookies.getCookie(origin).orEmpty().split(';').map { it.substringBefore('=').trim() }.filter(String::isNotBlank).forEach { name ->
             cookies.setCookie(origin, "$name=; Max-Age=0; Path=/; Secure")
             cookies.setCookie(origin, "$name=; Max-Age=0; Path=/; Domain=.$domain; Secure")
         }
     }
-    cookies.flush()
+    withContext(Dispatchers.IO) { cookies.flush() }
 }
 
+private suspend fun WebView.readYouTubeIdentity(): String? = suspendCancellableCoroutine { continuation ->
+    evaluateJavascript(YOUTUBE_IDENTITY) { if (continuation.isActive) continuation.resume(it) }
+}
+
+private const val YOUTUBE_MUSIC_HOME = "https://music.youtube.com/"
+
 private const val YOUTUBE_IDENTITY = """(function(){
-  if(!window.ytcfg || !ytcfg.get) return null;
-  return {loggedIn:!!ytcfg.get('LOGGED_IN'), name:ytcfg.get('ACCOUNT_NAME')||ytcfg.get('CHANNEL_NAME')||'YouTube Music',
+  if(location.origin !== 'https://music.youtube.com' || !window.ytcfg || !ytcfg.get) return null;
+  return {loggedIn:ytcfg.get('LOGGED_IN') === true, name:ytcfg.get('ACCOUNT_NAME')||ytcfg.get('CHANNEL_NAME')||'YouTube Music',
     visitor:ytcfg.get('VISITOR_DATA')||'', page:ytcfg.get('DELEGATED_SESSION_ID')||'', sync:ytcfg.get('DATASYNC_ID')||'', user:String(ytcfg.get('SESSION_INDEX')||'0')};
 })()
 """

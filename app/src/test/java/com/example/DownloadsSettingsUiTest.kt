@@ -18,6 +18,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.example.data.model.MusicTrack
 import com.example.downloads.*
 import com.example.ui.screens.settings.DownloadsPage
@@ -44,8 +47,11 @@ class DownloadsSettingsUiTest {
     private val gib = 1_073_741_824L
     private lateinit var store: OfflineDownloads
     private val track = MusicTrack("storage", "Saved song", "Artist", "Album", 120_000, "", "")
+    private val plan = OfflinePlan("https://audio.example/song", null, "fixture", true)
 
     @Before fun prepare() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            Configuration.Builder().setExecutor(SynchronousExecutor()).build())
         store = OfflineDownloads(context)
         runBlocking { store.load() }
         storage(16)
@@ -58,7 +64,7 @@ class DownloadsSettingsUiTest {
     }
 
     @Test fun storageSitsBelowQualityAndItsBarAndLabelsAdaptToThemes() {
-        runBlocking { store.put(DownloadRecord(track, DownloadStatus.COMPLETE, bytes = 16 * gib)) }
+        runBlocking { store.put(DownloadRecord(track, DownloadStatus.COMPLETE, bytes = 16 * gib, plan = plan)) }
         var colors by mutableStateOf(DarkAppColors)
         compose.setContent { MaterialTheme { CompositionLocalProvider(LocalAppColors provides colors) {
             Box(Modifier.fillMaxSize().background(colors.scaffoldBackground)) { DownloadsPage(store = store) }
@@ -73,7 +79,18 @@ class DownloadsSettingsUiTest {
             compose.onAllNodesWithText("16.0 GB", useUnmergedTree = true).assertCountEquals(2) // downloads and available
             compose.onNodeWithText("32.0 GB", useUnmergedTree = true).assertExists() // other used
             compose.onNodeWithText("Available").assertExists()
-            compose.onNodeWithText("1 track saved on this device").assertExists()
+            compose.onNodeWithText("1 track saved on this device").assertDoesNotExist()
+            val counts = compose.onNodeWithTag("downloaded_songs_summary").fetchSemanticsNode().boundsInRoot
+            assertTrue("Song counts follow device storage", counts.top > summary.bottom)
+            compose.onNodeWithTag("downloaded_songs_total").assertTextEquals("1")
+            compose.onNodeWithTag("downloaded_songs_high").assert(hasAnyDescendant(hasText("1")))
+            val tiles = listOf("lossless", "high", "standard").map { tier ->
+                compose.onNodeWithTag("downloaded_songs_$tier").fetchSemanticsNode().boundsInRoot
+            }
+            tiles.drop(1).forEach { tile ->
+                assertEquals(tiles.first().height, tile.height, 0f)
+                assertEquals(tiles.first().width, tile.width, 1f) // Whole-pixel rounding in an equal-weight row.
+            }
             compose.onNodeWithText("Find and play your saved tracks in Library → Downloads.").assertDoesNotExist()
             val bar = compose.onNodeWithTag("download_storage_bar")
             assertEquals(.75f, bar.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, .0001f)
@@ -98,16 +115,39 @@ class DownloadsSettingsUiTest {
             }
         } }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("64.0 GB total").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("0 tracks saved on this device").assertExists()
+        compose.onNodeWithText("0 tracks saved on this device").assertDoesNotExist()
+        compose.onNodeWithTag("downloaded_songs_total").assertTextEquals("0")
         storage(24)
         runBlocking { store.put(DownloadRecord(track, DownloadStatus.PAUSED, bytes = 2 * gib)) }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("24.0 GB").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("2.0 GB").assertExists()
-        compose.onNodeWithText("0 tracks saved on this device · Includes in-progress audio").assertExists()
+        compose.onNodeWithText("Includes in-progress audio").assertExists()
+        compose.onNodeWithTag("downloaded_songs_total").assertTextEquals("0")
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.STARTED }
         storage(8)
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("8.0 GB").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("54.0 GB").assertExists()
+    }
+
+    @Test fun countsUseEachSavedFileQualityAndUpdateAsDownloadsChange() {
+        val standard = DownloadRecord(track.copy(bitrateKbps = 128), DownloadStatus.COMPLETE, bytes = 100, plan = plan)
+        val lossless = standard.copy(track = standard.track.copy(id = "lossless", isLossless = true))
+        val high = standard.copy(track = standard.track.copy(id = "high", bitrateKbps = 256))
+        runBlocking {
+            store.put(standard)
+            store.put(lossless)
+            store.put(high)
+            store.put(standard.copy(track = track.copy(id = "partial"), status = DownloadStatus.PAUSED))
+            store.put(standard.copy(track = track.copy(id = "missing"), plan = null))
+        }
+        compose.setContent { MaterialTheme { DownloadsPage(store = store) } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("downloaded_songs_total") and hasText("3")).fetchSemanticsNodes().isNotEmpty() }
+        for (tier in listOf("lossless", "high", "standard")) {
+            compose.onNodeWithTag("downloaded_songs_$tier").assert(hasAnyDescendant(hasText("1")))
+        }
+        runBlocking { store.remove(lossless.track.id) }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("downloaded_songs_total") and hasText("2")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("downloaded_songs_lossless").assert(hasAnyDescendant(hasText("0")))
     }
 }

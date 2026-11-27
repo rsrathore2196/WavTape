@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun DownloadsPage(modifier: Modifier = Modifier, store: OfflineDownloads = OfflineDownloads.get(LocalContext.current)) {
     val summary by remember(store) { store.observeSummary() }
-        .collectAsStateWithLifecycle(DownloadSummary(0, 0, false, false))
+        .collectAsStateWithLifecycle(DownloadSummary())
     val preferences by store.preferences.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = LocalAppColors.current
@@ -81,15 +82,54 @@ fun DownloadsPage(modifier: Modifier = Modifier, store: OfflineDownloads = Offli
                     HorizontalDivider(Modifier.padding(vertical = 16.dp), color = colors.cardBorder)
                     DownloadStorageSummary(
                         downloadedBytes = summary.bytes,
-                        savedTracks = summary.saved,
                         hasPartialAudio = summary.partial
                     )
                 }
             }
         }
+        item { DownloadedSongsCard(summary) }
         error?.let { message -> item { Text(message, color = colors.primaryAccent) } }
         if (summary.hasRecords) item {
             TextButton(onClick = { clear = true }, modifier = Modifier.testTag("clear_downloads")) { Text("Remove all downloads") }
+        }
+    }
+}
+
+@Composable
+private fun DownloadedSongsCard(summary: DownloadSummary) {
+    val colors = LocalAppColors.current
+    Surface(shape = RoundedCornerShape(20.dp), color = colors.cardBackground,
+        border = BorderStroke(1.dp, colors.cardBorder),
+        modifier = Modifier.fillMaxWidth().testTag("downloaded_songs_summary")) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(12.dp), color = colors.primaryAccent.copy(alpha = .12f)) {
+                    Icon(Icons.Default.CloudDownload, null, Modifier.padding(9.dp).size(20.dp), tint = colors.primaryAccent)
+                }
+                Text("Downloaded songs", Modifier.weight(1f), color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                Text(summary.saved.toString(), Modifier.testTag("downloaded_songs_total"),
+                    color = colors.textPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DownloadQualityCount("Lossless", summary.lossless, colors.primaryAccent,
+                    Modifier.weight(1f).testTag("downloaded_songs_lossless"))
+                DownloadQualityCount("High quality", summary.high, colors.textSecondary,
+                    Modifier.weight(1f).testTag("downloaded_songs_high"))
+                DownloadQualityCount("Standard quality", summary.standard, colors.textSecondary,
+                    Modifier.weight(1f).testTag("downloaded_songs_standard"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadQualityCount(label: String, count: Int, tint: Color, modifier: Modifier) {
+    val colors = LocalAppColors.current
+    Surface(modifier = modifier.fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = tint.copy(alpha = .09f)) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(count.toString(), color = colors.textPrimary, style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold)
+            Text(label, color = colors.textSecondary, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

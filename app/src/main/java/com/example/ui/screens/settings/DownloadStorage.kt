@@ -56,7 +56,7 @@ internal data class DownloadStorageUsage(val device: DeviceStorage, val download
 }
 
 @Composable
-internal fun DownloadStorageSummary(downloadedBytes: Long, savedTracks: Int, hasPartialAudio: Boolean) {
+internal fun DownloadStorageSummary(downloadedBytes: Long, hasPartialAudio: Boolean) {
     val context = LocalContext.current.applicationContext
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var device by remember(context) { mutableStateOf<DeviceStorage?>(null) }
@@ -69,12 +69,12 @@ internal fun DownloadStorageSummary(downloadedBytes: Long, savedTracks: Int, has
             awaitCancellation()
         }
     }
-    DownloadStorageCard(device, downloadedBytes, savedTracks, hasPartialAudio, loading)
+    DownloadStorageCard(device, downloadedBytes, hasPartialAudio, loading)
 }
 
 @Composable
 internal fun DownloadStorageCard(
-    device: DeviceStorage?, downloadedBytes: Long, savedTracks: Int,
+    device: DeviceStorage?, downloadedBytes: Long,
     hasPartialAudio: Boolean = false, loading: Boolean = false
 ) {
     val colors = LocalAppColors.current
@@ -114,9 +114,8 @@ internal fun DownloadStorageCard(
             StorageMetric("Other used", usage?.let { formatDownloadBytes(it.otherBytes) } ?: "—", otherColor, Modifier.weight(1f))
             StorageMetric("Available", usage?.let { formatDownloadBytes(it.availableBytes) } ?: "—", availableColor, Modifier.weight(1f))
         }
-        Text("$savedTracks ${if (savedTracks == 1) "track" else "tracks"} saved on this device" +
-            if (hasPartialAudio) " · Includes in-progress audio" else "",
-            color = colors.textMuted, style = MaterialTheme.typography.bodySmall)
+        if (hasPartialAudio) Text("Includes in-progress audio", color = colors.textMuted,
+            style = MaterialTheme.typography.bodySmall)
     }
 }
 

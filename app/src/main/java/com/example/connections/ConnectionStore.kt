@@ -5,12 +5,17 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.performance.AppDispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -42,6 +47,7 @@ internal class ConnectionStore internal constructor(context: Context) {
     private var encrypted: android.content.SharedPreferences? = null
     private val _state = MutableStateFlow(ConnectionState())
     val state = _state.asStateFlow()
+    private val profileScope by lazy { CoroutineScope(SupervisorJob() + AppDispatchers.Io) }
 
     /** Load existing preferences for a headless backup without creating a connection store. */
     internal suspend fun savedLastFmPreferences(): LastFmConnection = withContext(AppDispatchers.Io) {
@@ -69,8 +75,7 @@ internal class ConnectionStore internal constructor(context: Context) {
                 fm.optString("name"), fm.optBoolean("enabled", true), fm.optBoolean("now", true), fm.optBoolean("primary", true),
                 fm.optInt("min", 30), fm.optInt("percent", 50), fm.optInt("seconds", 240), fm.optString("pending"))
             encrypted = prefs
-            _state.value = ConnectionState(sessions, root.optString("active"), spotify, lastFm)
-            applyDiscoveryAccount()
+            publish(ConnectionState(sessions, root.optString("active"), spotify, lastFm))
             loaded = true
         }
     }
@@ -78,6 +83,7 @@ internal class ConnectionStore internal constructor(context: Context) {
         load()
         lock.withLock {
             val next = transform(_state.value)
+            if (next == _state.value) return@withLock
             val fm = next.lastFm
             val root = JSONObject().put("active", next.selectedYouTube)
                 .put("youtube", JSONArray(next.youtube.map { JSONObject().put("id", it.id).put("name", it.name)
@@ -89,21 +95,43 @@ internal class ConnectionStore internal constructor(context: Context) {
             next.spotify?.let { root.put("spotify", JSONObject().put("cookie", it.cookie).put("bearer", it.bearer)
                 .put("expires", it.expiresAt).put("name", it.name).put("client", it.clientToken)) }
             check(encrypted!!.edit().putString("connections", root.toString()).commit()) { "Could not save connection" }
-            _state.value = next
-            applyDiscoveryAccount()
+            publish(next)
         }
     }
-    private fun applyDiscoveryAccount() {
-        val yt = _state.value.activeYouTube
+    private fun publish(next: ConnectionState) {
+        val yt = next.activeYouTube
         YouTubeAudioStreamService.setDiscoveryConnection(yt?.cookie, yt?.visitor, yt?.dataSyncId, yt?.authUser)
+        _state.value = next
     }
-    suspend fun addYouTube(name: String, cookie: String, visitor: String, sync: String, user: String) {
-        require(cookieValue(cookie, "SAPISID").isNotBlank() || cookieValue(cookie, "__Secure-3PAPISID").isNotBlank()) {
-            "The sign-in session is not ready yet"
-        }
-        val identity = digest(sync.ifBlank { "${cookieValue(cookie, "SAPISID").ifBlank { cookieValue(cookie, "__Secure-3PAPISID") }}|$user" })
+    suspend fun addYouTube(name: String, cookie: String, visitor: String, sync: String, user: String): YouTubeConnection {
+        val signInCookie = youTubeSignInCookie(cookie)
+        require(signInCookie.isNotBlank()) { "The sign-in session is not ready yet" }
+        val identity = digest(sync.ifBlank { "$signInCookie|$user" })
         val session = YouTubeConnection(identity, name.ifBlank { "YouTube Music" }, cookie, visitor, sync, user)
         change { it.copy(youtube = it.youtube.filterNot { old -> old.id == identity } + session, selectedYouTube = identity) }
+        return session
+    }
+
+    /** Account details are optional and must never hold the sign-in window open. */
+    fun refreshYouTubeProfileName(session: YouTubeConnection) {
+        profileScope.launch {
+            try {
+                val snapshot = YouTubeAudioStreamService.discoveryAccountSession()
+                if (state.value.activeYouTube != session || snapshot?.cookie != session.cookie) return@launch
+                val expected = YouTubeAudioStreamService.accountIdentity(snapshot)
+                val name = withTimeoutOrNull(10_000L) {
+                    val response = YouTubeAudioStreamService.discoveryResponseWithIdentity("accountMenu", "", "US", includeAccount = true)
+                    if (response.accountIdentity == expected) youtubeProfileName(JSONObject(response.body)) else null
+                }
+                if (name.isNullOrBlank() || name == session.name) return@launch
+                change { current ->
+                    if (current.activeYouTube != session) current else current.copy(youtube = current.youtube.map {
+                        if (it.id == session.id) it.copy(name = name) else it
+                    })
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* The stored session remains usable. */ }
+        }
     }
     companion object {
         const val PREFS = "account_connections_secure"
@@ -114,6 +142,8 @@ internal class ConnectionStore internal constructor(context: Context) {
         }
         fun cookieValue(cookie: String, name: String): String = cookie.split(';').firstOrNull {
             it.substringBefore('=').trim() == name }?.substringAfter('=', "")?.trim().orEmpty()
+        fun youTubeSignInCookie(cookie: String): String =
+            cookieValue(cookie, "SAPISID").ifBlank { cookieValue(cookie, "__Secure-3PAPISID") }
         fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }

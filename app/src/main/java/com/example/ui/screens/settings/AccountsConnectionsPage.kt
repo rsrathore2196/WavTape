@@ -37,6 +37,8 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var ready by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var clearingYouTube by remember { mutableStateOf(false) }
+    var clearingSpotify by remember { mutableStateOf(false) }
     var lastFmDialog by remember { mutableStateOf(false) }
     var library by remember { mutableStateOf<String?>(null) }
     fun action(block: suspend () -> Unit) { scope.launch {
@@ -63,6 +65,8 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
             Text("Connect your music", color = colors.textPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Bring your library together and keep your listening history in sync. Connections don’t change your audio source.",
                 color = colors.textSecondary, modifier = Modifier.padding(top = 6.dp))
+            Text("Saved sign-in details are encrypted on this device and excluded from backups.", color = colors.textSecondary,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
         }
         error?.let { message -> item { Text(message, color = colors.primaryAccent) } }
         item { ConnectionCard(ConnectionService.YouTube, "Your playlists, saved albums and liked songs") {
@@ -73,18 +77,23 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
                         { action { store.change { it.copy(selectedYouTube = account.id) } } },
                         colors = RadioButtonDefaults.colors(selectedColor = ConnectionService.YouTube.accent))
                     Text(account.name, color = colors.textPrimary, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                    ConnectionActionButton("Remove", onClick = { action {
-                        store.change { current -> val remaining = current.youtube.filterNot { it.id == account.id }
-                            current.copy(youtube = remaining, selectedYouTube = if (current.selectedYouTube == account.id) remaining.firstOrNull()?.id.orEmpty() else current.selectedYouTube) }
-                        clearConnectionCookies("youtube")
-                    } })
+                    ConnectionActionButton("Remove", enabled = !clearingYouTube, onClick = {
+                        clearingYouTube = true
+                        action {
+                            try {
+                                store.change { current -> val remaining = current.youtube.filterNot { it.id == account.id }
+                                    current.copy(youtube = remaining, selectedYouTube = if (current.selectedYouTube == account.id) remaining.firstOrNull()?.id.orEmpty() else current.selectedYouTube) }
+                                clearConnectionBrowserData("youtube")
+                            } finally { clearingYouTube = false }
+                        }
+                    })
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.youtube.isEmpty()) ConnectionActionButton("Connect", { signIn("youtube") },
-                    Modifier.testTag("connect_youtube"), enabled = ready, primary = true)
+                    Modifier.testTag("connect_youtube"), enabled = ready && !clearingYouTube, primary = true)
                 if (state.activeYouTube != null) {
-                    ConnectionActionButton("Choose profile", { signIn("youtube", manage = true) })
+                    ConnectionActionButton("Choose profile", { signIn("youtube", manage = true) }, enabled = !clearingYouTube)
                     ConnectionActionButton("Library", { library = "youtube" })
                 }
             }
@@ -121,10 +130,18 @@ fun AccountsConnectionsPage(modifier: Modifier = Modifier) {
             Text(if (state.spotify == null) "Not connected" else "Connected", color = colors.textSecondary)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ConnectionActionButton(if (state.spotify == null) "Connect" else "Reconnect", { signIn("spotify") },
-                    Modifier.testTag("connect_spotify"), enabled = ready, primary = true)
+                    Modifier.testTag("connect_spotify"), enabled = ready && !clearingSpotify, primary = true)
                 if (state.spotify != null) {
                     ConnectionActionButton("Library", { library = "spotify" })
-                    ConnectionActionButton("Disconnect", { action { store.change { it.copy(spotify = null) }; clearConnectionCookies("spotify") } })
+                    ConnectionActionButton("Disconnect", enabled = !clearingSpotify, onClick = {
+                        clearingSpotify = true
+                        action {
+                            try {
+                                store.change { it.copy(spotify = null) }
+                                clearConnectionBrowserData("spotify")
+                            } finally { clearingSpotify = false }
+                        }
+                    })
                 }
             }
         } }

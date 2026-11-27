@@ -96,8 +96,7 @@ object YouTubeAudioStreamService {
         metadataAccount = cookie?.takeIf { it.isNotBlank() }?.let {
             InnerTube.SessionSnapshot(cookie = it, visitorData = visitor?.takeIf(String::isNotBlank),
                 dataSyncId = sync?.takeIf(String::isNotBlank), authUser = user ?: "0",
-                sapisid = com.example.connections.ConnectionStore.cookieValue(it, "SAPISID").ifBlank {
-                    com.example.connections.ConnectionStore.cookieValue(it, "__Secure-3PAPISID") }, useLoginForBrowse = true)
+                sapisid = com.example.connections.ConnectionStore.youTubeSignInCookie(it), useLoginForBrowse = true)
         }
         accountChanges.value = metadataAccount
     }

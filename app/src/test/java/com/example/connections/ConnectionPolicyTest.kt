@@ -20,6 +20,12 @@ class ConnectionPolicyTest {
         assertFalse(ConnectionHosts.allowed("https://spotify.com.evil.test/", "spotify"))
         assertFalse(ConnectionHosts.allowed("https://music.youtube.com/", "spotify"))
     }
+    @Test fun onlyTheExactMusicOriginCanCompleteYouTubeSignIn() {
+        assertTrue(isYouTubeMusicPage("https://music.youtube.com:443/library?authuser=1"))
+        listOf("https://accounts.google.com/", "https://www.youtube.com/", "https://music.youtube.com.evil.test/",
+            "https://evil@music.youtube.com/", "http://music.youtube.com/", "https://music.youtube.com:444/", null)
+            .forEach { assertFalse(isYouTubeMusicPage(it)) }
+    }
     @Test fun cookieLookupRequiresExactNamesAndPreservesValueEquals() {
         assertEquals("secret=value", ConnectionStore.cookieValue("__Secure-SAPISID=wrong; SAPISID=secret=value; SID=other", "SAPISID"))
         assertEquals("", ConnectionStore.cookieValue("XSAPISID=wrong; SID=other", "SAPISID"))
