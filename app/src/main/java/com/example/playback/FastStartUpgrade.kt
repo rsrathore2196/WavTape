@@ -28,10 +28,14 @@ internal class FastStartUpgrade {
 internal const val FAST_START_BUFFER_MS = 5_000L
 internal const val FAST_START_READ_AHEAD_MS = 9_000L
 
-internal data class FastStartBuffer(val fromMs: Long, val untilMs: Long, val manifests: FastStartManifests? = null) {
+internal data class FastStartBuffer(val fromMs: Long, val untilMs: Long, val manifests: FastStartManifests? = null,
+    val archiveCacheKey: String? = null) {
     fun covers(positionMs: Long): Boolean = positionMs >= fromMs && untilMs - positionMs >= FAST_START_BUFFER_MS
 
-    fun forHandoff(item: MediaItem): MediaItem = manifests?.forHandoff(item) ?: item
+    fun forHandoff(item: MediaItem): MediaItem = when {
+        archiveCacheKey != null -> item.buildUpon().setCustomCacheKey(archiveCacheKey).build()
+        else -> manifests?.forHandoff(item) ?: item
+    }
 }
 
 /** Check the replacement at the live playhead before changing the active Media3 item. */
@@ -42,7 +46,7 @@ internal suspend fun prepareFastStartReplacement(
 ): FastStartBuffer? {
     if (!stillCurrent()) return null
     if (item.localConfiguration?.uri?.scheme == MusicCache.OFFLINE_SCHEME) return FastStartBuffer(0L, Long.MAX_VALUE)
-    val matchingIsrc = RecordingIdentity.isrc(original.isrc)?.let { it == RecordingIdentity.isrc(replacement.isrc) } == true
+    val matchingIsrc = RecordingIdentity.isrc(original.isrc)?.let { it == com.example.data.remote.ArchiveFileEvidence.verifiedReplacementIsrc(replacement) } == true
     val tolerance = if (matchingIsrc) 8_000L else 5_000L
     if (LosslessStreamPrebuffer.isAdaptiveSource(item)) {
         return LosslessStreamPrebuffer.prepareAdaptiveFastStart(context, item, original.durationMs, stillCurrent,
@@ -53,7 +57,7 @@ internal suspend fun prepareFastStartReplacement(
         durationToleranceMs = tolerance, allowUnknownDuration = matchingIsrc, automatic = automatic,
         requireLossless = replacement.isLossless, fastStart = true)
     if (!stillCurrent()) return null
-    val buffer = prepared?.let { FastStartBuffer(it.fromMs, it.untilMs) }
+    val buffer = prepared?.let { FastStartBuffer(it.fromMs, it.untilMs, archiveCacheKey = it.archiveCacheKey) }
     if (buffer?.covers(position()) == true) return buffer
     LosslessDiagnostics.prebufferRejected(original.id, prepared != null)
     return null

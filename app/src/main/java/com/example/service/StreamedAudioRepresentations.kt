@@ -51,6 +51,9 @@ internal object StreamedAudioRepresentations {
         .joinToString("") { "%02x".format(it) }
     private fun recording(track: MusicTrack) = digest("${track.id}|${RecordingIdentity.key(track)}")
 
+    private fun archiveRecording(track: MusicTrack) =
+        digest("${track.id}|archive|${com.example.data.remote.ArchiveRecordingIdentity.key(track)}")
+
     fun keyFor(uri: Uri): String? = synchronized(transports) { transports[uri.toString()]?.key }
 
     /** Bind a verified representation in memory. The audio loader persists it when it opens the cache. */
@@ -97,16 +100,20 @@ internal object StreamedAudioRepresentations {
                 uri.getQueryParameters(name).forEach { appendQueryParameter(name, it) }
             }
         }.build().toString()
-        val identity = recording(track)
-        // Unknown-length mutable URLs are not byte-identical evidence. A fresh process/resolve
-        // gets a new partial representation; completed entries remain reusable by metadata.
+        val nativeArchive = if (provider.kind == PlaybackSourceKind.INTERNET_ARCHIVE)
+            com.example.data.remote.ArchiveFileKey.nativeTransport(track.audioUrl) else null
+        val identity = if (nativeArchive == null) recording(track) else archiveRecording(track)
+        // Native Archive cache fills validate the file's bytes or strong ETag before replaying
+        // a sequential response into a persisted partial representation.
         val expected = Descriptor("", identity, provider.id, provider.kind, track.bitrateKbps, codec, mime,
             track.isLossless, knownLength, track.id)
         // A provider may reuse the same address for a different quality/format.
         // Neither URI equality nor recording identity permits joining those bytes.
-        val variant = digest("$normalized|${provider.kind}|${track.bitrateKbps}|$codec|$mime|${track.isLossless}|$knownLength|" +
-            if (knownLength > 0) "known" else UUID.randomUUID().toString())
-        val newKey = "stream:v1:${digest(provider.id).take(16)}:$identity:$variant"
+        val variant = if (nativeArchive != null) digest(nativeArchive.url.toString())
+            else digest("$normalized|${provider.kind}|${track.bitrateKbps}|$codec|$mime|${track.isLossless}|$knownLength|" +
+                if (knownLength > 0) "known" else UUID.randomUUID().toString())
+        val cacheIdentity = if (nativeArchive == null) identity else digest(track.id)
+        val newKey = "stream:v1:${digest(provider.id).take(16)}:$cacheIdentity:$variant"
         synchronized(transports) {
             val existing = transports[track.audioUrl]?.takeIf { it.copy(key = "") == expected }
             val descriptor = existing ?: expected.copy(key = newKey)
@@ -184,8 +191,11 @@ internal object StreamedAudioRepresentations {
         val order = (if (bestQualityFirst) policy.startupSourcesFor(track.id) else policy.resolutionSourcesFor(track.id))
             .filter { sourceId == null || it.id == sourceId }
         val opusOnly = uri.getQueryParameter("codec") == "opus"
+        val archiveIdentity by lazy { archiveRecording(track) }
         val candidates = cache.keys.asSequence().mapNotNull { read(cache, it) }.filter {
-            it.recording == identity && (!opusOnly || it.codec == "Opus") &&
+            val sameRecording = it.recording == identity ||
+                it.kind == PlaybackSourceKind.INTERNET_ARCHIVE && it.recording == archiveIdentity
+            sameRecording && (!opusOnly || it.codec == "Opus") &&
                 order.any { source -> source.id == it.provider } && permitsCached(policy, it.uri()) && complete(cache, it)
         }.toList()
         val descriptor = order.firstNotNullOfOrNull { source -> candidates.filter { it.provider == source.id }.maxByOrNull { it.bitrate } }

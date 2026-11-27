@@ -118,10 +118,10 @@ class LosslessArchiveLookupTest {
                 assertEquals(4, size)
                 queries++
                 LosslessSearchPage(listOf(archive.copy(artist = "Other Artist"),
-                    archive.copy(title = "Song (Live)"), archive.copy(durationMs = 183_000), archive))
+                    archive.copy(title = "Song (Live)"), archive.copy(durationMs = 0)))
             }
             val found = repo.findLosslessUpgrade(track)
-            assertEquals(archive, found)
+            assertEquals(archive.copy(durationMs = 0), found)
             // The injected provider owns these responses. Production lookups
             // reuse verified matches; fake provider calls bypass that global cache.
             assertEquals(1, queries)

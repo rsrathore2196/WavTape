@@ -37,6 +37,19 @@ class SearchSourcePolicyTest {
     }
     private suspend fun awaitCondition(test: () -> Boolean) = withTimeout(3_000) { while (!test()) delay(10) }
 
+    @Test fun catalogWithoutArchiveSearchKeepsArchiveRowsAndStatusOutOfResults() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val browser = CatalogBrowserState(CatalogRepository(), scope)
+        try {
+            seed(browser, listOf(archive, jio, youtube))
+            browser.setSourcePolicy(PlaybackSourcePolicy(AudioQualityCeiling.MAX))
+            awaitCondition { browser.search.value.page.tracks.map { it.id }.toSet() == setOf(jio.id, youtube.id) }
+            assertFalse(browser.search.value.archiveLoading)
+            assertNull(browser.search.value.archiveMessage)
+            assertNull(browser.search.value.archiveNextPage)
+        } finally { scope.cancel() }
+    }
+
     @Test fun lowerQualityRemovesArchiveWhileKeepingOriginalYoutubeAndJioRows() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val browser = CatalogBrowserState(CatalogRepository(), scope,
@@ -297,4 +310,28 @@ class SearchSourcePolicyTest {
             assertEquals("Song", browser.search.value.query)
         } finally { released.complete(Unit); scope.cancel() }
     }
+    @Test fun anArchiveLinkPublishesWhileTheOrdinaryCatalogIsStillLoading() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val finishCatalog = CompletableDeferred<Unit>()
+        val query = "https://archive.org/details/album"
+        val browser = CatalogBrowserState(CatalogRepository(), scope,
+            archiveSearch = { text, _, policy, _ ->
+                assertEquals(query, text)
+                assertFalse(policy.dolbyAtmos)
+                InternetArchiveApiService.LosslessSearchPage(listOf(archive))
+            }, catalogSearch = { _, _, _, _ ->
+                finishCatalog.await()
+                error("Ordinary catalog failed")
+            })
+        try {
+            browser.setSourcePolicy(PlaybackSourcePolicy(AudioQualityCeiling.MAX, dolbyAtmos = true))
+            browser.queryChanged(query)
+            awaitCondition { browser.search.value.page.tracks.singleOrNull()?.id == archive.id }
+            assertTrue(browser.search.value.loading)
+            finishCatalog.complete(Unit)
+            awaitCondition { browser.search.value.error != null }
+            assertEquals(archive.id, browser.search.value.page.tracks.single().id)
+        } finally { finishCatalog.complete(Unit); scope.cancel() }
+    }
+
 }

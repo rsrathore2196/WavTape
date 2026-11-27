@@ -85,14 +85,14 @@ class QualityTierResolutionTest {
         val result = resolver.resolve(song, AudioQuality.ULTRA_HD_320)
         assertEquals(song.id, result.id); assertEquals("YouTube Music", result.source); assertFalse(result.isLossless)
     }
-    @Test fun archiveIdentityRejectsDifferentArtistsVersionsAndDurations() {
+    @Test fun archiveIdentityIgnoresDurationAndRejectsWrongArtistsVersionsAndContainers() {
         val requested = song.copy(title = "Song")
         assertTrue(StreamResolver.matchesInitialLossless(requested, archive.copy(durationMs = 185000)))
-        assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(durationMs = 185001)))
+        assertTrue(StreamResolver.matchesInitialLossless(requested, archive.copy(durationMs = 208_000)))
         assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(artist = "Wrong Artist")))
         assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(title = "Song (Live)")))
         assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(title = "Song Remix")))
-        assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(durationMs = 0)))
+        assertTrue(StreamResolver.matchesInitialLossless(requested, archive.copy(durationMs = 0)))
         assertFalse(StreamResolver.matchesInitialLossless(requested, archive.copy(audioUrl = "https://archive.org/download/album/song.mp3")))
     }
     @Test fun maximumPreferenceCannotBypassAnActiveStandardNetworkCeiling() = runBlocking {

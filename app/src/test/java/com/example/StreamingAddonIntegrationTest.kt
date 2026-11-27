@@ -131,6 +131,7 @@ class StreamingAddonIntegrationTest {
     private var emptySearch = false
     private var onManifest: () -> Unit = {}
     private var searchResponse: ((String) -> String)? = null
+    private var streamResponse: ((String) -> String)? = null
     private var manifest = """{"id":"personal","name":"My Music","resources":["search","stream"]}"""
     private var manifestStatus = 200
     private val song = MusicTrack("online_song", "Song", "Artist", "Album", 180_000, "cover", "https://aac.saavncdn.com/song_320.mp4")
@@ -157,7 +158,7 @@ class StreamingAddonIntegrationTest {
                         {"id":"wrong","title":"Song (Live)","artist":"Artist","album":"Album","duration":180},
                         {"id":"right","title":"Song","artist":"Artist","album":"Album","duration":180},
                         {"id":"missing","title":"Unknown"}]}"""
-                    "/stream/" in exchange.requestURI.path -> stream()
+                    "/stream/" in exchange.requestURI.path -> streamResponse?.invoke(exchange.requestURI.toString()) ?: stream()
                     else -> "{}"
                 }.toByteArray()
                 exchange.responseHeaders.add("Content-Type", "application/json")
@@ -377,6 +378,24 @@ class StreamingAddonIntegrationTest {
             released.complete(Unit)
             assertNull(withTimeout(3000) { playback.await() })
         } finally { released.complete(Unit) }
+    }
+
+    @Test fun bestQualityStartupOverlapsSlowStreamOptionsAndKeepsTierOrder() = runBlocking {
+        enable()
+        val lowerArrived = java.util.concurrent.CountDownLatch(1)
+        val overlapped = java.util.concurrent.atomic.AtomicBoolean()
+        streamResponse = { path ->
+            if ("quality=hi_res" in path) {
+                overlapped.set(lowerArrived.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                """{"url":"$base/preferred.flac","codec":"flac","bitrate":1411200}"""
+            } else {
+                lowerArrived.countDown()
+                """{"url":"$base/other.flac","codec":"flac","bitrate":900000}"""
+            }
+        }
+        val played = StreamingAddons.resolve(context, song, maximum, overlapStreamRequests = true)
+        assertTrue("The next tier should be fetched while the preferred tier is pending", overlapped.get())
+        assertEquals("$base/preferred.flac", played?.audioUrl)
     }
 
     @Test fun maximumFallsBackFromUnavailableHiResTierToTheSameLosslessRecording() = runBlocking {

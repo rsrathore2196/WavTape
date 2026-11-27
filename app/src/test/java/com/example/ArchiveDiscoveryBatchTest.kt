@@ -3,6 +3,8 @@ package com.example
 import android.app.Application
 import com.example.data.model.MusicTrack
 import com.example.data.remote.InternetArchiveApiService
+import com.example.data.remote.ArchiveFileTransport
+import com.example.playback.LosslessDiagnostics.Reason
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
@@ -43,5 +45,91 @@ class ArchiveDiscoveryBatchTest {
         }
         assertEquals(2, result.filterNotNull().flatten().size)
         assertTrue(result.filterNotNull().flatten().any { it.audioUrl != recording.audioUrl })
+    }
+
+    @Test fun aSlowIndexQueryDoesNotBlockTheNextQueryWhenTheOtherSlotIsFree() = runTest {
+        val slowStarted = CompletableDeferred<Unit>()
+        var slowCancelled = false
+        var active = 0
+        var peak = 0
+        val results = InternetArchiveApiService.collectRecordingSearches(
+            listOf("slow", "miss", "verified"), acceptable = { it == "verified" },
+            preferred = { it == "verified" }) { query ->
+            active++
+            peak = maxOf(peak, active)
+            try {
+                when (query) {
+                    "slow" -> {
+                        slowStarted.complete(Unit)
+                        try { awaitCancellation() } finally { slowCancelled = true }
+                    }
+                    "miss" -> { slowStarted.await(); query }
+                    else -> query
+                }
+            } finally { active-- }
+        }
+        assertEquals(listOf("miss", "verified"), results)
+        assertEquals(2, peak)
+        assertTrue(slowCancelled)
+    }
+
+    private fun index(total: Int, vararg identifiers: String) = JSONObject().put("response", JSONObject().apply {
+        put("numFound", total)
+        put("docs", org.json.JSONArray(identifiers.map { JSONObject().put("identifier", it) }))
+    })
+
+    @Test fun browseMergesBothBoundedIndexesAndReadsManifestsWithoutAnItemFormat() = runTest {
+        val expressions = mutableListOf<String>()
+        val page = InternetArchiveApiService.discoverItemPage("\"song\"", targeted = false, page = 1, rows = 2) {
+            expressions += it
+            if ("format:" in it) index(1, "shared")
+            else index(3, "shared", "manifest-only", "beyond-budget")
+        }
+        assertEquals(setOf(true, false), expressions.map { "format:" in it }.toSet())
+        assertEquals(listOf("shared", "manifest-only"), page.items.map { it.getString("identifier") })
+        assertEquals(2, page.pageAfter(1))
+        val files = InternetArchiveApiService.collectRecordingFiles(null, page.items) { doc ->
+            val manifest = JSONObject("""{"metadata":{"title":"Song","creator":"Artist","rights":"public domain"},
+                "files":[{"name":"01.flac","title":"Song","artist":"Artist","duration":"180"}]}""")
+            InternetArchiveApiService.parseLosslessItem(doc, manifest)
+        }.filterNotNull().flatten()
+        assertEquals(listOf("ia_shared:01.flac", "ia_manifest-only:01.flac"), files.map { it.id })
+        val second = InternetArchiveApiService.discoverItemPage("\"song\"", targeted = false, page = 2, rows = 2) {
+            if ("format:" in it) index(1) else index(3, "last")
+        }
+        assertEquals(listOf("last"), second.items.map { it.getString("identifier") })
+        assertNull(second.pageAfter(2))
+    }
+
+    @Test fun rateLimitedLaneKeepsSuccessAndRetriesTheSamePage() = runTest {
+        val page = InternetArchiveApiService.discoverItemPage("song", targeted = false, page = 2, rows = 2) {
+            if ("format:" in it) index(6, "indexed") else throw ArchiveFileTransport.Failure("rate_limited", 429)
+        }
+        assertNotNull(page.failure)
+        assertEquals("indexed", page.items.single().getString("identifier"))
+        assertEquals(2, page.pageAfter(2))
+    }
+
+    @Test fun targetedSearchKeepsSingleLaneAndCancellationStopsBothBrowseLanes() = runTest {
+        var targetedCalls = 0
+        val malformed = InternetArchiveApiService.discoverItemPage("creator:\"artist\"", targeted = true, page = 1, rows = 4) {
+            targetedCalls++
+            assertFalse("format:" in it)
+            JSONObject()
+        }
+        assertEquals(1, targetedCalls)
+        assertEquals(Reason.METADATA_INCOMPLETE, malformed.failure)
+        var entered = 0
+        var cancelled = 0
+        val ready = CompletableDeferred<Unit>()
+        val browse = launch {
+            InternetArchiveApiService.discoverItemPage("song", targeted = false, page = 1, rows = 2) {
+                if (++entered == 2) ready.complete(Unit)
+                try { awaitCancellation() } finally { cancelled++ }
+            }
+        }
+        ready.await()
+        browse.cancelAndJoin()
+        assertEquals(2, cancelled)
     }
 }

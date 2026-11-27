@@ -30,6 +30,22 @@ object MusicCache {
     private val usagePending = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var ownerDirectory: File? = null
     const val OFFLINE_SCHEME = "xtreme-cached"
+    internal fun archiveCacheSource(cache: Cache, key: String, online: Boolean,
+        upstream: (com.example.data.remote.ArchiveCacheResume?) -> DataSource): DataSource {
+        val resume = com.example.data.remote.ArchiveCacheResume(cache, key)
+        // Legacy sparse bytes without a validator cannot safely be joined to a fresh stream.
+        // Keep those bytes intact and play online independently. Complete files stay cache-only.
+        val metadata = cache.getContentMetadata(key)
+        val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(metadata)
+        val complete = length > 0 && cache.isCached(key, 0L, length)
+        if (online && !complete && resume.hasUnverifiedSparseSpans()) return upstream(null)
+        return CacheDataSource.Factory().setCache(cache)
+            .setCacheKeyFactory { key }
+            // A complete hit never opens the upstream. An evicted span can still recover online.
+            .setUpstreamDataSourceFactory { upstream(resume) }
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
+    }
+
     internal fun isLocal(uri: android.net.Uri): Boolean = uri.scheme?.lowercase(java.util.Locale.ROOT) in
         setOf(null, "file", "content", "asset", "rawresource", "android.resource", "data")
     private val saavnRate = Regex("_(320|160|96|48)\\.(?:mp4|m4a)(?:$|[?#])")
@@ -147,7 +163,7 @@ object MusicCache {
             YouTubeAudioStreamService.cachedForUrl(spec.uri.toString())?.isHls == true
 
     fun createCacheDataSourceFactory(context: Context, connectTimeoutMs: Int = 15000,
-        readTimeoutMs: Int = 15000): DataSource.Factory {
+        readTimeoutMs: Int = 15000, archiveReplayLimit: Long = Long.MAX_VALUE): DataSource.Factory {
         val app = context.applicationContext
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -196,25 +212,35 @@ object MusicCache {
                     delegate = source
                     return try { source.open(spec) } catch (error: Exception) { close(); throw error }
                 }
+                val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(spec.uri.toString())
+                val transportFactory = if (archive == null) rangedUpstream else DataSource.Factory {
+                    com.example.data.remote.ArchiveFileTransport.source(app, archive, connectTimeoutMs, readTimeoutMs,
+                        replayLimit = archiveReplayLimit)
+                }
                 val selectedKey = spec.key ?: StreamedAudioRepresentations.keyFor(spec.uri) ?: safeTransportKey(spec.uri)
+                val cacheSpec = if (archive == null) spec else com.example.data.remote.ArchiveCacheResume.writableSpec(spec)
                 StreamedAudioPrefetch.preempt(selectedKey)
                 val source: DataSource = try {
                     val cache = getSimpleCache(app)
                     StreamedAudioRepresentations.persistBinding(cache, selectedKey)
-                    CacheDataSource.Factory().setCache(cache)
+                    if (archive != null) archiveCacheSource(cache, selectedKey, online) { resume ->
+                        com.example.data.remote.ArchiveFileTransport.source(app, archive, connectTimeoutMs,
+                            readTimeoutMs, resume, archiveReplayLimit)
+                    }
+                    else CacheDataSource.Factory().setCache(cache)
                         .setCacheKeyFactory { selectedKey }
-                        .setUpstreamDataSourceFactory(rangedUpstream.takeIf { online })
+                        .setUpstreamDataSourceFactory(transportFactory.takeIf { online })
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
                 } catch (failure: Exception) {
                     if (!online) throw IOException("Cached audio is unavailable offline", failure)
-                    rangedUpstream.createDataSource()
+                    transportFactory.createDataSource()
                 }
                 listeners.forEach(source::addTransferListener)
                 delegate = source
-                return try { source.open(spec) } catch (failure: Cache.CacheException) {
+                return try { source.open(cacheSpec) } catch (failure: Cache.CacheException) {
                     close()
                     if (!online) throw failure
-                    val upstream = rangedUpstream.createDataSource()
+                    val upstream = transportFactory.createDataSource()
                     listeners.forEach(upstream::addTransferListener)
                     delegate = upstream
                     try { upstream.open(spec) } catch (error: Exception) { close(); throw error }

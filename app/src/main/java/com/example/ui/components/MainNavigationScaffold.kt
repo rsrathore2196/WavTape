@@ -406,6 +406,7 @@ fun MainNavigationScaffold(
                                     catalogState = catalogSearch,
                                     onSelectType = viewModel.catalogBrowser::selectType,
                                     onLoadMore = viewModel.catalogBrowser::loadMoreSearch,
+                                    onArchiveMore = viewModel.catalogBrowser::loadMoreArchiveSearch,
                                     onRetrySearch = { if (catalogSearch.page.nextPage != null && catalogSearch.error != null) viewModel.catalogBrowser.loadMoreSearch() else viewModel.catalogBrowser.retrySearch() },
                                     onOpenCatalog = viewModel.catalogBrowser::open,
                                     onOpenAlbumByName = viewModel::openAlbumByName,

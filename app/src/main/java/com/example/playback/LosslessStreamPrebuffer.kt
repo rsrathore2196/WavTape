@@ -65,7 +65,8 @@ internal object LosslessStreamPrebuffer {
             (bitDepth > 16 || sampleRate > 48_000)
         val badge: String get() = if (isHiRes) "Hi-Res Lossless" else "Lossless"
     }
-    data class Prepared(val audio: AudioInfo, val fromMs: Long, val untilMs: Long) {
+    data class Prepared(val audio: AudioInfo, val fromMs: Long, val untilMs: Long,
+        val archiveCacheKey: String? = null) {
         fun covers(positionMs: Long): Boolean = positionMs >= fromMs && untilMs - positionMs >= 750L
     }
 
@@ -461,6 +462,7 @@ internal object LosslessStreamPrebuffer {
         currentPosition: () -> Long, stillCurrent: () -> Boolean, durationToleranceMs: Long,
         allowUnknownDuration: Boolean, automatic: Boolean, requireLossless: Boolean,
         fastStart: Boolean): Prepared? = withContext(com.example.performance.AppDispatchers.Io) {
+        val queuedAt = SystemClock.elapsedRealtime()
         worker.withLock {
             fun checkpoint() {
                 currentCheck(automatic)
@@ -468,6 +470,11 @@ internal object LosslessStreamPrebuffer {
             checkpoint() // Recheck after waiting for the single preparation worker.
             LosslessDiagnostics.beginPreparation(item.mediaId)
             val uri = item.localConfiguration?.uri ?: return@withLock null
+            val archiveKey = com.example.data.remote.ArchiveFileKey.nativeTransport(uri.toString())
+            val archiveCacheKey = archiveKey?.let { item.localConfiguration?.customCacheKey
+                ?: com.example.service.StreamedAudioRepresentations.keyFor(uri) ?: MusicCache.safeTransportKey(uri) }
+            if (archiveKey != null) com.example.data.remote.ArchivePlaybackEvents.record("prebuffer", "worker_acquired",
+                archiveKey, SystemClock.elapsedRealtime() - queuedAt)
             fun allowed(): Boolean {
                 if (uri.scheme in setOf("file", "content")) return true
                 val policy = NetworkQualityMonitor.getInstance(context).sourcePolicySnapshot()
@@ -484,10 +491,10 @@ internal object LosslessStreamPrebuffer {
                 return@withLock null
             }
             if (!withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock null
-            val source = MusicCache.createCacheDataSourceFactory(context.applicationContext,
-                connectTimeoutMs = 5_000, readTimeoutMs = 5_000).createDataSource()
-            val deadline = SystemClock.elapsedRealtime() + 20_000L
             val maxBytes = 24L * 1024 * 1024
+            val source = MusicCache.createCacheDataSourceFactory(context.applicationContext,
+                connectTimeoutMs = 5_000, readTimeoutMs = 5_000, archiveReplayLimit = maxBytes).createDataSource()
+            val deadline = SystemClock.elapsedRealtime() + 20_000L
             val jobContext = currentCoroutineContext()
             var bytes = 0L
             val reader = DataReader { buffer, offset, length ->
@@ -518,7 +525,9 @@ internal object LosslessStreamPrebuffer {
                 if (!allowed())
                     throw PreparationFailure(LosslessDiagnostics.Reason.NETWORK_POLICY_BLOCKED, "Active profile changed")
                 if (opened) closeRange()
-                val spec = DataSpec.Builder().setUri(uri).setPosition(position).build()
+                val spec = DataSpec.Builder().setUri(uri).setPosition(position).apply {
+                    if (archiveCacheKey != null) setKey(archiveCacheKey)
+                }.build()
                 rangeSpec = spec
                 rangeStartBytes = bytes
                 opened = true
@@ -585,7 +594,7 @@ internal object LosslessStreamPrebuffer {
                             LosslessDiagnostics.Reason.DECODER_UNSUPPORTED, "No compatible decoder")
                 val map = seekMap ?: return@withLock null
                 val actualDuration = map.durationUs.takeIf { it > 0L }?.div(1000L)
-                if (actualDuration != null && expectedDurationMs > 0L &&
+                if (archiveKey == null && actualDuration != null && expectedDurationMs > 0L &&
                     abs(actualDuration - expectedDurationMs) > durationToleranceMs) throw PreparationFailure(
                         LosslessDiagnostics.Reason.RECORDING_MISMATCH, "Actual duration conflicts with the recording")
                 val initialPosition = withContext(Dispatchers.Main.immediate) {
@@ -593,11 +602,12 @@ internal object LosslessStreamPrebuffer {
                 } ?: return@withLock null
                 // Unknown STREAMINFO duration does not prevent real FLAC playback
                 // from the beginning. It does prevent an unproven mid-song switch.
-                if (actualDuration == null && !allowUnknownDuration && initialPosition > 0L) throw PreparationFailure(
+                if (archiveKey == null && actualDuration == null && !allowUnknownDuration && initialPosition > 0L) throw PreparationFailure(
                     LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Container duration cannot verify a position-preserving replacement")
-                val bitrate = info.bitrateKbps.takeIf { it > 0 } ?: if (fullLength > 0L)
-                    (fullLength * 8 / (actualDuration ?: expectedDurationMs).coerceAtLeast(1L))
-                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
+                val bitrateDuration = actualDuration ?: expectedDurationMs
+                val bitrate = info.bitrateKbps.takeIf { it > 0 } ?: if (fullLength > 0L &&
+                    (archiveKey == null || actualDuration != null))
+                    (fullLength * 8 / bitrateDuration.coerceAtLeast(1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
 
                 // Seek using the real container index, never a bitrate-to-offset estimate.
                 repeat(2) {
@@ -605,23 +615,26 @@ internal object LosslessStreamPrebuffer {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock null
                     val required = if (fastStart) FAST_START_BUFFER_MS else 750L
-                    val duration = actualDuration ?: expectedDurationMs
+                    val duration = actualDuration ?: if (archiveKey == null) expectedDurationMs else 0L
                     if (duration > 0L && duration - position < maxOf(2_000L, required))
                         throw PreparationFailure(LosslessDiagnostics.Reason.BUFFER_COVERAGE, "Insufficient remaining audio for a safe replacement")
-                    if (map.isSeekable) {
+                    val seekable = map.isSeekable && (archiveKey == null ||
+                        !com.example.data.remote.ArchiveFileTransport.isSequentialOnly(archiveKey) ||
+                        archiveCacheKey?.let { MusicCache.fullyCached(context, it) } == true)
+                    if (seekable) {
                         val point = map.getSeekPoints(position * 1000).first
                         input = openAt(point.position)
                         extractor.seek(point.position, point.timeUs)
                         firstSampleUs = Long.MAX_VALUE; lastSampleUs = Long.MIN_VALUE
                     }
-                    // No fabricated byte offsets. For an unindexed file, continue
-                    // reading real samples from the start within the same byte/time cap.
+                    // Unindexed and sequential files can still be prepared from zero
+                    // within the existing byte/time cap. Handoff requires a complete cache.
                     val requestedEnd = position + if (fastStart) FAST_START_READ_AHEAD_MS else 3_000L
                     while (lastSampleUs < requestedEnd * 1000) if (!step()) {
                         if (fastStart && lastSampleUs >= (position + required) * 1000) break
                         throw PreparationFailure(LosslessDiagnostics.Reason.PREBUFFER_FAILED, "Stream ended before the target position")
                     }
-                    if (!map.isSeekable && position > 0L) {
+                    if (!seekable && position > 0L) {
                         if (actualDuration == null) throw PreparationFailure(LosslessDiagnostics.Reason.SEEK_UNAVAILABLE,
                             "No safe seek index or complete duration")
                         // FLAC with neither a seek table nor HTTP Content-Length can
@@ -631,10 +644,13 @@ internal object LosslessStreamPrebuffer {
                         // an unseekable replacement audibly at the beginning.
                         while (step()) Unit
                         closeRange()
-                        if (!MusicCache.fullyCachedResource(context, uri)) throw PreparationFailure(
+                        val complete = if (archiveCacheKey == null) MusicCache.fullyCachedResource(context, uri)
+                            else MusicCache.fullyCached(context, archiveCacheKey)
+                        if (!complete) throw PreparationFailure(
                             LosslessDiagnostics.Reason.SEEK_UNAVAILABLE, "Cannot guarantee position-preserving activation")
                     }
-                    val warmed = Prepared(info.copy(bitrateKbps = bitrate), firstSampleUs / 1000, lastSampleUs / 1000)
+                    val warmed = Prepared(info.copy(bitrateKbps = bitrate), firstSampleUs / 1000, lastSampleUs / 1000,
+                        archiveCacheKey)
                     val latest = withContext(Dispatchers.Main.immediate) {
                         if (stillCurrent()) currentPosition().coerceAtLeast(0L) else null
                     } ?: return@withLock null
@@ -646,19 +662,32 @@ internal object LosslessStreamPrebuffer {
                                 !MusicCache.isRangeCached(context, spec, length)
                             }) throw PreparationFailure(LosslessDiagnostics.Reason.BUFFER_COVERAGE,
                             "The prepared audio ranges did not reach the playback cache")
+                        if (archiveKey != null) com.example.data.remote.ArchivePlaybackEvents.record("prebuffer", "ready", archiveKey)
                         return@withLock warmed
                     }
                 }
                 LosslessDiagnostics.record(item.mediaId, LosslessDiagnostics.Reason.BUFFER_COVERAGE, "prebuffer")
                 null
-            } catch (e: CancellationException) { throw e }
+            } catch (e: CancellationException) {
+                if (archiveKey != null) com.example.data.remote.ArchivePlaybackEvents.record("prebuffer",
+                    if (e is kotlinx.coroutines.TimeoutCancellationException) "prebuffer_deadline" else "cancelled", archiveKey)
+                throw e
+            }
             catch (e: PreparationDeferred) { throw e }
             catch (e: Exception) {
-                val reason = when (e) {
-                    is PreparationFailure -> e.reason
-                    is SocketTimeoutException -> LosslessDiagnostics.Reason.NETWORK_TIMEOUT
+                val archiveFailure = if (archiveKey == null) null else com.example.data.remote.ArchiveFileTransport.failureOf(e)
+                val reason = when {
+                    e is PreparationFailure -> e.reason
+                    archiveFailure != null -> com.example.data.remote.InternetArchiveApiService.archiveFailureReason(archiveFailure)
+                    e is SocketTimeoutException -> LosslessDiagnostics.Reason.NETWORK_TIMEOUT
                     else -> LosslessDiagnostics.Reason.PREBUFFER_FAILED
                 }
+                if (archiveKey != null) com.example.data.remote.ArchivePlaybackEvents.record("prebuffer",
+                    archiveFailure?.outcome ?: when (reason) {
+                        LosslessDiagnostics.Reason.BUFFER_COVERAGE -> "cache_coverage_missing"
+                        LosslessDiagnostics.Reason.SEEK_UNAVAILABLE -> "range_unavailable"
+                        else -> reason.name.lowercase()
+                    }, archiveKey)
                 LosslessDiagnostics.record(item.mediaId, reason, "prebuffer", "${e.javaClass.simpleName}: ${e.message.orEmpty()}")
                 null
             }

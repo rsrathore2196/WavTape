@@ -618,12 +618,12 @@ class MusicService : MediaLibraryService() {
                     com.example.playback.AudioSignalPath.sourceBookmark(track.id, uri.toString(), savedOrigin.takeUnless { restoring })
                     return@launch
                 }
-                val replacement = preparedFastMedia ?: transitionMedia(resolved)
+                var replacement = preparedFastMedia ?: transitionMedia(resolved)
                 val cached = replacement.localConfiguration?.uri?.scheme == MusicCache.OFFLINE_SCHEME
                 if (!fastSwitch && !cached && resolved.isLossless) {
                     val sameCode = withContext(AppDispatchers.CpuBounded) {
                         com.example.data.repository.RecordingIdentity.isrc(track.isrc)?.let {
-                            it == com.example.data.repository.RecordingIdentity.isrc(resolved.isrc)
+                            it == com.example.data.remote.ArchiveFileEvidence.verifiedReplacementIsrc(resolved)
                         } == true
                     }
                     val adaptive = com.example.playback.LosslessStreamPrebuffer.isAdaptiveSource(replacement)
@@ -631,6 +631,7 @@ class MusicService : MediaLibraryService() {
                         track.durationMs, currentPosition = { player.currentPosition }, stillCurrent = { owns() },
                         durationToleranceMs = if (sameCode) 8_000L else 5_000L, allowUnknownDuration = sameCode,
                         automatic = automatic, requireLossless = resolved.isLossless) else null
+                    prepared?.archiveCacheKey?.let { key -> replacement = replacement.buildUpon().setCustomCacheKey(key).build() }
                     val ready = if (adaptive) com.example.playback.LosslessStreamPrebuffer.prepareAdaptiveSource(
                         this@MusicService, replacement, track.durationMs, stillCurrent = { owns() },
                         durationToleranceMs = if (sameCode) 8_000L else 5_000L, automatic = automatic,
@@ -915,6 +916,20 @@ class MusicService : MediaLibraryService() {
                     return MusicCache.cachedSource(this@MusicService, item)
                 if (address?.scheme in setOf("file", "content", "xtreme-offline") ||
                     item.mediaMetadata.extras?.getString("source_policy_key") == networkQuality.sourcePolicy.value.key) {
+                    val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(address?.toString().orEmpty())
+                    if (archive != null) {
+                        val transport = com.example.data.remote.ArchiveFileTransport
+                        val uri = requireNotNull(address)
+                        val key = item.localConfiguration?.customCacheKey ?: StreamedAudioRepresentations.keyFor(uri)
+                            ?: MusicCache.safeTransportKey(uri)
+                        val seek = com.example.data.remote.ArchiveSeekSupport(
+                            { transport.supportsRanges(archive) },
+                            { MusicCache.fullyCached(this@MusicService, key) })
+                        val pinnedItem = item.buildUpon().setCustomCacheKey(key).build()
+                        return androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(
+                            seek.dataSources(cacheDataSourceFactory), seek.extractors())
+                            .setLoadErrorHandlingPolicy(transport.loadPolicy()).createMediaSource(pinnedItem)
+                    }
                     val manifests = FastStartManifests.takeFor(item)
                     val sources = if (manifests == null) transportSources else DefaultMediaSourceFactory(this@MusicService)
                         .setDataSourceFactory(manifests.replaying(cacheDataSourceFactory))
@@ -1125,6 +1140,9 @@ class MusicService : MediaLibraryService() {
             ) {
                 val item = currentAudioEventItem(player, eventTime) ?: return
                 markAudioStartup(item, StartupStage.FIRST_AUDIO)
+                com.example.data.remote.ArchiveFileKey.nativeTransport(item.localConfiguration?.uri?.toString().orEmpty())?.let {
+                    com.example.data.remote.ArchivePlaybackEvents.record("activation", "first_audio", it)
+                }
                 jioFallback?.onAudioPositionAdvancing()
             }
         })
@@ -1298,6 +1316,15 @@ class MusicService : MediaLibraryService() {
                 val failedItem = player.currentMediaItem
                 val failedAddress = failedItem?.localConfiguration?.uri?.toString().orEmpty()
                 val failedPolicy = networkQuality.sourcePolicy.value
+                com.example.data.remote.ArchiveFileKey.nativeTransport(failedAddress)?.let {
+                    val transportFailure = com.example.data.remote.ArchiveFileTransport.failureOf(error)
+                    com.example.data.remote.ArchivePlaybackEvents.record("activation",
+                        transportFailure?.outcome ?: when (error.errorCode) {
+                            androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> "decoder_unsupported"
+                            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "network_timeout"
+                            else -> "activation_failed"
+                        }, it, status = transportFailure?.status)
+                }
                 if (failedItem != null) serviceScope.launch(AppDispatchers.Io) {
                     com.example.playback.PlaybackDiagnostics.playerFailure(failedItem.mediaId, failedPolicy, failedAddress, error)
                 }
