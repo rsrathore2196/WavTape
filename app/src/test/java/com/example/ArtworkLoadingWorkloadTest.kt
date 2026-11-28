@@ -138,6 +138,75 @@ class ArtworkLoadingWorkloadTest {
         } finally { cache.clear(); directory.deleteRecursively() }
     }
 
+    @Test fun coldCatalogArtworkSkipsDiskDecodesAndRenditionMetadataWhenNoFilesAreCached() = runBlocking {
+        val directory = java.io.File(context.cacheDir, "cold-catalog-${System.nanoTime()}")
+        val cache = coil.disk.DiskCache.Builder().directory(directory).maxSizeBytes(1024 * 1024).build()
+        val reads = AtomicInteger()
+        val hints = ArtworkRenditionCache({ reads.incrementAndGet(); null }, { _, _, _ -> })
+        val source = "https://lh3.googleusercontent.com/album=w60-h60-l90-rj"
+        val req = request().newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
+            ArtworkRequestMetadata(source, 1_200), null).build()
+        val chain = Chain(req)
+        try {
+            val result = ArtworkResolutionInterceptor(hints) { cache }.intercept(chain) as SuccessResult
+            assertEquals(providerArtworkUrl(source, 1_200), result.request.data)
+            assertEquals(0, reads.get())
+            assertEquals(1, chain.diskProbes.get())
+        } finally { cache.clear(); directory.deleteRecursively() }
+    }
+
+    @Test fun savedCatalogAndPlaylistCoversLoadDuringNavigation() = runBlocking {
+        val lease = com.example.performance.BackgroundWorkCoordinator.navigationBusy()
+        val playlist = ImageRequest.Builder(context).data(provider).size(300, 300)
+            .setParameter(PLAYLIST_COVER_PARAMETER, true, null).build()
+        try {
+            val interceptor = ArtworkResolutionInterceptor()
+            for (req in listOf(request(), playlist)) {
+                val chain = Chain(req, cached = setOf(provider), diskOnly = true)
+                val result = withTimeout(1_000) { interceptor.intercept(chain) } as SuccessResult
+                assertEquals(DataSource.DISK, result.dataSource)
+                assertTrue(chain.calls.none { it.second })
+            }
+        } finally { lease.close() }
+    }
+
+    @Test fun slowDownloadDoesNotBlockCachedHomeArtForTheSameUrl() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val interceptor = ArtworkResolutionInterceptor()
+        val active = async { interceptor.intercept(Chain(request(), onNetwork = {
+            entered.complete(Unit)
+            awaitCancellation()
+        })) }
+        try {
+            withTimeout(3_000) { entered.await() }
+            val home = request().newBuilder().setParameter(ARTWORK_METADATA_PARAMETER,
+                ArtworkRequestMetadata(provider, 300, visibleThumbnail = true), null).build()
+            val chain = Chain(home, cached = setOf(provider), diskOnly = true)
+            val hit = withTimeout(1_000) { interceptor.intercept(chain) } as SuccessResult
+            assertEquals(DataSource.DISK, hit.dataSource)
+            assertTrue(chain.calls.none { it.second })
+        } finally { active.cancelAndJoin() }
+    }
+
+    @Test fun distinctCoversWithIdenticalHashesCanDownloadConcurrently() = runBlocking {
+        val first = "https://covers.example/Aa.jpg"
+        val second = "https://covers.example/BB.jpg"
+        assertEquals(first.hashCode(), second.hashCode())
+        fun requestFor(url: String) = request().newBuilder().data(url).setParameter(ARTWORK_METADATA_PARAMETER,
+            ArtworkRequestMetadata(url, 600), null).build()
+        val entered = CompletableDeferred<Unit>()
+        val interceptor = ArtworkResolutionInterceptor()
+        val active = async { interceptor.intercept(Chain(requestFor(first), onNetwork = {
+            entered.complete(Unit)
+            awaitCancellation()
+        })) }
+        try {
+            withTimeout(3_000) { entered.await() }
+            val result = withTimeout(1_000) { interceptor.intercept(Chain(requestFor(second))) } as SuccessResult
+            assertEquals(second, result.request.data)
+        } finally { active.cancelAndJoin() }
+    }
+
     @Test fun indexedLargerCachedArtworkStillAvoidsANewThumbnailDownload() = runBlocking {
         val directory = java.io.File(context.cacheDir, "saved-artwork-${System.nanoTime()}")
         val cache = coil.disk.DiskCache.Builder().directory(directory).maxSizeBytes(1024 * 1024).build()

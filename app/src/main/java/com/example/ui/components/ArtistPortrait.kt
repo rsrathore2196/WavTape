@@ -38,7 +38,7 @@ fun ArtistPortrait(artist: CatalogArtist, modifier: Modifier = Modifier,
     var photo by remember(artist.id, artist.name, artist.musicBrainzId) {
         mutableStateOf(ArtistPhotoRepository.initialPhoto(artist))
     }
-    LaunchedEffect(artist.id, artist.name, artist.musicBrainzId, retries, active) {
+    LaunchedEffect(artist.id, artist.name, artist.musicBrainzId, artist.image, retries, active) {
         photo = ArtistPhotoRepository.initialPhoto(artist) ?: photo
         if (!active) return@LaunchedEffect
         coroutineScope {

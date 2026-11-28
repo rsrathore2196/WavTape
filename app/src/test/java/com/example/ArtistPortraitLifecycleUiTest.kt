@@ -1,6 +1,8 @@
 package com.example
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.util.LruCache
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
@@ -8,6 +10,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
+import coil.Coil
+import coil.ImageLoader
+import coil.decode.DataSource
+import coil.request.SuccessResult
 import com.example.data.remote.YouTubeMusicApiService
 import com.example.data.repository.ArtistPhotoRepository
 import com.example.data.repository.CatalogArtist
@@ -15,6 +21,7 @@ import com.example.performance.BackgroundWorkCoordinator
 import com.example.ui.components.ArtistPortrait
 import com.example.ui.components.LocalVisualEffectsActive
 import com.example.ui.util.LocalArtworkRequestsActive
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import org.junit.*
@@ -37,6 +44,36 @@ class ArtistPortraitLifecycleUiTest {
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(16))
     }
     @After fun reset() { ArtistPhotoRepository.identityRequest = YouTubeMusicApiService::artistIdentity; BackgroundWorkCoordinator.foreground(false) }
+
+    @Test fun suppliedPortraitLoadsWhenArtistDetailsArriveForTheSameIdentity() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val artist = mutableStateOf(CatalogArtist("UCdetail", "Artist Detail"))
+        val supplied = "https://covers.example/artist.jpg"
+        val loaded = AtomicReference<String>()
+        val previous = Coil.imageLoader(context)
+        val loader = ImageLoader.Builder(context).components {
+            add(coil.intercept.Interceptor { chain ->
+                val url = chain.request.data.toString()
+                if (url != supplied) return@Interceptor chain.proceed(chain.request)
+                loaded.set(url)
+                val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
+                SuccessResult(BitmapDrawable(context.resources, bitmap), chain.request, DataSource.MEMORY_CACHE)
+            })
+        }.networkObserverEnabled(false).build()
+        Coil.setImageLoader(loader)
+        try {
+            compose.setContent { ArtistPortrait(artist.value, Modifier.size(120.dp), enrichmentAllowed = false) }
+            compose.runOnIdle { artist.value = artist.value.copy(image = supplied) }
+            compose.waitUntil(5_000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                loaded.get() == supplied
+            }
+        } finally {
+            Coil.setImageLoader(previous)
+            loader.shutdown()
+        }
+    }
+
     @Test fun interactionDoesNotRestartAVisibleLookupButLeavingTheViewportCancelsIt() {
         val calls = AtomicInteger(); val cancellations = AtomicInteger()
         val allowed = mutableStateOf(false); val active = mutableStateOf(true)

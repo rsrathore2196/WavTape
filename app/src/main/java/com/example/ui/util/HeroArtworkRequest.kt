@@ -18,31 +18,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
-import kotlin.math.roundToInt
-
-/** Match the Hero card's actual pixel viewport so prefetched full-quality art hits Coil's cache directly. */
-internal fun defaultHeroArtworkSize(context: Context, landscape: Boolean = false): IntSize {
-    val metrics = context.resources.displayMetrics
-    val density = metrics.density.coerceAtLeast(1f)
-    val horizontalPaddingPx = (40f * density).roundToInt()
-    val maxWidthPx = (metrics.widthPixels - horizontalPaddingPx).coerceAtLeast(1)
-    val widthPx = if (landscape) {
-        ((maxWidthPx - (16f * density).roundToInt()).coerceAtLeast(1) / 3f).roundToInt().coerceAtLeast(1)
-    } else {
-        maxWidthPx.coerceAtMost((640f * density).roundToInt() - horizontalPaddingPx).coerceAtLeast(1)
-    }
-    val heightPx = (240f * density).roundToInt().coerceAtLeast(1)
-    return IntSize(widthPx, heightPx)
-}
-
-/** Eagerly prefetch full-quality Hero artwork using the initial cover URL without triggering metadata lookup. */
-internal fun prefetchHeroArtwork(context: Context, track: MusicTrack, size: IntSize) {
-    val source = YouTubeHeroArtworkResolver.initial(track) ?: track.coverUrl
-    if (source.isBlank() || size.width <= 0 || size.height <= 0) return
-    val request = buildHeroArtworkRequest(context, source, size)
-    if (request.memoryCacheKey?.let { context.imageLoader.memoryCache?.get(it) } != null) return
-    context.imageLoader.enqueue(request)
-}
 
 /** Only the visible Hero requests its video artwork; no playback metadata is rewritten. */
 @Composable

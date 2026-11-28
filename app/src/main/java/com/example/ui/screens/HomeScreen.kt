@@ -323,14 +323,7 @@ fun HomeScreenContent(
     val nativeCards = homeViewModel?.serverCards?.collectAsStateWithLifecycle()?.value
         ?: remember(serverShelves) { serverShelves.map { HomeShelfPresentation("server_shelf_${it.id}", it, ShelfLoadStatus.SUCCESS) } }
     val artworkActive = LocalArtworkRequestsActive.current
-    val heroPrefetchContext = androidx.compose.ui.platform.LocalContext.current
     val effectiveHeroSeed = currentTrack ?: homeViewModel?.heroSeedTrack?.collectAsStateWithLifecycle()?.value ?: heroSeedTrack
-    LaunchedEffect(effectiveHeroSeed?.id, effectiveHeroSeed?.coverUrl, artworkActive, landscape) {
-        if (artworkActive && effectiveHeroSeed != null) {
-            val heroSize = com.example.ui.util.defaultHeroArtworkSize(heroPrefetchContext, landscape)
-            com.example.ui.util.prefetchHeroArtwork(heroPrefetchContext, effectiveHeroSeed, heroSize)
-        }
-    }
     LaunchedEffect(homeViewModel, listState, artworkActive) {
         if (homeViewModel == null) return@LaunchedEffect
         if (!artworkActive) { homeViewModel.setArtistSectionRelevant(false); return@LaunchedEffect }

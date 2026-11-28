@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.combine
@@ -27,6 +29,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.selects.select
 import java.net.URI
+import com.example.performance.BackgroundWorkCoordinator
 
 const val ARTWORK_METADATA_PARAMETER = "com.example.artwork.metadata"
 
@@ -189,47 +192,77 @@ internal class ArtworkResolutionInterceptor(
         val memory = chain.proceed(cachedRequest.newBuilder().diskCachePolicy(CachePolicy.DISABLED).build())
         if (memory is SuccessResult) return memory
         val url = request.data.toString()
-        return admittedArtwork(url) {
-            val prepared = chain.proceed(cachedRequest)
-            if (prepared is SuccessResult) prepared else chain.proceed(request)
+        if (isLocalArtwork(url)) return cachedArtwork(url) { chain.proceed(request) }
+        if (request.diskCachePolicy.readEnabled && mayHaveCachedArtwork(diskCache(), request.diskCacheKey ?: url)) {
+            val prepared = cachedArtwork(url) { chain.proceed(cachedRequest) }
+            if (prepared is SuccessResult) return prepared
+        }
+        // Coil rechecks its caches after this wait, including a previous job's download.
+        return fetchArtwork(url) { chain.proceed(request) }
+    }
+
+    /** Keep locks only for active URLs. Unrelated URLs may have identical hashes. */
+    private suspend fun <T> withArtworkFlight(url: String, block: suspend (ArtworkFlight) -> T): T {
+        val flight = synchronized(artworkFlights) { artworkFlights.getOrPut(url, ::ArtworkFlight).also { it.users++ } }
+        try {
+            return block(flight)
+        } finally {
+            synchronized(artworkFlights) {
+                flight.users -= 1
+                if (flight.users == 0) artworkFlights.remove(url)
+            }
         }
     }
 
-    /** Recheck after BOTH resource waits; never wait for interaction holding a slot/URL lock. */
-    private suspend fun <T> admittedArtwork(url: String, current: Boolean = false, visibleThumbnail: Boolean = false,
-        cacheOnly: Boolean = false, block: suspend () -> T): T {
-        val coordinator = com.example.performance.BackgroundWorkCoordinator
-        val flight = artworkFlights[(url.hashCode() and Int.MAX_VALUE) % artworkFlights.size]
-        // Foreground/current player artwork must execute immediately without waiting for background permits
-        if (current) {
-            flight.executing.lock()
-            try {
-                return block()
-            } finally { flight.executing.unlock() }
-        }
-        while (true) {
-            // Visible cache misses wait only for the current gesture to finish.
-            // No offscreen preparation or global readiness milestone owns images.
-            if ((!visibleThumbnail || !cacheOnly) && !coordinator.isInteractionIdle(awaitFrameQuiet = false)) {
-                coordinator.yieldToInteraction(awaitFrameQuiet = false)
+    private suspend fun <T> cachedArtwork(url: String, block: suspend () -> T): T = withArtworkFlight(url) { flight ->
+        flight.cached.withLock {
+            cachedArtworkRequests.withPermit {
+                BackgroundWorkCoordinator.finishBoundedBatch {
+                    BackgroundWorkCoordinator.traceWork("Artwork cache decode", block)
+                }
             }
-            // A saved visible image must not queue behind slow provider downloads.
-            // Disk work stays bounded, and all decodes retain CpuBounded's budget.
-            val permits = if (visibleThumbnail && cacheOnly) cachedArtworkRequests else coldArtworkRequests
-            // Only one background request for this URL may wait for capacity.
-            // Current player artwork uses the execution lock alone, so a queued
-            // background request cannot hold it behind the global image limit.
-            flight.waiting.lock()
-            try {
-                permits.acquire()
-                try {
-                    flight.executing.lock()
-                    try {
-                        if (visibleThumbnail && cacheOnly || coordinator.isInteractionIdle(awaitFrameQuiet = false))
-                            return coordinator.finishBoundedBatch { coordinator.traceWork("Artwork decode or fetch", block) }
-                    } finally { flight.executing.unlock() }
-                } finally { permits.release() }
-            } finally { flight.waiting.unlock() }
+        }
+    }
+
+    /** Only a network miss waits for gestures or a download slot. */
+    private suspend fun <T> fetchArtwork(url: String, priority: Boolean = false, block: suspend () -> T): T {
+        val coordinator = BackgroundWorkCoordinator
+        return withArtworkFlight(url) { flight ->
+            if (priority) return@withArtworkFlight flight.fetching.withLock { block() }
+            while (true) {
+                if (!coordinator.isInteractionIdle(awaitFrameQuiet = false)) {
+                    coordinator.yieldToInteraction(awaitFrameQuiet = false)
+                }
+                val alreadyFetching = flight.waiting.withLock {
+                    coldArtworkRequests.withPermit {
+                        if (!flight.fetching.tryLock()) return@withPermit true
+                        try {
+                            if (coordinator.isInteractionIdle(awaitFrameQuiet = false)) {
+                                return@withArtworkFlight coordinator.finishBoundedBatch {
+                                    coordinator.traceWork("Artwork decode or fetch", block)
+                                }
+                            }
+                        } finally { flight.fetching.unlock() }
+                        false
+                    }
+                }
+                // A priority request can already be fetching this URL. Wait for
+                // it outside the shared network limit so other artwork can load.
+                if (alreadyFetching) flight.fetching.withLock { }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            error("Artwork admission loop terminated")
+        }
+    }
+
+    private fun mayHaveCachedArtwork(cache: coil.disk.DiskCache?, key: String): Boolean {
+        if (cache == null) return true
+        return try {
+            cache.openSnapshot(key)?.use { true } ?: false
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            true // Let Coil handle cache errors on its ordinary path.
         }
     }
 
@@ -271,7 +304,6 @@ internal class ArtworkResolutionInterceptor(
         } + urls.drop(1)).distinct()
         val attempted = mutableSetOf<String>()
         val cachedImages = mutableMapOf<String, SuccessResult?>()
-        val savedImages = if (metadata.visibleThumbnail) diskCache() else null
         val priorityArtwork = metadata.currentTrack || metadata.landscapeArtwork || metadata.targetSize == ImageConfig.HERO_BANNER_SIZE
         var lastError: ImageResult? = null
         var networkBudgetMs = if (priorityArtwork) 12_000L else 4_500L
@@ -288,23 +320,15 @@ internal class ArtworkResolutionInterceptor(
         suspend fun load(url: String, cacheOnly: Boolean = false, memoryOnly: Boolean = false): SuccessResult? {
             if (url.isBlank()) return null
             if (cacheOnly && !memoryOnly && cachedImages.containsKey(url)) return cachedImages[url]
-            if (cacheOnly && !memoryOnly && savedImages != null) {
-                // Probe the existing disk index before enqueueing Coil fetch/decode
-                // work for speculative larger renditions. Never skip memory probes.
-                val present = try { savedImages.openSnapshot(request.diskCacheKey ?: url)?.use { true } ?: false }
-                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (_: Exception) { true } // Unknown cache health keeps the ordinary fallback path.
-                if (!present) { cachedImages[url] = null; return null }
-            }
             val candidate = request.newBuilder().data(url).apply {
                 if (metadata.landscapeArtwork) { memoryCacheKey("hero-landscape:$url"); diskCacheKey(url) }
                 if (cacheOnly || memoryOnly) networkCachePolicy(CachePolicy.DISABLED)
                 if (memoryOnly) diskCachePolicy(CachePolicy.DISABLED)
             }.build()
-            // Memory hits never queue. Disk decoding shares the same bounded URL flight
-            // as fetching, including visible thumbnails repeated across Home shelves.
-            val result = if (memoryOnly) chain.proceed(candidate) else admittedArtwork(url, priorityArtwork, metadata.visibleThumbnail, cacheOnly) {
-                if (cacheOnly) chain.proceed(candidate) else {
+            val result = when {
+                memoryOnly -> chain.proceed(candidate)
+                cacheOnly -> cachedArtwork(url) { chain.proceed(candidate) }
+                else -> fetchArtwork(url, priorityArtwork) {
                     // Recheck after resource waits so duplicate cards share Coil's file.
                     val hit = chain.proceed(candidate.newBuilder().networkCachePolicy(CachePolicy.DISABLED).build())
                     val budgetMs = networkBudgetMs
@@ -379,10 +403,15 @@ internal class ArtworkResolutionInterceptor(
         val memory = best(listOfNotNull(known) + cacheUrls, memoryOnly = true)
         if (memory != null && sufficient(memory)) return remember(memory)
         present(memory)
-        // A persisted choice skips failed/undersized rendition decodes on reopen.
-        // Probe it only in cache: an expired remote URL cannot consume the fetch budget.
-        val preferred = renditionKey?.let { renditionCache?.get(it) }?.takeIf { it in cacheUrls }
-        val persisted = better(memory, best(listOfNotNull(preferred) + cacheUrls, cacheOnly = true))
+        // Check the existing Coil index before spending time on a rendition hint
+        // or dispatching speculative disk decodes. Memory was checked separately.
+        val savedImages = diskCache()
+        val diskUrls = cacheUrls.filter { url ->
+            isLocalArtwork(url) || request.diskCachePolicy.readEnabled &&
+                mayHaveCachedArtwork(savedImages, if (metadata.landscapeArtwork) url else request.diskCacheKey ?: url)
+        }
+        val preferred = if (diskUrls.size > 1) renditionKey?.let { renditionCache?.get(it) }?.takeIf { it in diskUrls } else null
+        val persisted = better(memory, best(listOfNotNull(preferred) + diskUrls, cacheOnly = true))
         if (persisted != null && sufficient(persisted)) return remember(persisted)
         if (persisted !== memory) present(persisted)
         val loaded = better(persisted, best(urls))
@@ -418,11 +447,13 @@ internal class ArtworkResolutionInterceptor(
 
     private companion object {
         class ArtworkFlight {
+            val cached = Mutex()
             val waiting = Mutex()
-            val executing = Mutex()
+            val fetching = Mutex()
+            var users = 0
         }
         val coldArtworkRequests = Semaphore(2)
         val cachedArtworkRequests = Semaphore(2)
-        val artworkFlights = Array(32) { ArtworkFlight() }
+        val artworkFlights = mutableMapOf<String, ArtworkFlight>()
     }
 }
