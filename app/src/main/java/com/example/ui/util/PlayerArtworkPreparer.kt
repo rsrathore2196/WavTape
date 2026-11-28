@@ -54,7 +54,10 @@ internal val selectedPlayerCover = currentSelectedCover.asStateFlow()
 internal fun isSelectedSongCover(trackId: String?, url: String): Boolean =
     trackId != null && selectedSongCovers.get(trackId)?.url == url
 
-internal fun cachedPlayerCover(track: MusicTrack): ResolvedPlayerCover? = recordingCovers.get(playerCoverIdentity(track))
+internal fun isLocalArtwork(url: String): Boolean = android.net.Uri.parse(url).scheme in setOf("file", "content")
+
+internal fun cachedPlayerCover(track: MusicTrack): ResolvedPlayerCover? =
+    if (isLocalArtwork(track.coverUrl)) null else recordingCovers.get(playerCoverIdentity(track))
 
 /** Every successful lookup, including a visible-player retry, updates both players. */
 private fun publishPlayerCover(track: MusicTrack, url: String): ResolvedPlayerCover {
@@ -74,6 +77,7 @@ internal fun hasNativeSquareCover(url: String): Boolean {
 }
 internal fun playerCoverState(state: PlayerUiState, cover: ResolvedPlayerCover?): PlayerUiState {
     val track = state.currentTrack ?: return state
+    if (isLocalArtwork(track.coverUrl)) return state
     val selected = cover?.takeIf { it.identity == playerCoverIdentity(track) } ?: cachedPlayerCover(track) ?: return state
     if (selected.url == track.coverUrl) return state
     return state.copy(currentTrack = track.copy(coverUrl = selected.url))
@@ -104,8 +108,10 @@ internal fun prepareCurrentPlayerArtwork(context: Context, tracks: Flow<MusicTra
             if (track == null || !visible) return@collectLatest
             try {
                 TrackPaletteCache.initialize(context)
-                (context.applicationContext as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
-                val cover = BackgroundWorkCoordinator.traceWork("Player cover identity") { resolveCover(track) }
+                val cover = if (isLocalArtwork(track.coverUrl)) null else {
+                    (context.applicationContext as? com.example.XtremeMusicApp)?.awaitDiscoveryIdentity()
+                    BackgroundWorkCoordinator.traceWork("Player cover identity") { resolveCover(track) }
+                }
                 currentCoroutineContext().ensureActive()
                 var artworkTrack = cover?.let { track.copy(coverUrl = it) } ?: track
                 var usingResolvedCover = cover != null
@@ -301,7 +307,8 @@ internal fun rememberPlayerArtworkRequest(track: MusicTrack, active: Boolean,
     var resolved by remember(identity) { mutableStateOf(cachedPlayerCover(track)?.url) }
     var resolvedFailed by remember(identity) { mutableStateOf(false) }
     LaunchedEffect(identity, active, sourceSize) {
-        if (!active || resolved != null || resolvedFailed || isSelectedSongCover(track.id, track.coverUrl)) return@LaunchedEffect
+        if (!active || isLocalArtwork(track.coverUrl) || resolved != null || resolvedFailed ||
+            isSelectedSongCover(track.id, track.coverUrl)) return@LaunchedEffect
         // The visible player also owns its lookup. A cancelled/unfinished optional
         // prefetch must not leave a Home video's rectangular thumbnail in the player.
         withContext(AppDispatchers.Io) {

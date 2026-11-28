@@ -180,6 +180,37 @@ class ArtworkPresentationTest {
         assertFalse(request.get().data.toString().contains("rejected"))
     }
 
+    @Test fun downloadedCoverDecodesFromDiskInTheFullPlayerWithoutLookup() {
+        val cover = java.io.File.createTempFile("downloaded-cover", null, context.cacheDir)
+        val bitmap = Bitmap.createBitmap(128, 96, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.CYAN)
+        cover.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        bitmap.recycle()
+        val local = ImageLoader.Builder(context).components { add(ArtworkResolutionInterceptor()) }
+            .networkObserverEnabled(false).build()
+        Coil.setImageLoader(local)
+        try {
+            val saved = track.copy(coverUrl = android.net.Uri.fromFile(cover).toString(), audioUrl = "xtreme-offline://audio/saved")
+            val remote = ResolvedPlayerCover(com.example.data.remote.playerCoverIdentity(track), square)
+            val display = playerCoverState(PlayerUiState(currentTrack = saved), remote).currentTrack!!
+            var ready by mutableStateOf(false)
+            compose.setContent {
+                val request = rememberPlayerArtworkRequest(display, true,
+                    resolveCover = { throw AssertionError("Do not look up an available saved cover") })
+                PlayerCoverArtwork(request, Modifier.size(220.dp).testTag("downloaded_cover"),
+                    fullScreen = true, onReady = { ready = true })
+            }
+            compose.waitUntil(30_000) { ready }
+            val pixels = compose.onNodeWithTag("downloaded_cover").captureToImage().toPixelMap()
+            val center = pixels[pixels.width / 2, pixels.height / 2]
+            assertTrue(center.blue > .9f && center.green > .9f && center.red < .1f)
+        } finally {
+            Coil.setImageLoader(loader)
+            local.shutdown()
+            cover.delete()
+        }
+    }
+
     @Test fun squareCroppedVideoThumbnailStillResolvesTheOfficialAudioCover() {
         val request = AtomicReference<ImageRequest>()
         val calls = AtomicInteger()

@@ -1774,40 +1774,41 @@ class PlayerViewModel(
         val snapshot = _importState.value
         if (snapshot.retryingRows.isNotEmpty()) return
         val summary = (snapshot.step as? PlaylistImportStep.Summary)?.summary ?: return
+        val generation = importGeneration.get()
         _importState.update { it.copy(step = PlaylistImportStep.Saving(summary.playlistTitle)) }
 
-        viewModelScope.launch(AppDispatchers.CpuBounded) {
+        importJob = viewModelScope.launch(AppDispatchers.CpuBounded) {
             val work = com.example.performance.BackgroundWorkCoordinator.busy()
             try {
-                val matchedTracks = withContext(AppDispatchers.CpuBounded) {
-                    // Keep each original occurrence; native IDs still reconcile the shared track metadata.
-                    summary.matchedItems.mapNotNull { it.matchedTrack }
-                }
+                val matchedTracks = summary.matchedItems.mapNotNull { it.matchedTrack }
                 if (matchedTracks.isEmpty()) {
                     _importState.update { it.copy(step = PlaylistImportStep.Error("Cannot save empty playlist. No tracks were matched.")) }
                     return@launch
                 }
-                val title = _importState.value.customTitle.ifBlank { summary.playlistTitle }
-                val desc = _importState.value.customDescription.ifBlank { summary.playlistDescription }
+                val title = snapshot.customTitle.trim().ifBlank { summary.playlistTitle }
+                val desc = snapshot.customDescription.ifBlank { summary.playlistDescription }
                 val cover = summary.coverUrl.ifBlank { matchedTracks.firstOrNull()?.coverUrl.orEmpty() }
 
-                val playlistId = withContext(AppDispatchers.Io) { repository.createPlaylistWithTracks(
+                val (playlistId, added) = repository.savePlaylistImport(
                     title = title,
                     description = desc,
                     coverUrl = cover,
                     tracks = matchedTracks
-                ) }
+                )
 
+                ensureActive()
                 _importState.update {
-                    it.copy(
+                    if (generation != importGeneration.get()) it else it.copy(
                         step = PlaylistImportStep.Success(
                             playlistId = playlistId,
                             playlistTitle = title,
-                            trackCount = matchedTracks.size
+                            trackCount = added
                         )
                     )
                 }
-                withContext(Dispatchers.Main.immediate) { onSaved?.invoke(playlistId) }
+                withContext(Dispatchers.Main.immediate) {
+                    if (generation == importGeneration.get()) onSaved?.invoke(playlistId)
+                }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
                 _importState.update {
                     it.copy(step = PlaylistImportStep.Error("Error saving playlist to library: ${e.message}"))

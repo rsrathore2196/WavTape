@@ -58,6 +58,27 @@ class ConnectedCatalogRecoveryTest {
         assertTrue(connectedYouTubePage(JSONObject().put("menu", song("abcdefghijk"))).tracks.isEmpty())
     }
 
+    @Test fun publicLinksCanReadNestedWebRowsAndReloadContinuations() {
+        val disabled = song("disabled123").apply { getJSONObject("playlistVideoRenderer").put("isPlayable", false) }
+        val cursor = JSONObject().put("continuationItemViewModel", JSONObject().put("command", JSONObject()
+            .put("continuationCommand", JSONObject().put("token", "opaque+/token="))))
+        val collection = JSONObject().put("playlistVideoListRenderer", JSONObject()
+            .put("contents", JSONArray().put(song("abcdefghijk")).put(disabled).put(cursor)))
+        val first = connectedYouTubePage(JSONObject().put("contents", JSONObject()
+            .put("itemSectionRenderer", JSONObject().put("contents", JSONArray().put(collection)))))
+        assertEquals(listOf("yt_abcdefghijk"), first.tracks.map { it.id })
+        assertEquals("Artist", first.tracks.single().artist)
+        assertEquals("opaque+/token=", first.continuation)
+        val legacy = JSONObject().put("contents", JSONObject().put("itemSectionRenderer", JSONObject()
+            .put("contents", JSONArray().put(song("abcdefghijk")))
+            .put("continuations", JSONArray().put(JSONObject()
+                .put("reloadContinuationData", JSONObject().put("continuation", "legacy-next"))))))
+        assertEquals("legacy-next", connectedYouTubePage(legacy).continuation)
+        val reload = JSONObject().put("onResponseReceivedEndpoints", JSONArray().put(JSONObject()
+            .put("reloadContinuationItemsCommand", JSONObject().put("continuationItems", JSONArray().put(song("lmnopqrstuv"))))))
+        assertEquals(listOf("yt_lmnopqrstuv"), connectedYouTubePage(reload).tracks.map { it.id })
+    }
+
     @Test fun unauthorizedSpotifySessionRefreshesOnceAndRetriesTheLibraryRequest() = withSession { store ->
         val authorizations = mutableListOf<String?>()
         var refreshes = 0

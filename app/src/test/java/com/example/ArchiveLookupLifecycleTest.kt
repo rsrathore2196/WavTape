@@ -39,7 +39,7 @@ class ArchiveLookupLifecycleTest {
             })
         try {
             val download = async {
-                resolver.resolve(selected, policy.ceiling.audioQuality, sourcePolicy = policy,
+                resolver.resolve(selected.copy(coverUrl = ""), policy.ceiling.audioQuality, sourcePolicy = policy,
                     forceRefresh = true, retainLosslessLookup = false, archiveDownloadAllowed = { true })
             }
             withTimeout(5_000) { started.await() }
@@ -49,6 +49,7 @@ class ArchiveLookupLifecycleTest {
             val saved = withTimeout(5_000) { download.await() }
             assertEquals(selected.id, saved.id)
             assertEquals(archive.audioUrl, saved.audioUrl)
+            assertEquals(archive.coverUrl, saved.coverUrl)
             val declined = resolver.resolve(selected, policy.ceiling.audioQuality, sourcePolicy = policy,
                 forceRefresh = true, retainLosslessLookup = false, archiveDownloadAllowed = { false })
             assertEquals(selected.audioUrl, declined.audioUrl)

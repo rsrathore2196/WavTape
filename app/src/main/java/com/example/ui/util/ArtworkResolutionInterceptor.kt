@@ -234,6 +234,9 @@ internal class ArtworkResolutionInterceptor(
     }
 
     private suspend fun resolve(originalChain: Interceptor.Chain, metadata: ArtworkRequestMetadata): ImageResult {
+        // A downloaded cover is ready to decode at the requested size. The remote
+        // rendition walk can otherwise prefer a cached video thumbnail over it.
+        if (metadata.currentTrack && isLocalArtwork(metadata.providerUrl)) return originalChain.proceed(originalChain.request)
         val chain = if (originalChain.size.width !is Dimension.Pixels && originalChain.size.height !is Dimension.Pixels) {
             originalChain.withSize(Size(metadata.sourceDimension, metadata.sourceDimension))
         } else originalChain

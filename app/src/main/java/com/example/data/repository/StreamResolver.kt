@@ -694,7 +694,10 @@ internal class StreamResolver(
                 throw unavailable()
             }
         coroutineContext.ensureActive()
-        val result = withStream(track, capped(resolved))
+        val result = withStream(track, capped(resolved)).let { selected ->
+            if (archiveDownloadAllowed != null && selected.coverUrl.isBlank()) selected.copy(coverUrl = resolved.coverUrl)
+            else selected
+        }
         if (resolved !== cachedFallback) synchronized(cache) {
             val youtube = YouTubeAudioStreamService.isYouTubeAudio(result.id, result.audioUrl)
             cache[key] = CachedStream(result, System.currentTimeMillis() + if (youtube) 24 * 60 * 60_000L else 300_000L)

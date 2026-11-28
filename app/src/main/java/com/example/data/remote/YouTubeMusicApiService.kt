@@ -850,14 +850,8 @@ object YouTubeMusicApiService {
             val contents = root.optJSONObject("contents")
             val tracks = mutableListOf<MusicTrack>()
 
-            // Extract section list from various potential layouts (personal vs system playlists)
             val twoCol = contents?.optJSONObject("twoColumnBrowseResultsRenderer")
             val singleCol = contents?.optJSONObject("singleColumnBrowseResultsRenderer")
-
-            val secContents = twoCol?.optJSONObject("secondaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-                ?: twoCol?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-                ?: singleCol?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-                ?: contents?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
 
             if (title.isBlank()) {
                 val header = root.optJSONObject("header")
@@ -883,63 +877,14 @@ object YouTubeMusicApiService {
                 }
             }
 
-            // Check direct musicPlaylistShelfRenderer if not wrapped in sectionListRenderer
-            val directPlaylistShelf = contents?.optJSONObject("musicPlaylistShelfRenderer")
-                ?: twoCol?.optJSONObject("secondaryContents")?.optJSONObject("musicPlaylistShelfRenderer")
-            var lastShelfRenderer: JSONObject? = directPlaylistShelf
-            var continuationToken: String? = extractContinuationToken(directPlaylistShelf)
-
-            val directShelfContents = directPlaylistShelf?.optJSONArray("contents")
-            if (directShelfContents != null) {
-                for (j in 0 until directShelfContents.length()) {
-                    val item = directShelfContents.getJSONObject(j)
-                    val track = parseAnyRenderer(item)
-                    if (track != null) {
-                        tracks.add(track)
-                    }
-                }
-            }
-
-            if (secContents != null) {
-                for (i in 0 until secContents.length()) {
-                    val sec = secContents.getJSONObject(i)
-                    val playlistShelf = sec.optJSONObject("musicPlaylistShelfRenderer")
-                        ?: sec.optJSONObject("musicShelfRenderer")
-                    if (playlistShelf != null) {
-                        lastShelfRenderer = playlistShelf
-                        val tok = extractContinuationToken(playlistShelf)
-                        if (!tok.isNullOrBlank()) continuationToken = tok
-                    }
-                    val shelfContents = playlistShelf?.optJSONArray("contents")
-                    if (shelfContents != null) {
-                        for (j in 0 until shelfContents.length()) {
-                            val item = shelfContents.getJSONObject(j)
-                            val track = parseAnyRenderer(item)
-                            if (track != null) {
-                                tracks.add(track)
-                            }
-                        }
-                    }
-                    // Also check itemSectionRenderer inside sectionList
-                    val itemSection = sec.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
-                    if (itemSection != null) {
-                        for (j in 0 until itemSection.length()) {
-                            val item = itemSection.getJSONObject(j)
-                            val track = parseAnyRenderer(item)
-                            if (track != null) {
-                                tracks.add(track)
-                            }
-                        }
-                        val tok = extractContinuationToken(itemSection)
-                        if (!tok.isNullOrBlank()) continuationToken = tok
-                    }
-                }
-            }
+            val first = com.example.connections.connectedYouTubePage(root)
+            tracks += first.tracks.take(1000)
+            var continuationToken = first.continuation
 
             var usedWebClient = false
 
             // Fallback to standard YouTube WEB client if WEB_REMIX returned no tracks (e.g. standard YouTube playlists)
-            if (tracks.isEmpty()) {
+            if (tracks.isEmpty() && continuationToken.isNullOrBlank()) {
                 try {
                     val webPayload = JSONObject().apply {
                         put("context", JSONObject().apply {
@@ -961,25 +906,9 @@ object YouTubeMusicApiService {
 
                     run {
                         val webRoot = JSONObject(httpClient.catalogRequest(webReq))
-                        val webContents = webRoot.optJSONObject("contents")?.optJSONObject("twoColumnBrowseResultsRenderer")
-                            ?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
-                            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
-
-                        if (webContents != null) {
-                            for (wIdx in 0 until webContents.length()) {
-                                val sec = webContents.getJSONObject(wIdx)
-                                val items = sec.optJSONObject("itemSectionRenderer")?.optJSONArray("contents") ?: continue
-                                for (itIdx in 0 until items.length()) {
-                                    val item = items.getJSONObject(itIdx)
-                                    val track = parseAnyRenderer(item)
-                                    if (track != null) {
-                                        tracks.add(track)
-                                    }
-                                }
-                                val tok = extractContinuationToken(items)
-                                if (!tok.isNullOrBlank()) continuationToken = tok
-                            }
-                        }
+                        val page = com.example.connections.connectedYouTubePage(webRoot)
+                        tracks += page.tracks.take(1000)
+                        continuationToken = page.continuation
                         usedWebClient = true
 
                         // Check web metadata
@@ -995,11 +924,15 @@ object YouTubeMusicApiService {
             }
 
             // PAGINATION: Continuously follow continuation tokens up to 1000 songs
-            while (!continuationToken.isNullOrBlank() && tracks.size < 1000) {
+            val seenContinuations = mutableSetOf<String>()
+            while (tracks.size < 1000 && seenContinuations.size < 100) {
+                val token = continuationToken?.takeIf { it.isNotBlank() && seenContinuations.add(it) } ?: break
                 try {
                     val clientName = if (usedWebClient) "WEB" else "WEB_REMIX"
                     val clientVer = if (usedWebClient) "2.20240101.00.00" else "1.20231204.01.00"
-                    val apiUrl = if (usedWebClient) "https://www.youtube.com/youtubei/v1/browse" else "https://music.youtube.com/youtubei/v1/browse?ctoken=$continuationToken&continuation=$continuationToken"
+                    val apiUrl = if (usedWebClient) "https://www.youtube.com/youtubei/v1/browse".toHttpUrl()
+                    else "https://music.youtube.com/youtubei/v1/browse".toHttpUrl().newBuilder()
+                        .addQueryParameter("ctoken", token).addQueryParameter("continuation", token).build()
 
                     val contPayload = JSONObject().apply {
                         put("context", JSONObject().apply {
@@ -1010,7 +943,7 @@ object YouTubeMusicApiService {
                                 put("gl", "US")
                             })
                         })
-                        put("continuation", continuationToken)
+                        put("continuation", token)
                     }
 
                     val contRequest = Request.Builder()
@@ -1025,47 +958,9 @@ object YouTubeMusicApiService {
                     val contBody = httpClient.catalogRequest(contRequest)
                     val contRoot = JSONObject(contBody)
 
-                    var foundBatchItems: JSONArray? = null
-
-                    // Format 1: continuationContents (music.youtube.com)
-                    val continuationContents = contRoot.optJSONObject("continuationContents")
-                    val shelfContinuation = continuationContents?.optJSONObject("musicPlaylistShelfContinuation")
-                        ?: continuationContents?.optJSONObject("musicShelfContinuation")
-                    if (shelfContinuation != null) {
-                        foundBatchItems = shelfContinuation.optJSONArray("contents")
-                        continuationToken = extractContinuationToken(shelfContinuation)
-                    }
-
-                    // Format 2: onResponseReceivedActions (youtube.com / web client)
-                    if (foundBatchItems == null) {
-                        val actions = contRoot.optJSONArray("onResponseReceivedActions")
-                        val act = actions?.optJSONObject(0)
-                        val contItems = act?.optJSONObject("appendContinuationItemsAction")?.optJSONArray("continuationItems")
-                        if (contItems != null) {
-                            foundBatchItems = contItems
-                            continuationToken = extractContinuationToken(contItems)
-                        } else {
-                            continuationToken = null
-                        }
-                    }
-
-                    if (foundBatchItems == null || foundBatchItems.length() == 0) {
-                        break
-                    }
-
-                    var addedInBatch = 0
-                    for (k in 0 until foundBatchItems.length()) {
-                        val item = foundBatchItems.getJSONObject(k)
-                        val track = parseAnyRenderer(item)
-                        if (track != null) {
-                            tracks.add(track)
-                            addedInBatch++
-                            if (tracks.size >= 1000) break
-                        }
-                    }
-                    if (addedInBatch == 0 && continuationToken == null) {
-                        break
-                    }
+                    val page = com.example.connections.connectedYouTubePage(contRoot)
+                    tracks += page.tracks.take(1000 - tracks.size)
+                    continuationToken = page.continuation
                 } catch (e: CancellationException) { throw e } catch (e: Exception) {
                     Log.w(TAG, "Pagination error fetching continuation: ${e.message}")
                     break
@@ -1106,6 +1001,7 @@ object YouTubeMusicApiService {
                 // Preserve the complete leading byline, excluding view/like counts.
                 (0 until (bylineRuns?.length() ?: 0)).map { bylineRuns?.optJSONObject(it)?.optString("text").orEmpty() }
                     .takeWhile { !it.contains('•') && !it.contains('·') }.joinToString("").trim()
+                    .ifBlank { byline?.optString("simpleText").orEmpty() }
             }
             val durSec = pvr.optString("lengthSeconds", "0").toLongOrNull() ?: 0L
             val thumbUrl = YouTubeExploreParser.thumbnail(pvr)
@@ -1137,8 +1033,12 @@ object YouTubeMusicApiService {
             val vid = lvm.optString("contentId", "")
             val meta = lvm.optJSONObject("metadata")?.optJSONObject("lockupMetadataViewModel")
             val rawTitle = meta?.optJSONObject("title")?.optString("content", "").orEmpty()
-            val lines = meta?.optJSONObject("metadata")?.optJSONArray("lines")
-            val rawArtist = lines?.optJSONObject(0)?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "YouTube Artist").orEmpty()
+            val metadata = meta?.optJSONObject("metadata")
+            val rawArtist = metadata?.optJSONArray("lines")?.optJSONObject(0)?.optJSONArray("runs")
+                ?.optJSONObject(0)?.optString("text").orEmpty().ifBlank {
+                    metadata?.optJSONObject("contentMetadataViewModel")?.optJSONArray("metadataRows")?.optJSONObject(0)
+                        ?.optJSONArray("metadataParts")?.optJSONObject(0)?.optJSONObject("text")?.optString("content").orEmpty()
+                }
 
             if (YouTubeAudioStreamService.isVideoId(vid) && rawTitle.isNotBlank() && rawTitle != "Private video" && rawTitle != "Deleted video") {
                 val cleanTitle = cleanTitle(rawTitle)

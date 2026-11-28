@@ -111,8 +111,23 @@ interface MusicDao {
 
     @Transaction
     suspend fun mergeFavorites(tracks: List<TrackEntity>) {
-        mergeTracksMetadata(tracks)
+        mergeTracksMetadata(keepLocalImportMetadata(tracks))
         tracks.map { it.id }.distinct().chunked(900).forEach { markTracksFavorite(it) }
+    }
+
+    private suspend fun keepLocalImportMetadata(tracks: List<TrackEntity>): List<TrackEntity> {
+        val existing = tracks.map { it.id }.distinct().chunked(900).flatMap { getTracksByIds(it) }.associateBy { it.id }
+        return tracks.map { row ->
+            val saved = existing[row.id] ?: return@map row
+            val localAudio = android.net.Uri.parse(saved.audioUrl).scheme in setOf("file", "content")
+            val localCover = android.net.Uri.parse(saved.coverUrl).scheme in setOf("file", "content")
+            row.copy(coverUrl = if (localCover) saved.coverUrl else row.coverUrl.ifBlank { saved.coverUrl },
+                audioUrl = if (localAudio) saved.audioUrl else row.audioUrl,
+                durationMs = row.durationMs.takeIf { it > 0 } ?: saved.durationMs,
+                bitrateKbps = if (localAudio) saved.bitrateKbps else row.bitrateKbps,
+                qualityBadge = if (localAudio) saved.qualityBadge else row.qualityBadge,
+                isrc = row.isrc.ifBlank { saved.isrc })
+        }
     }
 
     @Query("UPDATE tracks SET lastPlayedAt = :timestamp WHERE id = :trackId")
@@ -165,6 +180,22 @@ interface MusicDao {
             if (present.add(track.id)) PlaylistTrackCrossRef(playlistId, track.id, order++) else null
         }
         if (additions.isNotEmpty()) insertPlaylistTrackRefs(additions)
+    }
+
+    @Transaction
+    suspend fun mergeImportedPlaylist(playlist: PlaylistEntity, tracks: List<TrackEntity>): com.example.data.importer.SavedPlaylistImport {
+        val name = com.example.data.importer.importedPlaylistName(playlist.title)
+        val previous = getAllPlaylistsSync().filter { com.example.data.importer.importedPlaylistName(it.title) == name }
+            .minWithOrNull(compareBy<PlaylistEntity> { it.createdAt }.thenBy { it.playlistId })
+        val existing = previous?.let { playlistTracks(it.playlistId).map(TrackEntity::toMusicTrack) }.orEmpty()
+        val newIds = com.example.data.importer.newImportedTracks(existing, tracks.map(TrackEntity::toMusicTrack))
+            .mapTo(mutableSetOf()) { it.id }
+        val rows = keepLocalImportMetadata(tracks.distinctBy { it.id }.filter { it.id in newIds })
+        val localId = if (previous == null) createPlaylistWithEntries(playlist, rows) else {
+            mergePlaylistEntries(previous.playlistId, rows)
+            previous.playlistId
+        }
+        return com.example.data.importer.SavedPlaylistImport(localId, rows.size)
     }
 
     @Query("SELECT EXISTS(SELECT 1 FROM playlists WHERE playlistId = :playlistId)")

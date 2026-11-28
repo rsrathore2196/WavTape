@@ -93,7 +93,7 @@ class RecordingVersionPlaybackTest {
         val expected = original.copy(id = "yt_abcdefghij3", title = title, source = "YouTube Music")
         val result = PlaylistImportEngine.matchTrack(meta, youtubeOnly = true, forceRefresh = true,
             findYouTube = { query, _ -> queries.add(query); listOf(original.copy(id = "yt_abcdefghij0"), expected) },
-            findJio = { error("Explicit YouTube matching must stay on YouTube") })
+            findJio = { error("Explicit YouTube matching must stay on YouTube") }, verifyYouTube = { true })
         assertEquals(expected.id, result.matchedTrack?.id)
         assertEquals(title, result.matchedTrack?.title)
         assertTrue(queries.all { it.contains(title) })
@@ -106,7 +106,7 @@ class RecordingVersionPlaybackTest {
         val editedResult = PlaylistImportEngine.matchTrack(meta.copy(originalTitle = editTitle),
             youtubeOnly = true, forceRefresh = true,
             findYouTube = { _, _ -> listOf(edit.copy(id = "yt_abcdefghij5", title = editTitle.replace("Alpha", "Alphi")), edit) },
-            findJio = { error("No provider change") })
+            findJio = { error("No provider change") }, verifyYouTube = { true })
         assertEquals(edit.id, editedResult.matchedTrack?.id)
     }
 }

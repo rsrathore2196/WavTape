@@ -34,6 +34,25 @@ class PlayerArtworkSourceTest {
     private val track = MusicTrack("yt_abcdefghijk", "Title", "Artist", "Album", 180_000,
         original, "signed-audio", source = "YOUTUBE_MUSIC")
 
+    @Test fun fullPlayerUsesTheSavedFileEvenWhenTheSameRecordingHasAnOnlineCover() {
+        val saved = track.copy(coverUrl = "file:///data/local/cover", audioUrl = "xtreme-offline://audio/cache")
+        val state = com.example.playback.PlayerUiState(currentTrack = saved)
+        val remote = ResolvedPlayerCover(com.example.data.remote.playerCoverIdentity(track), original)
+        val displayed = playerCoverState(state, remote)
+        assertSame(state, displayed)
+        lateinit var request: ImageRequest
+        compose.setContent {
+            val prepared = rememberPlayerArtworkRequest(displayed.currentTrack!!, true,
+                resolveCover = { throw AssertionError("A saved cover does not need a lookup") })
+            SideEffect { request = prepared }
+        }
+        compose.runOnIdle {
+            assertEquals(saved.coverUrl, request.data)
+            assertEquals(Size(1200, 1200), runBlocking { request.sizeResolver.size() })
+            assertFalse(request.parameters.value<ArtworkRequestMetadata>(ARTWORK_METADATA_PARAMETER)!!.requireSquareSongArtwork)
+        }
+    }
+
     @Test fun originalProviderCoverIsReadyAtFirstCompositionWithoutLookupOrNavigationWait() {
         lateinit var request: ImageRequest
         compose.setContent { val prepared = rememberPlayerArtworkRequest(track, true, resolveCover = { null }); SideEffect { request = prepared } }

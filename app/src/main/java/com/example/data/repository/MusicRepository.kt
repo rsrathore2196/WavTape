@@ -430,6 +430,12 @@ class MusicRepository private constructor(
         }
     }
 
+    internal suspend fun savePlaylistImport(title: String, description: String, coverUrl: String, tracks: List<MusicTrack>):
+        com.example.data.importer.SavedPlaylistImport = withContext(AppDispatchers.Database) {
+        musicDao.mergeImportedPlaylist(PlaylistEntity(title = title, description = description, coverUrl = coverUrl),
+            tracks.map(TrackEntity::fromMusicTrack))
+    }
+
     suspend fun deletePlaylist(playlistId: Long) {
         musicDao.deletePlaylist(playlistId)
     }

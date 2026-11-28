@@ -3,15 +3,15 @@ package com.example.connections
 import android.content.Context
 import androidx.room.withTransaction
 import com.example.XtremeMusicApp
+import com.example.data.importer.ImportedTrackMeta
+import com.example.data.importer.PlaylistImportEngine
+import com.example.data.importer.newImportedTracks
+import com.example.data.importer.toYouTubeImportMetadata
 import com.example.data.local.*
 import com.example.data.model.MusicTrack
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.data.remote.YouTubeExploreParser
-import com.example.data.remote.YouTubeMusicApiService
 import com.example.data.repository.CatalogDestination
-import com.example.data.repository.CatalogNames
-import com.example.data.repository.RecordingIdentity
-import com.example.data.repository.StreamResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -26,8 +26,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.text.Normalizer
-import java.util.Locale
 
 internal data class ConnectedCollection(val provider: String, val id: String, val title: String, val image: String = "") {
     val isLikedSongs: Boolean get() = (provider == "youtube" && id.removePrefix("VL") == "LM") ||
@@ -91,34 +89,28 @@ internal class ConnectedLibraries(
         val account = if (collection.provider == "youtube") connections.state.value.activeYouTube?.id
             ?: throw IOException("YouTube Music is disconnected")
             else connections.state.value.spotify?.cookie?.let(ConnectionStore::digest) ?: throw IOException("Spotify is disconnected")
-        val songs = mutableListOf<MusicTrack>()
-        var missed = 0
-        if (collection.provider == "youtube") {
+        val metadata = if (collection.provider == "youtube") buildList {
             youtubePages(collection.id) { root ->
                 val page = connectedYouTubePage(root)
-                songs += page.tracks
-                onProgress(songs.size, songs.size)
+                addAll(page.tracks.map(MusicTrack::toYouTubeImportMetadata))
                 page.continuation
             }
-        } else {
-            val metadata = spotifyTracks(collection.id)
-            metadata.forEachIndexed { index, track ->
-                currentCoroutineContext().ensureActive()
-                val identity = MusicTrack("metadata:${track.id}", track.title, track.artist, track.album,
-                    track.duration, track.image, "", primaryArtists = listOf(track.artist.substringBefore(",")))
-                val matches = YouTubeMusicApiService.searchSongs("${track.title} ${track.artist}", limit = 15, songsOnly = true)
-                val match = matches.firstOrNull { StreamResolver.matches(identity, it) }
-                if (match != null) songs += match else missed++
-                onProgress(index + 1, metadata.size)
-            }
+        } else spotifyTracks(collection.id).map { track ->
+            ImportedTrackMeta(track.title, track.artist, track.album, track.duration, "Spotify")
         }
+        val platform = if (collection.provider == "youtube") "YouTube Music" else "Spotify"
+        val summary = PlaylistImportEngine.matchTracks(metadata,
+            PlaylistImportEngine.PlaylistHeader(collection.title, "", collection.image, platform)) { current, total, _, _ ->
+            onProgress(current, total)
+        }
+        val songs = summary.matchedItems.mapNotNull { it.matchedTrack }
         currentCoroutineContext().ensureActive()
         val currentAccount = if (collection.provider == "youtube") connections.state.value.activeYouTube?.id
             else connections.state.value.spotify?.cookie?.let(ConnectionStore::digest)
         check(account == currentAccount) { "The connected account changed. Try again." }
         if (songs.isEmpty()) throw IOException("No matching music tracks were found. Your library has not changed.")
         val added = saveImport(collection, account, songs)
-        ImportResult(added, missed, songs.size - added)
+        ImportResult(added, summary.unmatchedItems.size, songs.size - added)
     }
     internal suspend fun saveImport(collection: ConnectedCollection, account: String, tracks: List<MusicTrack>): Int {
         val db = database ?: MusicDatabase.getDatabase(context)
@@ -126,24 +118,15 @@ internal class ConnectedLibraries(
             val dao = db.musicDao()
             if (collection.isLikedSongs) {
                 val favorites = dao.getAllFavoriteTracksSync().map { it.toMusicTrack() }
-                val rows = newConnectedTracks(favorites, tracks).map(TrackEntity::fromMusicTrack)
+                val rows = newImportedTracks(favorites, tracks).map(TrackEntity::fromMusicTrack)
                 dao.mergeFavorites(rows)
                 return@withTransaction rows.size
             }
-            val name = connectedPlaylistName(collection.title)
-            val previous = dao.getAllPlaylistsSync().filter { connectedPlaylistName(it.title) == name }
-                .minWithOrNull(compareBy<PlaylistEntity> { it.createdAt }.thenBy { it.playlistId })
-            val existing = previous?.let { dao.playlistTracks(it.playlistId).map(TrackEntity::toMusicTrack) }.orEmpty()
-            val rows = newConnectedTracks(existing, tracks).map(TrackEntity::fromMusicTrack)
-            val localId = if (previous == null) dao.createPlaylistWithEntries(PlaylistEntity(title = collection.title,
+            val (localId, added) = dao.mergeImportedPlaylist(PlaylistEntity(title = collection.title,
                 description = if (collection.provider == "youtube") "Imported from YouTube Music" else "Imported from Spotify",
-                coverUrl = collection.image), rows)
-            else {
-                dao.mergePlaylistEntries(previous.playlistId, rows)
-                previous.playlistId
-            }
+                coverUrl = collection.image), tracks.map(TrackEntity::fromMusicTrack))
             dao.saveConnectedCollection(ConnectedCollectionEntity(collection.provider, account, collection.id, localId))
-            rows.size
+            added
         }
     }
     private suspend fun youtubePages(browse: String, onPage: (JSONObject) -> String?) {
@@ -246,32 +229,6 @@ internal class ConnectedLibraries(
     }
 }
 
-private fun connectedPlaylistName(raw: String): String = Normalizer.normalize(CatalogNames.clean(raw), Normalizer.Form.NFKC)
-    .replace(Regex("[\\s\\u00a0]+"), " ").trim().lowercase(Locale.ROOT)
-
-/** Different provider IDs can still identify the same recording. Version and artist checks stay strict. */
-private fun newConnectedTracks(existing: List<MusicTrack>, incoming: List<MusicTrack>): List<MusicTrack> {
-    val ids = existing.mapTo(mutableSetOf()) { it.id }
-    val titles = mutableMapOf<String, MutableList<RecordingIdentity.Signature>>()
-    val codes = mutableMapOf<String, MutableList<RecordingIdentity.Signature>>()
-    fun remember(signature: RecordingIdentity.Signature) {
-        titles.getOrPut(signature.title) { mutableListOf() }.add(signature)
-        signature.isrc?.let { codes.getOrPut(it) { mutableListOf() }.add(signature) }
-    }
-    existing.forEach { remember(RecordingIdentity.signature(it)) }
-    return incoming.filter { track ->
-        if (!ids.add(track.id)) return@filter false
-        val signature = RecordingIdentity.signature(track)
-        val candidates = titles[signature.title].orEmpty() + signature.isrc?.let { codes[it] }.orEmpty()
-        val duplicate = candidates.any { known ->
-            RecordingIdentity.same(signature, known) &&
-                ((signature.isrc != null && signature.isrc == known.isrc) || (signature.durationMs > 0 && known.durationMs > 0))
-        }
-        if (!duplicate) remember(signature)
-        !duplicate
-    }
-}
-
 internal fun parseSpotifyCollections(items: JSONArray): List<ConnectedCollection> = (0 until items.length()).mapNotNull { i ->
     val item = items.optJSONObject(i)?.optJSONObject("item") ?: return@mapNotNull null
     val data = item.optJSONObject("data") ?: return@mapNotNull null
@@ -303,6 +260,7 @@ internal fun youtubeContinuation(root: JSONObject): String? {
     var found: String? = null
     walk(root) { node ->
         if (found == null) found = node.optJSONObject("nextContinuationData")?.optString("continuation")?.takeIf(String::isNotBlank)
+            ?: node.optJSONObject("reloadContinuationData")?.optString("continuation")?.takeIf(String::isNotBlank)
             ?: node.optJSONObject("continuationCommand")?.optString("token")?.takeIf(String::isNotBlank)
     }
     return found

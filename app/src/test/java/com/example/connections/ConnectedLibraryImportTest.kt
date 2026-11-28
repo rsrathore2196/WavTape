@@ -128,6 +128,34 @@ class ConnectedLibraryImportTest {
         assertNull(dao.getTrackById("yt_same-recording"))
     }
 
+    @Test fun directAndConnectedImportsShareDeduplicationAndKeepCustomEditUploads() = runBlocking {
+        val original = track("studio").copy(title = "Our Song", artist = "Singer")
+        val aliasWithoutDuration = original.copy(id = "yt_abcdefghijk", durationMs = 0L)
+        val reverb = original.copy(id = "yt_lmnopqrstuv", title = "Our Song (Custom Reverb)")
+        val remix = original.copy(id = "yt_zyxwvutsrqp", title = "Our Song (Club Mix)")
+        val playlist = PlaylistEntity(title = "Weekend")
+        val (id, count) = dao.mergeImportedPlaylist(playlist, listOf(original, original, aliasWithoutDuration, reverb, reverb)
+            .map(TrackEntity::fromMusicTrack))
+        assertEquals(2, count)
+        val connected = ConnectedCollection("youtube", "VLPLweekend", "weekend")
+        assertEquals(1, client.saveImport(connected, "account", listOf(aliasWithoutDuration, reverb, remix)))
+        assertEquals(listOf(original.id, reverb.id, remix.id), queue(id))
+        assertEquals(id, dao.importedPlaylistId("youtube", "account", connected.id))
+    }
+
+    @Test fun importingFavoritesPreservesSavedArtworkAndLocalAudioForTheSameTrack() = runBlocking {
+        val selected = track("yt_abcdefghijk")
+        val local = TrackEntity.fromMusicTrack(selected.copy(coverUrl = "file:///library/cover.jpg",
+            audioUrl = "content://media/external/audio/media/1"))
+        dao.insertOrUpdateTrack(local)
+        val incoming = selected.copy(coverUrl = "https://example.test/cover", audioUrl = "")
+        client.saveImport(ConnectedCollection("youtube", "VLLM", "Liked Songs"), "account", listOf(incoming))
+        val favorite = dao.getAllFavoriteTracksSync().single()
+        assertEquals(local.audioUrl, favorite.audioUrl)
+        assertEquals(local.coverUrl, favorite.coverUrl)
+        assertTrue(favorite.isLiked)
+    }
+
     @Test fun largeLikedLibrariesUseBatchedUpdatesAndMergeWithoutDuplicates() = runBlocking {
         val tracks = (1..1001).map { track("large-$it") }
         client.saveImport(ConnectedCollection("spotify", "liked", "Liked Songs"), "account", tracks + tracks.first())

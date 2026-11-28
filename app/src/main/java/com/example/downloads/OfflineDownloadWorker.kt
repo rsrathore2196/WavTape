@@ -124,7 +124,8 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             val mime = when { audio.isHls -> MimeTypes.APPLICATION_M3U8
                 audio.codec.equals("Opus", true) -> MimeTypes.AUDIO_WEBM
                 else -> MimeTypes.AUDIO_MP4 }
-            resolved = selected.copy(bitrateKbps = audio.bitrateKbps, qualityBadge = audio.qualityBadge, isLossless = false)
+            resolved = selected.copy(coverUrl = selected.coverUrl.ifBlank { lookup.coverUrl },
+                bitrateKbps = audio.bitrateKbps, qualityBadge = audio.qualityBadge, isLossless = false)
             plan = OfflinePlan(uri, mime, "${audio.itag}:${audio.codec}:${audio.contentLength}:${audio.isSabr}", !audio.isHls)
         } else if (archive != null) {
             if (!lookup.isLossless || !archive.playableContainer) throw IOException("Archive audio could not be verified")
@@ -147,7 +148,7 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             store.clearPartial(selected.id)
         store.update(selected.id) { it.copy(plan = plan, track = resolved) }
         val songCover = if (video != null) async {
-            try { withTimeoutOrNull(10_000L) { com.example.data.remote.resolveNativeSongCover(selected, selected.coverUrl) } }
+            try { withTimeoutOrNull(10_000L) { com.example.data.remote.resolveNativeSongCover(lookup, lookup.coverUrl) } }
             catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         } else null
         var lastUpdate = 0L
@@ -167,7 +168,7 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             }, progress = progress)
         } else OfflineTransfer.save(store, selected.id, plan, upstreamFactory(), progress)
         currentCoroutineContext().ensureActive()
-        val finalTrack = resolved.copy(coverUrl = songCover?.await() ?: selected.coverUrl)
+        val finalTrack = resolved.copy(coverUrl = songCover?.await() ?: selected.coverUrl.ifBlank { resolved.coverUrl })
         val artwork = saveArtwork(store, finalTrack)
         currentCoroutineContext().ensureActive()
         store.update(selected.id) { if (it.status != DownloadStatus.DOWNLOADING) it else it.copy(
