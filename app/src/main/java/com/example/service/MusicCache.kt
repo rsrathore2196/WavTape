@@ -163,9 +163,10 @@ object MusicCache {
             YouTubeAudioStreamService.cachedForUrl(spec.uri.toString())?.isHls == true
 
     fun createCacheDataSourceFactory(context: Context, connectTimeoutMs: Int = 15000,
-        readTimeoutMs: Int = 15000, archiveReplayLimit: Long = Long.MAX_VALUE): DataSource.Factory {
+        readTimeoutMs: Int = 15000, archiveReplayLimit: Long = Long.MAX_VALUE, addonOnly: Boolean = false): DataSource.Factory {
         val app = context.applicationContext
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        val httpDataSourceFactory = if (addonOnly) com.example.data.remote.AddonHttps.mediaFactory(connectTimeoutMs, readTimeoutMs)
+        else DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(connectTimeoutMs)
             .setReadTimeoutMs(readTimeoutMs)
@@ -194,6 +195,7 @@ object MusicCache {
                 listeners.add(listener); delegate?.addTransferListener(listener)
             }
             override fun open(spec: androidx.media3.datasource.DataSpec): Long {
+                if (addonOnly) com.example.data.remote.AddonHttps.requireMediaUri(spec.uri)
                 // Local audio already owns its bytes. Bypass both cache initialization
                 // and network-policy reads, including SAF and Android resources.
                 if (isLocal(spec.uri)) {
@@ -212,7 +214,8 @@ object MusicCache {
                     delegate = source
                     return try { source.open(spec) } catch (error: Exception) { close(); throw error }
                 }
-                val archive = com.example.data.remote.ArchiveFileKey.nativeTransport(spec.uri.toString())
+                val archive = if (addonOnly) null
+                    else com.example.data.remote.ArchiveFileKey.nativeTransport(spec.uri.toString())
                 val transportFactory = if (archive == null) rangedUpstream else DataSource.Factory {
                     com.example.data.remote.ArchiveFileTransport.source(app, archive, connectTimeoutMs, readTimeoutMs,
                         replayLimit = archiveReplayLimit)
@@ -271,10 +274,10 @@ object MusicCache {
             var boundJioUri: android.net.Uri? = null
             ResolvingDataSource(cached.createDataSource()) { spec ->
                 val host = spec.uri.host.orEmpty()
-                val saavn = host == "saavncdn.com" || host.endsWith(".saavncdn.com")
+                val saavn = !addonOnly && (host == "saavncdn.com" || host.endsWith(".saavncdn.com"))
                 val youtube = spec.uri.scheme in setOf("xtreme-sabr", "xtreme-youtube") ||
                     YouTubeAudioStreamService.isMediaUrl(spec.uri.toString())
-                val archive = host == "archive.org" || host.endsWith(".archive.org")
+                val archive = !addonOnly && (host == "archive.org" || host.endsWith(".archive.org"))
                 val addon = com.example.data.remote.StreamingAddons.hasRegisteredTransport(spec.uri.toString())
                 if (youtube || saavn || archive || addon) {
                     if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper())

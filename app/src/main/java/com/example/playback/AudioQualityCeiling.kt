@@ -60,7 +60,7 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
     val configuredSources: List<PlaybackSource> by lazy(LazyThreadSafetyMode.PUBLICATION) { PlaybackSource.ordered(sources) }
     val playbackSources: List<PlaybackSource> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val enabled = configuredSources.filter { it.enabled && it.available(ceiling) &&
-            (it.kind != PlaybackSourceKind.ADDON || it.baseUrl.isNotBlank()) }
+            (it.kind != PlaybackSourceKind.ADDON || com.example.data.remote.AddonHttps.isAllowed(it.baseUrl)) }
         val builtInOrder = if (maximum) listOf(PlaybackSourceKind.INTERNET_ARCHIVE, PlaybackSourceKind.JIOSAAVN, PlaybackSourceKind.YOUTUBE)
             else listOf(PlaybackSourceKind.YOUTUBE, PlaybackSourceKind.JIOSAAVN)
         enabled.filter { it.kind == PlaybackSourceKind.ADDON } +
@@ -86,7 +86,7 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
         previousKey == copy(dolbyAtmos = !allowsDolbyAtmos).key
     /** Manual upgrades use the source list's upgrade order, not normal YouTube-first routing. */
     internal val upgradeSources: List<PlaybackSource> get() = configuredSources.filter {
-        it.enabled && it.available(ceiling) && (it.kind != PlaybackSourceKind.ADDON || it.baseUrl.isNotBlank())
+        it.enabled && it.available(ceiling) && (it.kind != PlaybackSourceKind.ADDON || com.example.data.remote.AddonHttps.isAllowed(it.baseUrl))
     }
     internal val upgradePolicyKey: String get() = "${ceiling.name}:" + upgradeSources.joinToString(",") {
         "${it.id}:${it.baseUrl.hashCode()}"

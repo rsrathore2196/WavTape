@@ -166,7 +166,7 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             OfflineTransfer.saveArchive(store, selected.id, plan, source = { resume ->
                 ArchiveFileTransport.source(applicationContext, archive, 15_000, 30_000, resume)
             }, progress = progress)
-        } else OfflineTransfer.save(store, selected.id, plan, upstreamFactory(), progress)
+        } else OfflineTransfer.save(store, selected.id, plan, upstreamFactory(addon = StreamingAddons.registeredSourceId(plan.uri) != null), progress)
         currentCoroutineContext().ensureActive()
         val finalTrack = resolved.copy(coverUrl = songCover?.await() ?: selected.coverUrl.ifBlank { resolved.coverUrl })
         val artwork = saveArtwork(store, finalTrack)
@@ -174,14 +174,16 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
         store.update(selected.id) { if (it.status != DownloadStatus.DOWNLOADING) it else it.copy(
             status = DownloadStatus.COMPLETE, bytes = cacheSize, total = cacheSize, error = null, artwork = artwork, track = finalTrack) }
     }
-    private fun upstreamFactory(): DataSource.Factory {
-        val http = DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000)
-            .setAllowCrossProtocolRedirects(false)
+    private fun upstreamFactory(addon: Boolean): DataSource.Factory {
+        val http = if (addon) com.example.data.remote.AddonHttps.mediaFactory(15_000, 30_000)
+            else DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000)
+                .setAllowCrossProtocolRedirects(false)
         val base = DefaultDataSource.Factory(applicationContext, http)
         return DataSource.Factory {
             val delegate = YouTubeMediaDataSource(applicationContext, base, http)
             object : DataSource by delegate {
                 override fun open(dataSpec: DataSpec): Long {
+                    if (addon) com.example.data.remote.AddonHttps.requireMediaUri(dataSpec.uri)
                     val url = dataSpec.uri.toString()
                     val headers = if (YouTubeAudioStreamService.isMediaUrl(url)) YouTubeAudioStreamService.headersFor(url)
                         else StreamingAddons.headers(url)

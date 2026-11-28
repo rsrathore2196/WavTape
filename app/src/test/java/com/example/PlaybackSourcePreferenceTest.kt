@@ -25,6 +25,14 @@ class PlaybackSourcePreferenceTest {
         audioUrl = "xtreme-youtube://audio/abcdefghijk/stream.audio?cap=$cap", bitrateKbps = minOf(80, cap / 1000), qualityBadge = "Opus")
     private fun custom(url: String) = PlaybackSource(PlaybackSource.addonId(url), PlaybackSourceKind.ADDON, "Server", baseUrl = url)
 
+    private lateinit var storage: AddonStorageFixture
+
+    @org.junit.Before fun useEncryptedFixture() {
+        storage = AddonStorageFixture(ApplicationProvider.getApplicationContext<Context>())
+    }
+
+    @org.junit.After fun clearEncryptedFixture() = storage.close()
+
     @Test fun unconfiguredInstallUsesYoutubeUntilAnOptionalSourceIsExplicitlyEnabled() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         withContext(Dispatchers.IO) {
@@ -149,10 +157,8 @@ class PlaybackSourcePreferenceTest {
         assertEquals(listOf(PlaybackSourceKind.ADDON, PlaybackSourceKind.INTERNET_ARCHIVE,
             PlaybackSourceKind.JIOSAAVN, PlaybackSourceKind.YOUTUBE), migrated.map { it.kind })
         assertTrue(migrated.single { it.kind == PlaybackSourceKind.YOUTUBE }.enabled)
-        PlaybackSourcesPreferences.save(app, migrated)
-        withTimeout(3000) { while (withContext(Dispatchers.IO) {
-            app.getSharedPreferences("xtreme_playback_sources_prefs", 0).getString("sources_v2", null)
-        } == null) delay(10) }
+        assertFalse(app.getSharedPreferences("xtreme_playback_sources_prefs", 0).contains("sources_v2"))
+        assertFalse(app.getSharedPreferences("xtreme_other_settings", 0).contains("streaming_addon_url"))
         assertEquals(migrated, PlaybackSourcesPreferences.load(app))
     }
 

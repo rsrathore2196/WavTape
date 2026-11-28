@@ -162,28 +162,17 @@ class PlayerExperienceSettingsTest {
                 OtherSettingsPreferences.playerExperienceSettings(context).outputPrecision)
         }
     }
-    @Test fun lyricsAwakeAndAddonConfigurationSurviveRecreationWithoutEnablingByDefault() = runBlocking {
+    @Test fun lyricsAwakeSurvivesRecreation() = runBlocking {
         ReactiveSettingsRepository(app).use { repository ->
             repository.preload()
             val context = client(repository)
-            val defaults = OtherSettingsPreferences.playbackIntegrations(context)
-            assertFalse(defaults.keepLyricsAwake); assertFalse(defaults.addonEnabled)
-            OtherSettingsPreferences.saveStreamingAddon(context, "https://personal.example/addon", "Personal")
-            assertFalse(OtherSettingsPreferences.playbackIntegrations(context).addonEnabled)
+            assertFalse(OtherSettingsPreferences.playbackIntegrations(context).keepLyricsAwake)
             OtherSettingsPreferences.setKeepLyricsAwake(context, true)
-            OtherSettingsPreferences.setStreamingAddonEnabled(context, true)
             repository.awaitPendingWrites()
         }
         ReactiveSettingsRepository(app).use { reopened ->
             reopened.preload()
-            val context = client(reopened)
-            val restored = OtherSettingsPreferences.playbackIntegrations(context)
-            assertTrue(restored.keepLyricsAwake); assertTrue(restored.addonEnabled)
-            assertEquals("Personal", restored.addonName)
-            OtherSettingsPreferences.saveStreamingAddon(context, "", "")
-            assertFalse(OtherSettingsPreferences.playbackIntegrations(context).addonEnabled)
-            assertTrue(OtherSettingsPreferences.playbackIntegrations(context).keepLyricsAwake)
-            reopened.awaitPendingWrites()
+            assertTrue(OtherSettingsPreferences.playbackIntegrations(client(reopened)).keepLyricsAwake)
         }
     }
     @Test fun fullScreenAlbumArtIsOnByDefaultAndPersists() = runBlocking {

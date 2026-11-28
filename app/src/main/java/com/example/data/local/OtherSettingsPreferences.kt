@@ -167,9 +167,6 @@ object OtherSettingsPreferences {
     private const val KEY_OUTPUT_PRECISION = "playback_output_precision"
     private const val KEY_BIT_PERFECT = "playback_bit_perfect"
     private const val KEY_KEEP_LYRICS_AWAKE = "keep_lyrics_screen_awake"
-    private const val KEY_ADDON_ENABLED = "streaming_addon_enabled"
-    private const val KEY_ADDON_URL = "streaming_addon_url"
-    private const val KEY_ADDON_NAME = "streaming_addon_name"
 
     data class ScaleOption(
         val index: Int,
@@ -269,12 +266,14 @@ object OtherSettingsPreferences {
 
     fun playbackIntegrations(context: Context): PlaybackIntegrationSettings {
         val prefs = getPrefs(context)
+        val sources = PlaybackSourcesPreferences.snapshot(context)
+        val addon = sources.firstOrNull { it.kind == PlaybackSourceKind.ADDON }
         return PlaybackIntegrationSettings(
             keepLyricsAwake = prefs.getBoolean(KEY_KEEP_LYRICS_AWAKE, false),
-            addonEnabled = prefs.getBoolean(KEY_ADDON_ENABLED, false),
-            addonUrl = prefs.getString(KEY_ADDON_URL, "") ?: "",
-            addonName = prefs.getString(KEY_ADDON_NAME, "") ?: "",
-            sources = PlaybackSourcesPreferences.snapshot(context)
+            addonEnabled = addon?.enabled == true,
+            addonUrl = addon?.baseUrl.orEmpty(),
+            addonName = addon?.name.orEmpty(),
+            sources = sources
         )
     }
 
@@ -288,7 +287,7 @@ object OtherSettingsPreferences {
     }.distinctUntilChanged().flowOn(AppDispatchers.Io)
 
     private fun observeLegacyPlaybackIntegrations(context: Context): Flow<PlaybackIntegrationSettings> {
-        val keys = setOf(KEY_KEEP_LYRICS_AWAKE, KEY_ADDON_ENABLED, KEY_ADDON_URL, KEY_ADDON_NAME)
+        val keys = setOf(KEY_KEEP_LYRICS_AWAKE)
         return callbackFlow {
             val app = context.applicationContext
             val prefs = getPrefs(app)
@@ -310,21 +309,6 @@ object OtherSettingsPreferences {
 
     fun setKeepLyricsAwake(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_KEEP_LYRICS_AWAKE, enabled).apply()
-    }
-
-    fun setStreamingAddonEnabled(context: Context, enabled: Boolean) {
-        val hasUrl = playbackIntegrations(context).addonUrl.isNotBlank()
-        getPrefs(context).edit().putBoolean(KEY_ADDON_ENABLED, enabled && hasUrl).apply()
-    }
-
-    fun saveStreamingAddon(context: Context, url: String, name: String) {
-        val editor = getPrefs(context).edit()
-            .putString(KEY_ADDON_URL, url)
-            .putString(KEY_ADDON_NAME, name)
-        if (url.isBlank()) {
-            editor.putBoolean(KEY_ADDON_ENABLED, false)
-        }
-        editor.apply()
     }
 
     fun playerExperienceSettings(context: Context): PlayerExperienceSettings {

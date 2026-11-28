@@ -70,6 +70,7 @@ fun SourcesScreen(
     val sources by sourcesFlow.collectAsStateWithLifecycle(initialValue = PlaybackSourcesPreferences.getSources(context))
 
 
+    val storageUnavailable by PlaybackSourcesPreferences.addonStorageUnavailable.collectAsStateWithLifecycle()
     val canAddAddon = sources.count { it.iconType == PlaybackSourcesPreferences.ID_ADDON } < 16
     var showAddAddonDialog by remember { mutableStateOf(false) }
     var editingAddon by remember { mutableStateOf<PlaybackSourcesPreferences.SourceItem?>(null) }
@@ -195,7 +196,11 @@ fun SourcesScreen(
                         tintAccent = false
                     )
             ) {
-                displayedSources.forEachIndexed { index, item ->
+                if (storageUnavailable) {
+                Text("Secure add-on storage is unavailable. Try again after unlocking your device.",
+                    color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            }
+            displayedSources.forEachIndexed { index, item ->
                     key(item.id) {
                     val isDragging = draggedId == item.id
                     val dragScale by animateFloatAsState(targetValue = if (isDragging) 1.02f else 1f, label = "dragScale")
@@ -518,12 +523,15 @@ private fun AddAddonDialog(
     currentUrl: String,
     currentName: String,
     onDismiss: () -> Unit,
-    onSave: (url: String, name: String) -> Unit,
+    onSave: suspend (url: String, name: String) -> Unit,
     onRemove: () -> Unit
 ) {
     var url by remember { mutableStateOf(currentUrl) }
     var busy by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember(currentUrl) {
+        mutableStateOf(if (currentUrl.isNotBlank() && !com.example.data.remote.AddonHttps.isAllowed(currentUrl))
+            com.example.data.remote.AddonHttps.REQUIRED else null)
+    }
     val scope = rememberCoroutineScope()
     val colors = LocalAppColors.current
 
@@ -558,7 +566,7 @@ private fun AddAddonDialog(
                     },
                     label = { Text("Server URL") },
                     placeholder = { Text("https://example.com/token") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     singleLine = true, enabled = !busy,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier

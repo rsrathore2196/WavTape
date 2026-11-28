@@ -11,7 +11,8 @@ import com.example.data.model.MusicTrack
 import com.example.data.remote.StreamingAddons
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.PlaybackSourcePolicy
-import com.sun.net.httpserver.HttpServer
+import com.sun.net.httpserver.HttpsServer
+import com.sun.net.httpserver.HttpsConfigurator
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.junit.*
@@ -123,7 +124,7 @@ class StreamingAddonIntegrationTest {
     private val app get() = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var repository: ReactiveSettingsRepository
     private lateinit var context: Context
-    private lateinit var server: HttpServer
+    private lateinit var server: HttpsServer
     private lateinit var serverExecutor: java.util.concurrent.ExecutorService
     private lateinit var base: String
     private val requests = CopyOnWriteArrayList<String>()
@@ -138,8 +139,12 @@ class StreamingAddonIntegrationTest {
     private val maximum get() = PlaybackSourcePolicy(AudioQualityCeiling.MAX,
         sources = OtherSettingsPreferences.playbackIntegrations(context).sourceList(AudioQualityCeiling.MAX))
 
+    private lateinit var storage: AddonStorageFixture
+
     @Before fun setup() = runBlocking {
         withContext(Dispatchers.IO) { app.getSharedPreferences("xtreme_other_settings", 0).edit().clear().commit(); app.getSharedPreferences("xtreme_playback_sources_prefs", 0).edit().clear().commit() }
+        storage = AddonStorageFixture(app)
+        StreamingAddons.testClient = StreamingAddons.createClient(AddonTlsFixture.client())
         repository = ReactiveSettingsRepository(app)
         repository.preload()
         context = object : ContextWrapper(app) {
@@ -147,7 +152,8 @@ class StreamingAddonIntegrationTest {
             override fun getSharedPreferences(name: String, mode: Int) = repository.preferences(name)
         }
         serverExecutor = java.util.concurrent.Executors.newCachedThreadPool()
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+        server = HttpsServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            httpsConfigurator = HttpsConfigurator(AddonTlsFixture.server)
             executor = serverExecutor
             createContext("/a/token/") { exchange ->
                 requests.add(exchange.requestURI.toString())
@@ -168,15 +174,15 @@ class StreamingAddonIntegrationTest {
             }
             start()
         }
-        base = "http://127.0.0.1:${server.address.port}/a/token"
+        base = "https://127.0.0.1:${server.address.port}/a/token"
         stream = { """{"stream":{"url":"$base/song.flac","codec":"flac","format":"flac","bitrate":1411200}}""" }
     }
     @After fun cleanup(): Unit = runBlocking {
         repository.awaitPendingWrites(); repository.close(); server.stop(0); serverExecutor.shutdownNow()
+        StreamingAddons.testClient = null
+        storage.close()
     }
     private suspend fun enable() {
-        OtherSettingsPreferences.saveStreamingAddon(context, base, "My Music")
-        OtherSettingsPreferences.setStreamingAddonEnabled(context, true)
         val sources = listOf(com.example.playback.PlaybackSource(
             com.example.playback.PlaybackSource.addonId(base), com.example.playback.PlaybackSourceKind.ADDON,
             "My Music", baseUrl = base)) + com.example.playback.PlaybackSource.builtIns
@@ -184,6 +190,65 @@ class StreamingAddonIntegrationTest {
         withTimeout(3_000) {
             while (OtherSettingsPreferences.loadPlaybackSources(context) != sources) delay(10)
         }
+    }
+
+    @Test fun aDowngradeRedirectNeverReachesTheHttpServer() = runBlocking {
+        val cleartext = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val received = java.util.concurrent.atomic.AtomicInteger()
+        cleartext.createContext("/") { exchange ->
+            received.incrementAndGet()
+            exchange.sendResponseHeaders(204, -1L)
+            exchange.close()
+        }
+        cleartext.start()
+        val target = "http://127.0.0.1:${cleartext.address.port}/private"
+        server.createContext("/downgrade/manifest.json") { exchange ->
+            exchange.responseHeaders.add("Location", target)
+            exchange.sendResponseHeaders(302, -1L)
+            exchange.close()
+        }
+        try {
+            val error = runCatching { StreamingAddons.connect(base.substringBefore("/a/token") + "/downgrade") }.exceptionOrNull()
+            assertTrue(error is com.example.data.remote.AddonHttps.Required)
+            assertEquals(0, received.get())
+            assertTrue(runCatching { StreamingAddons.normalize(target) }.isFailure)
+        } finally { cleartext.stop(0) }
+    }
+
+    @Test fun httpsRedirectsDoNotForwardCredentialsAcrossOrigins() {
+        val origin = base.substringBefore("/a/token")
+        val redirected = origin.replace("127.0.0.1", "localhost")
+        val received = java.util.concurrent.atomic.AtomicReference<String>()
+        server.createContext("/cross") { exchange ->
+            exchange.responseHeaders.add("Location", "$redirected/final")
+            exchange.sendResponseHeaders(302, -1L)
+            exchange.close()
+        }
+        server.createContext("/final") { exchange ->
+            received.set(listOf("X-Addon-Key", "Cookie", "Authorization", "Range")
+                .joinToString("|") { exchange.requestHeaders.getFirst(it).orEmpty() })
+            exchange.sendResponseHeaders(204, -1L)
+            exchange.close()
+        }
+        val request = okhttp3.Request.Builder().url("$origin/cross")
+            .header("X-Addon-Key", "private-token").header("Cookie", "fixture=secret")
+            .header("Authorization", "Bearer fixture").header("Range", "bytes=0-2").build()
+        checkNotNull(StreamingAddons.testClient).newCall(request).execute().use { assertEquals(204, it.code) }
+        assertEquals("|||bytes=0-2", received.get())
+    }
+
+    @Test fun invalidMediaAndDrmUrlsAreRejectedWithoutChangingHttpsStreams() {
+        val source = base
+        val candidate = song
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX)
+        val unsafe = """{"url":"http://media.example/song.flac","format":"flac"}"""
+        assertNull(StreamingAddons.parseStream(unsafe, source, song, candidate, policy))
+        val withDrm = """{"playback":{"version":1,"uri":"https://media.example/manifest.mpd","drm":{"scheme":"widevine","licenseUrl":"http://127.0.0.1/private"}}}"""
+        assertNull(StreamingAddons.parseStream(withDrm, source, song, candidate, policy))
+        assertNotNull(StreamingAddons.parseStream("""{"url":"/song.flac","format":"flac"}""",
+            source, song, candidate, policy))
+        assertTrue(runCatching { com.example.data.remote.AddonHttps.requireMediaUri(android.net.Uri.parse("http://media.example/segment")) }.isFailure)
+        assertTrue(runCatching { com.example.data.remote.AddonHttps.requireMediaUri(android.net.Uri.parse("file:///test")) }.isFailure)
     }
 
     @Test fun multipleSavedServersRetainSeparateIdentitiesAndCanBeDisabledIndividually() = runBlocking {
@@ -223,7 +288,7 @@ class StreamingAddonIntegrationTest {
         val manifest = StreamingAddons.connect("$base/manifest.json")
         assertEquals("My Music", manifest.name); assertEquals(base, manifest.baseUrl)
         assertEquals(listOf("/a/token/manifest.json"), requests.toList())
-        OtherSettingsPreferences.saveStreamingAddon(context, manifest.baseUrl, manifest.name)
+        com.example.data.local.PlaybackSourcesPreferences.saveAddon(context, manifest.baseUrl, manifest.name)
         assertFalse(OtherSettingsPreferences.playbackIntegrations(context).addonEnabled)
         assertFalse(OtherSettingsPreferences.playbackIntegrations(context).keepLyricsAwake)
         assertTrue(StreamingAddons.search(context, "Song", maximum).isEmpty())
@@ -295,7 +360,7 @@ class StreamingAddonIntegrationTest {
         }
         try {
             val playback = async(Dispatchers.IO) { StreamingAddons.resolve(context, song, maximum) }
-            withTimeout(1_800) { searched.await() }
+            withTimeout(2_300) { searched.await() }
             releaseManifest.complete(Unit)
             assertEquals("$base/song.flac", withTimeout(3_000) { playback.await() }?.audioUrl)
             assertEquals(2, requests.count { it.contains("/search?") })

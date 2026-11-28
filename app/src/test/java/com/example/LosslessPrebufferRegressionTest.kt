@@ -20,7 +20,8 @@ import com.example.data.remote.StreamingAddons
 import com.example.playback.*
 import com.example.service.FastStartManifests
 import com.example.service.MusicCache
-import com.sun.net.httpserver.HttpServer
+import com.sun.net.httpserver.HttpsServer
+import com.sun.net.httpserver.HttpsConfigurator
 import java.net.InetSocketAddress
 import org.json.JSONObject
 import kotlinx.coroutines.*
@@ -42,10 +43,14 @@ import org.robolectric.shadows.*
 @Suppress("DEPRECATION")
 class LosslessPrebufferRegressionTest {
     private val app get() = ApplicationProvider.getApplicationContext<Context>()
-    private lateinit var server: HttpServer
+    private lateinit var server: HttpsServer
     private lateinit var source: PlaybackSource
 
+    private lateinit var storage: AddonStorageFixture
+
     @Before fun prepare() = runBlocking {
+        storage = AddonStorageFixture(app)
+        StreamingAddons.testClient = StreamingAddons.createClient(AddonTlsFixture.client())
         Dispatchers.setMain(UnconfinedTestDispatcher())
         com.example.performance.BackgroundWorkCoordinator.resetForTesting()
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
@@ -69,7 +74,8 @@ class LosslessPrebufferRegressionTest {
             .setIsEncoder(false).setCapabilities(capabilities).build())
         MediaCodecUtil.clearDecoderInfoCache()
         val bytes = javaClass.getResourceAsStream("/audio/unindexed-silence.flac")!!.use { it.readBytes() }
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+        server = HttpsServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            httpsConfigurator = HttpsConfigurator(AddonTlsFixture.server)
             createContext("/song.flac") { exchange ->
                 exchange.responseHeaders.add("Content-Type", "audio/flac")
                 exchange.sendResponseHeaders(200, 0) // Real chunked response: no length or seek table.
@@ -92,7 +98,7 @@ class LosslessPrebufferRegressionTest {
             }
             start()
         }
-        val base = "http://127.0.0.1:${server.address.port}"
+        val base = "https://127.0.0.1:${server.address.port}"
         source = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Local fixture", baseUrl = base)
         val sources = listOf(source) + PlaybackSource.builtIns
         PlaybackSourcesPreferences.save(app, sources)
@@ -100,6 +106,8 @@ class LosslessPrebufferRegressionTest {
     }
     @After fun cleanup() = runBlocking {
         server.stop(0)
+        storage.close()
+        StreamingAddons.testClient = null
         withContext(Dispatchers.IO) {
             MusicCache::class.java.getDeclaredField("simpleCacheInstance").apply { isAccessible = true }.let {
                 (it.get(null) as? SimpleCache)?.release(); it.set(null, null)
@@ -211,7 +219,7 @@ class LosslessPrebufferRegressionTest {
         assertNull("The manifest handoff is single-use", FastStartManifests.takeFor(handoff))
         val networkCalls = requests.toList()
         withContext(Dispatchers.IO) {
-            val factory = prepared.replaying(MusicCache.createCacheDataSourceFactory(app))
+            val factory = prepared.replaying(MusicCache.createCacheDataSourceFactory(app, addonOnly = true))
             val dash = DashUtil.loadManifest(factory.createDataSource(), media.localConfiguration!!.uri)
             val representation = dash.getPeriod(0).adaptationSets.first().representations.first()
             val index = checkNotNull(representation.index)

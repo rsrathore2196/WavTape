@@ -16,7 +16,8 @@ import com.example.data.model.MusicTrack
 import com.example.data.remote.StreamingAddons
 import com.example.playback.*
 import com.example.service.MusicCache
-import com.sun.net.httpserver.HttpServer
+import com.sun.net.httpserver.HttpsServer
+import com.sun.net.httpserver.HttpsConfigurator
 import kotlinx.coroutines.*
 import org.junit.*
 import org.junit.Assert.*
@@ -34,11 +35,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 @Suppress("DEPRECATION")
 class AdaptiveLosslessPreparationTest {
     private val app get() = ApplicationProvider.getApplicationContext<Context>()
-    private lateinit var server: HttpServer
+    private lateinit var server: HttpsServer
     private lateinit var item: MediaItem
     private val requests = CopyOnWriteArrayList<String>()
 
+    private lateinit var storage: AddonStorageFixture
+
     @Before fun setup() = runBlocking {
+        storage = AddonStorageFixture(app)
+        StreamingAddons.testClient = StreamingAddons.createClient(AddonTlsFixture.client())
         resetNetworkMonitor()
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
         val manager = shadowOf(app.getSystemService(ConnectivityManager::class.java))
@@ -55,7 +60,8 @@ class AdaptiveLosslessPreparationTest {
         ShadowMediaCodecList.addCodec(MediaCodecInfoBuilder.newBuilder().setName("OMX.google.flac.decoder")
             .setIsEncoder(false).setCapabilities(capabilities).build())
         MediaCodecUtil.clearDecoderInfoCache()
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+        server = HttpsServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            httpsConfigurator = HttpsConfigurator(AddonTlsFixture.server)
             createContext("/") { exchange ->
                 requests.add(exchange.requestURI.path)
                 val file = if (exchange.requestURI.path == "/play") "manifest.mpd" else exchange.requestURI.path.removePrefix("/")
@@ -65,7 +71,7 @@ class AdaptiveLosslessPreparationTest {
             }
             start()
         }
-        val base = "http://127.0.0.1:${server.address.port}"
+        val base = "https://127.0.0.1:${server.address.port}"
         val source = PlaybackSource(PlaybackSource.addonId(base), PlaybackSourceKind.ADDON, "Test server", baseUrl = base)
         val sources = listOf(source) + PlaybackSource.builtIns
         PlaybackSourcesPreferences.save(app, sources)
@@ -77,6 +83,8 @@ class AdaptiveLosslessPreparationTest {
     }
     @After fun cleanup() = runBlocking {
         server.stop(0)
+        storage.close()
+        StreamingAddons.testClient = null
         withContext(Dispatchers.IO) {
             MusicCache::class.java.getDeclaredField("simpleCacheInstance").apply { isAccessible = true }.let {
                 (it.get(null) as? SimpleCache)?.release(); it.set(null, null)

@@ -26,8 +26,19 @@ import org.robolectric.annotation.GraphicsMode
 class StreamingSourcesUiTest {
     @get:Rule val compose = createComposeRule()
     private val app get() = ApplicationProvider.getApplicationContext<Context>()
-    @Before fun startFreshMonitor() { stopMonitor() }
-    @After fun stopMonitor() {
+    private lateinit var addonStorage: AddonStorageFixture
+
+    @Before fun startFreshMonitor() {
+        stopMonitor()
+        addonStorage = AddonStorageFixture(app)
+    }
+
+    @After fun cleanup() {
+        stopMonitor()
+        addonStorage.close()
+    }
+
+    private fun stopMonitor() {
         AudioSignalPath.reset()
         val field = NetworkQualityMonitor::class.java.getDeclaredField("instance").apply { isAccessible = true }
         (field.get(null) as? NetworkQualityMonitor)?.let { monitor ->

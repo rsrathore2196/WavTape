@@ -211,6 +211,7 @@ dependencies {
   implementation(libs.media3.ui)
   implementation(libs.media3.common)
   implementation(libs.media3.datasource)
+  implementation(libs.media3.okhttp)
   // Google's HCT numerics for the connected Material palettes are vendored
   // under ui/theme/colorutilities with their Apache-2.0 license.
   // implementation(libs.androidx.palette.ktx)

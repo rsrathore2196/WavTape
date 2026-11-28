@@ -3,7 +3,6 @@ package com.example.data.local
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
-import androidx.core.content.edit
 import com.example.performance.AppDispatchers
 import com.example.playback.*
 import kotlinx.coroutines.*
@@ -13,121 +12,174 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.atomic.AtomicReference
 
 /** One persistent source list. Legacy single-server settings are read only for migration. */
 object PlaybackSourcesPreferences {
-    private const val PREFS_NAME = "xtreme_playback_sources_prefs"
-    private const val KEY_CONFIG = "sources_v2"
+    internal const val PREFS_NAME = "xtreme_playback_sources_prefs"
+    internal const val LEGACY_CONFIG = "sources_v2"
+    internal const val LEGACY_ORDER = "sources_order"
+    internal const val OTHER_PREFS = "xtreme_other_settings"
+    internal val legacyAddonKeys = setOf("streaming_addon_url", "streaming_addon_name", "streaming_addon_enabled")
     const val ID_ADDON = "addon"
     const val ID_JIOSAAVN = "jiosaavn"
     const val ID_INTERNET_ARCHIVE = "internet_archive"
     const val ID_YOUTUBE = "youtube"
     val DEFAULT_ORDER = listOf(ID_INTERNET_ARCHIVE, ID_JIOSAAVN, ID_YOUTUBE)
-    private val scope = CoroutineScope(SupervisorJob() + AppDispatchers.HomeBookkeeping)
-    private val reads = Mutex()
-    private val writes = Mutex()
-    private data class Snapshot(val key: String?, val sources: List<PlaybackSource>)
-    private val memory = AtomicReference(Snapshot(null, emptyList()))
+    private val scope = CoroutineScope(SupervisorJob() + AppDispatchers.Io)
+    private val lock = Mutex()
+    private val revision = MutableStateFlow(0L)
+    private val _addonStorageUnavailable = MutableStateFlow(false)
+    internal val addonStorageUnavailable = _addonStorageUnavailable.asStateFlow()
+    @Volatile private var saved: SavedAddons? = null
+
+    private class SavedAddons(val app: Context, val addons: List<PlaybackSource>)
+    @androidx.annotation.VisibleForTesting
+    internal var openCredentials: (Context) -> AddonCredentialStore = AddonCredentialStore::open
+        set(value) { field = value; saved = null }
+
     private fun prefs(context: Context) = ReactiveSettingsRepository.preferences(context, PREFS_NAME)
+    internal fun flag(id: String) = "source_enabled_$id"
+    internal val portableFlags = PlaybackSource.builtIns.map { flag(it.id) }.toSet()
 
     fun snapshot(context: Context): List<PlaybackSource> {
-        val raw = prefs(context).getString(KEY_CONFIG, null)
-        val value = memory.get()
-        return if (value.key == raw) value.sources else
-            if (raw != null) PlaybackSource.ordered(emptyList()) else emptyList()
+        val addons = saved?.takeIf { it.app === context.applicationContext }?.addons.orEmpty()
+        val preferences = prefs(context)
+        return configuredSources(preferences, addons)
     }
 
-    private fun legacy(context: Context, preferences: SharedPreferences): List<PlaybackSource> {
-        val order = preferences.getString("sources_order", null)
-        val flags = preferences.all.keys.any { it.startsWith("source_enabled_") }
-        if (order == null && !flags) return emptyList()
-        val old = OtherSettingsPreferences.playbackIntegrations(context)
-        val custom = old.addonUrl.takeIf(String::isNotBlank)?.let { url ->
-            PlaybackSource(PlaybackSource.addonId(url), PlaybackSourceKind.ADDON,
-                old.addonName.ifBlank { "Custom server" },
-                preferences.getBoolean("source_enabled_addon", old.addonEnabled), url)
+    private fun configuredSources(preferences: SharedPreferences, addons: List<PlaybackSource>): List<PlaybackSource> =
+        if (addons.isEmpty() && portableFlags.none(preferences::contains) &&
+            !preferences.contains(LEGACY_CONFIG) && !preferences.contains(LEGACY_ORDER)) emptyList()
+        else PlaybackSource.ordered(addons + builtins(preferences))
+
+    private fun builtins(preferences: SharedPreferences): List<PlaybackSource> {
+        val known = preferences.getString(LEGACY_CONFIG, null)?.let(::legacyBuiltinFlags).orEmpty()
+        val legacyOrder = preferences.getString(LEGACY_ORDER, null)?.split(',')?.map(String::trim).orEmpty()
+        return PlaybackSource.newInstallDefaults.map { source ->
+            source.copy(enabled = preferences.getBoolean(flag(source.id),
+                known[flag(source.id)] ?: (source.enabled || source.id in legacyOrder)))
         }
-        val ids = order?.split(',')?.map(String::trim).orEmpty()
-        val builtin = PlaybackSource.builtIns.map { it.copy(enabled = preferences.getBoolean("source_enabled_${it.id}", it.id in ids)) }
-        val available = builtin + listOfNotNull(custom)
-        return PlaybackSource.ordered(ids.mapNotNull { id -> if (id == ID_ADDON) custom else available.find { it.id == id } } + available)
     }
 
-    suspend fun load(context: Context): List<PlaybackSource> = com.example.performance.BackgroundWorkCoordinator.finishBoundedBatch {
-        readCurrent(context)
+    /** Read only the known provider flags; never copy URLs or add-on identifiers into portable settings. */
+    internal fun legacyBuiltinFlags(raw: String): Map<String, Boolean> = runCatching {
+        val rows = JSONArray(raw)
+        (0 until minOf(rows.length(), 19)).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val source = PlaybackSource.builtIns.find { it.kind.name == row.optString("kind") } ?: return@mapNotNull null
+            flag(source.id) to (source.id == ID_YOUTUBE || row.optBoolean("enabled"))
+        }.toMap()
+    }.getOrDefault(emptyMap())
+
+    private fun decodeAddons(raw: String): List<PlaybackSource> {
+        val rows = JSONArray(raw)
+        return (0 until minOf(rows.length(), 19)).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            if (row.optString("kind") != "ADDON") return@mapNotNull null
+            val url = row.optString("url").takeIf(String::isNotBlank) ?: return@mapNotNull null
+            // Keep existing unsupported addresses editable, with their original identity and enabled flag.
+            PlaybackSource(row.optString("id").ifBlank { PlaybackSource.addonId(url) }, PlaybackSourceKind.ADDON,
+                row.optString("name").take(100).ifBlank { "Custom server" }, row.optBoolean("enabled"), url)
+        }.distinctBy { it.id }.take(16)
     }
 
-    // Finish this small settings transaction before yielding: an optional reader
-    // must never park with the lock needed by a foreground playback request.
-    private suspend fun readCurrent(context: Context): List<PlaybackSource> = withContext(AppDispatchers.Io) {
-        reads.withLock {
-            val preferences = prefs(context)
-            var loaded: Snapshot? = null
-            while (loaded == null) {
-                currentCoroutineContext().ensureActive()
-                val raw = preferences.getString(KEY_CONFIG, null)
-                val cached = memory.get().takeIf { raw != null && it.key == raw }
-                val parsed = if (raw == null) legacy(context, preferences) else cached?.sources
-                    ?: withContext(AppDispatchers.CpuBounded) {
-                        runCatching {
-                            val array = JSONArray(raw)
-                            (0 until minOf(array.length(), 19)).mapNotNull { index ->
-                                val row = array.optJSONObject(index) ?: return@mapNotNull null
-                                val kind = PlaybackSourceKind.entries.firstOrNull { it.name == row.optString("kind") } ?: return@mapNotNull null
-                                if (kind != PlaybackSourceKind.ADDON) {
-                                    val builtin = PlaybackSource.builtIns.first { it.kind == kind }
-                                    builtin.copy(id = row.optString("id").ifBlank { builtin.id },
-                                        name = row.optString("name").take(100).ifBlank { builtin.name },
-                                        enabled = row.optBoolean("enabled", false), baseUrl = row.optString("url"))
-                                } else {
-                                    val url = runCatching { com.example.data.remote.StreamingAddons.normalize(row.optString("url")) }
-                                        .getOrNull() ?: return@mapNotNull null
-                                    PlaybackSource(row.optString("id").ifBlank { PlaybackSource.addonId(url) }, kind,
-                                        row.optString("name").take(100).ifBlank { "Custom server" }, row.optBoolean("enabled", false), url)
-                                }
-                            }.let(PlaybackSource::ordered)
-                        }.getOrElse { withContext(AppDispatchers.Io) { PlaybackSource.ordered(legacy(context, preferences)) } }
-                    }
-                // Persist canonical normalization once, on IO, under the existing
-                // read transaction. Calling persist() here would reacquire this lock.
-                val canonical = if (cached != null) raw else if (parsed.isEmpty()) null else encode(parsed)
-                if (preferences.getString(KEY_CONFIG, null) == raw) {
-                    if (canonical != null && canonical != raw) preferences.edit { putString(KEY_CONFIG, canonical) }
-                    loaded = Snapshot(canonical ?: raw, parsed)
-                }
+    private fun encodeAddons(addons: List<PlaybackSource>) = JSONArray().apply {
+        addons.forEach { put(JSONObject().put("kind", "ADDON").put("id", it.id).put("name", it.name)
+            .put("enabled", it.enabled).put("url", it.baseUrl)) }
+    }.toString()
+
+    private fun readAddons(app: Context, preferences: SharedPreferences): List<PlaybackSource> {
+        saved?.takeIf { it.app === app }?.let { return it.addons }
+        val former = ReactiveSettingsRepository.preferences(app, OTHER_PREFS)
+        val raw = preferences.getString(LEGACY_CONFIG, null)
+        val order = preferences.getString(LEGACY_ORDER, null)
+        val url = former.getString("streaming_addon_url", null)
+        val secure = openCredentials(app)
+        val encrypted = secure.read()
+        val addons = when {
+            encrypted != null -> decodeAddons(encrypted)
+            raw != null -> decodeAddons(raw)
+            !url.isNullOrBlank() -> listOf(PlaybackSource(PlaybackSource.addonId(url), PlaybackSourceKind.ADDON,
+                former.getString("streaming_addon_name", null)?.take(100)?.ifBlank { null } ?: "Custom server",
+                preferences.getBoolean(flag(ID_ADDON), former.getBoolean("streaming_addon_enabled", false)), url))
+            else -> emptyList()
+        }
+        // A completed encrypted write wins if the process died before removing the old copies.
+        if (encrypted == null && addons.isNotEmpty()) secure.write(encodeAddons(addons))
+        if (raw != null || order != null || preferences.contains(flag(ID_ADDON))) {
+            val flags = if (raw != null) legacyBuiltinFlags(raw) else order.orEmpty().split(',').map(String::trim)
+                .filter { it in DEFAULT_ORDER }.associate { flag(it) to preferences.getBoolean(flag(it), true) }
+            val editor = preferences.edit().remove(LEGACY_CONFIG).remove(LEGACY_ORDER)
+            preferences.all.keys.filter { it.startsWith("source_enabled_") && it !in portableFlags }.forEach(editor::remove)
+            // Safe flags already restored on this device take precedence over stale migration input.
+            flags.filterKeys { !preferences.contains(it) }.forEach(editor::putBoolean)
+            check(editor.commit()) { "Could not remove legacy playback settings" }
+        }
+        if (legacyAddonKeys.any(former::contains)) {
+            val editor = former.edit()
+            legacyAddonKeys.forEach(editor::remove)
+            check(editor.commit()) { "Could not remove legacy add-on settings" }
+        }
+        saved = SavedAddons(app, addons)
+        return addons
+    }
+
+    private fun readSources(app: Context): List<PlaybackSource> {
+        val preferences = prefs(app)
+        val addons = try {
+            readAddons(app, preferences).also { _addonStorageUnavailable.value = false }
+        } catch (_: Exception) {
+            // Keep old data recoverable and off the network until the Keystore can be used.
+            saved = null
+            _addonStorageUnavailable.value = true
+            emptyList()
+        }
+        return configuredSources(preferences, addons)
+    }
+
+    suspend fun load(context: Context): List<PlaybackSource> =
+        com.example.performance.BackgroundWorkCoordinator.finishBoundedBatch {
+            withContext(AppDispatchers.Io) {
+                lock.withLock { readSources(context.applicationContext) }
             }
-            checkNotNull(loaded).also(memory::set).sources
+        }
+
+    private suspend fun update(context: Context, change: (List<PlaybackSource>) -> List<PlaybackSource>) =
+        withContext(AppDispatchers.Io) {
+            val app = context.applicationContext
+            lock.withLock {
+                val before = readSources(app).ifEmpty { PlaybackSource.newInstallDefaults }
+                val updated = PlaybackSource.ordered(change(before))
+                val addons = updated.filter { it.kind == PlaybackSourceKind.ADDON }.take(16)
+                if (addons != before.filter { it.kind == PlaybackSourceKind.ADDON }) {
+                    check(!_addonStorageUnavailable.value) { "Secure add-on storage is unavailable. Try again after unlocking your device." }
+                    openCredentials(app).write(encodeAddons(addons))
+                    saved = SavedAddons(app, addons)
+                    revision.update { it + 1 }
+                }
+                val preferences = prefs(app)
+                val editor = preferences.edit()
+                for (source in updated.filter { it.kind != PlaybackSourceKind.ADDON }) {
+                    val key = flag(source.id)
+                    if (key in portableFlags) editor.putBoolean(key, source.enabled)
+                }
+                check(editor.commit()) { "Could not save playback sources" }
+            }
+        }
+
+    fun save(context: Context, sources: List<PlaybackSource>) = mutate(context) {
+        val previous = it.filter { source -> source.kind == PlaybackSourceKind.ADDON }.map { source -> source.baseUrl }.toSet()
+        sources.filter { source -> source.kind != PlaybackSourceKind.ADDON || source.baseUrl in previous ||
+            com.example.data.remote.AddonHttps.isAllowed(source.baseUrl) }
+    }
+
+    private fun mutate(context: Context, change: (List<PlaybackSource>) -> List<PlaybackSource>) {
+        scope.launch { try { update(context, change) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _addonStorageUnavailable.value = true }
         }
     }
 
-    private suspend fun persist(context: Context, sources: List<PlaybackSource>) {
-        val snapshot = PlaybackSource.ordered(sources.filter { it.kind == PlaybackSourceKind.ADDON }.take(16) +
-            sources.filter { it.kind != PlaybackSourceKind.ADDON })
-        val raw = encode(snapshot)
-        reads.withLock {
-            memory.set(Snapshot(raw, snapshot))
-            prefs(context).edit().putString(KEY_CONFIG, raw).apply()
-        }
-    }
-    private suspend fun encode(sources: List<PlaybackSource>): String = withContext(AppDispatchers.CpuBounded) {
-        JSONArray().apply { sources.forEach { source ->
-            put(JSONObject().put("id", source.id).put("kind", source.kind.name).put("name", source.name)
-                .put("enabled", source.enabled).put("url", source.baseUrl))
-        } }.toString()
-    }
-    fun save(context: Context, sources: List<PlaybackSource>) {
-        val app = context.applicationContext
-        scope.launch { writes.withLock { persist(app, sources) } }
-    }
-    private fun mutate(context: Context, change: (List<PlaybackSource>) -> List<PlaybackSource>) {
-        val app = context.applicationContext
-        scope.launch { writes.withLock {
-            val sources = load(app).ifEmpty { OtherSettingsPreferences.playbackIntegrations(app)
-                .sourceList(NetworkQualityMonitor.getInstance(app).activeQualityCeiling.value.effectiveCeiling) }
-            persist(app, change(sources))
-        } }
-    }
     fun setSourceEnabled(context: Context, sourceId: String, enabled: Boolean) = mutate(context) { sources ->
         sources.map { if (it.id == sourceId && it.kind != PlaybackSourceKind.YOUTUBE) it.copy(enabled = enabled) else it }
     }
@@ -144,7 +196,7 @@ object PlaybackSourcesPreferences {
         val moved = orderedIds.distinct().mapNotNull(byId::get)
         moved + addons.filterNot { it.id in orderedIds } + sources.filterNot { it.kind == PlaybackSourceKind.ADDON }
     }
-    fun saveAddon(context: Context, url: String, name: String, previousId: String? = null) = mutate(context) { sources ->
+    suspend fun saveAddon(context: Context, url: String, name: String, previousId: String? = null) = update(context) { sources ->
         val normalized = com.example.data.remote.StreamingAddons.normalize(url)
         val source = PlaybackSource(PlaybackSource.addonId(normalized), PlaybackSourceKind.ADDON, name.take(100), false, normalized)
         if (sources.any { it.id == source.id && it.id != previousId }) sources
@@ -153,12 +205,12 @@ object PlaybackSourcesPreferences {
     }
     fun remove(context: Context, id: String) = mutate(context) { sources -> sources.filterNot { it.id == id && it.kind == PlaybackSourceKind.ADDON } }
 
-    internal fun changes(context: Context): Flow<Unit> = callbackFlow {
+    internal fun changes(context: Context): Flow<Unit> = merge(revision.map { Unit }, callbackFlow {
         val preferences = prefs(context.applicationContext)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
-        preferences.registerOnSharedPreferenceChangeListener(listener); trySend(Unit)
+        preferences.registerOnSharedPreferenceChangeListener(listener)
         awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
-    }.conflate().flowOn(AppDispatchers.Io)
+    }).conflate().flowOn(AppDispatchers.Io)
 
     @Immutable
     data class SourceItem(val id: String, val name: String, val description: String,
@@ -182,15 +234,17 @@ object PlaybackSourcesPreferences {
                 PlaybackSourceKind.INTERNET_ARCHIVE -> ID_INTERNET_ARCHIVE
                 PlaybackSourceKind.ADDON -> ID_ADDON
             }
-            val allowed = source.available(ceiling)
+            val secure = source.kind != PlaybackSourceKind.ADDON || com.example.data.remote.AddonHttps.isAllowed(source.baseUrl)
+            val allowed = secure && source.available(ceiling)
             SourceItem(source.id, source.name, when (source.kind) {
                 PlaybackSourceKind.YOUTUBE -> "Lossy • Full catalogue • Radio"
                 PlaybackSourceKind.JIOSAAVN -> "Verified recording matches • AAC up to 320 kbps"
                 PlaybackSourceKind.INTERNET_ARCHIVE -> "Verified, authorized lossless recordings"
-                PlaybackSourceKind.ADDON -> "Custom streaming server"
+                PlaybackSourceKind.ADDON -> if (secure) "Custom streaming server"
+                    else "HTTPS required. Edit this add-on to update its URL."
             }, source.kind in setOf(PlaybackSourceKind.ADDON, PlaybackSourceKind.INTERNET_ARCHIVE), type,
                 source.enabled, allowed, isAlwaysOn = source.kind == PlaybackSourceKind.YOUTUBE,
-                qualityRequirementText = if (allowed) null else
+                qualityRequirementText = if (allowed || !secure) null else
                     if (source.kind == PlaybackSourceKind.JIOSAAVN) "Requires High or Maximum/Lossless"
                     else "Requires Maximum/Lossless", url = source.baseUrl)
         }

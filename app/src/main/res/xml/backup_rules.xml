@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="account_connections_secure.xml" />
+    <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml" />
+    <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml.bak" />
+    <exclude domain="sharedpref" path="xtreme_other_settings.xml" />
+    <exclude domain="sharedpref" path="xtreme_other_settings.xml.bak" />
+    <exclude domain="root" path="no_backup/playback_addons_v1.bin" />
+    <!-- Existing library and queue snapshots can contain signed media URLs. -->
+    <exclude domain="database" path="xtreme_music_db" />
+    <exclude domain="database" path="xtreme_music_db-wal" />
+    <exclude domain="database" path="xtreme_music_db-shm" />
+    <exclude domain="database" path="xtreme_music_db-journal" />
+    <exclude domain="file" path="real_playback_session.json" />
+    <exclude domain="file" path="real_playback_session.json.bak" />
+    <exclude domain="file" path="real_playback_session.json.new" />
     <exclude domain="sharedpref" path="apk_update_session_v2.xml" />
     <exclude domain="file" path="update_apks/" />
     <exclude domain="root" path="app_webview/" />

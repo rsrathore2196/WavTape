@@ -58,13 +58,19 @@ object StreamingAddons {
     private val manifestFallbacks = ConcurrentHashMap<String, Long>()
     private val manifestFlights = Array(8) { kotlinx.coroutines.sync.Mutex() }
     private val permits = Semaphore(2)
-    private val client by lazy { OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS).callTimeout(10, TimeUnit.SECONDS)
-        .dispatcher(Dispatcher().apply { maxRequests = 2; maxRequestsPerHost = 2 }).build() }
+    private val productionClient by lazy { createClient() }
+    @androidx.annotation.VisibleForTesting internal var testClient: OkHttpClient? = null
+
+    internal fun createClient(builder: OkHttpClient.Builder = OkHttpClient.Builder()) = AddonHttps.client(
+        builder.connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
+            .dispatcher(Dispatcher().apply { maxRequests = 2; maxRequestsPerHost = 2 })
+    )
 
     fun normalize(raw: String): String {
-        val url = raw.trim().toHttpUrlOrNull() ?: throw IllegalArgumentException("Enter a valid HTTP or HTTPS server URL")
+        val url = raw.trim().toHttpUrlOrNull() ?: throw IllegalArgumentException("Enter a valid HTTPS server URL")
         require(url.username.isEmpty() && url.password.isEmpty()) { "Use your add-on's token URL, without username/password" }
+        require(AddonHttps.isAllowed(url)) { AddonHttps.REQUIRED }
         val trimmed = url.encodedPath.trimEnd('/')
         val path = if (trimmed.substringAfterLast('/').endsWith(".json", true)) trimmed.substringBeforeLast('/') else trimmed
         return url.newBuilder().encodedPath(path.ifBlank { "/" }).fragment(null).build().toString().trimEnd('/')
@@ -84,13 +90,13 @@ object StreamingAddons {
         BackgroundWorkCoordinator.traceWork("Add-on $responseType") { permits.withPermit { fetch(url, responseType, maxBytes) } }
 
     private suspend fun fetch(url: HttpUrl, responseType: String, maxBytes: Long): String {
-        val call = client.newCall(Request.Builder().url(url).header("X-LW-Intent", "stream")
+        val call = (testClient ?: productionClient).newCall(Request.Builder().url(url).header("X-LW-Intent", "stream")
             .header("User-Agent", "WavTape/${com.example.BuildConfig.VERSION_NAME}").build())
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWithException(IOException("Add-on connection failed", e))
+                    if (continuation.isActive) continuation.resumeWithException(if (e is AddonHttps.Required) e else IOException("Add-on connection failed"))
                 }
                 override fun onResponse(call: Call, response: Response) {
                     try {
@@ -116,7 +122,11 @@ object StreamingAddons {
             })
         }
     }
-    suspend fun connect(raw: String): Manifest = configuration(normalize(raw)).manifest
+    suspend fun connect(raw: String): Manifest = try {
+        configuration(normalize(raw)).manifest
+    } catch (_: org.json.JSONException) {
+        throw IOException("This server did not return a valid add-on manifest")
+    }
 
     private suspend fun configuration(base: String): Configuration = withContext(AppDispatchers.Io) {
         configurations[base]?.takeIf { it.expires > System.currentTimeMillis() }?.let { return@withContext it }
@@ -276,10 +286,12 @@ object StreamingAddons {
         config to pending.await()?.let { defaultUrl to it }
     }
     private suspend fun activeAddons(context: Context, policy: PlaybackSourcePolicy): List<PlaybackSource> {
-        OtherSettingsPreferences.loadPlaybackSources(context)
-        val configured = policy.configuredSources
-        return configured.filter { it.kind == PlaybackSourceKind.ADDON && it.enabled &&
-            it.available(policy.ceiling) && it.baseUrl.isNotBlank() }
+        val saved = OtherSettingsPreferences.loadPlaybackSources(context)
+        return policy.playbackSources.filter { source ->
+            source.kind == PlaybackSourceKind.ADDON && saved.any {
+                it.id == source.id && it.enabled && it.baseUrl == source.baseUrl
+            }
+        }
     }
     private suspend fun stillEnabled(context: Context, source: PlaybackSource, policy: PlaybackSourcePolicy): Boolean {
         OtherSettingsPreferences.loadPlaybackSources(context)
@@ -458,7 +470,7 @@ object StreamingAddons {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     internal fun parseStream(body: String, base: String, requested: MusicTrack, candidate: MusicTrack,
         policy: PlaybackSourcePolicy, sourceId: String = PlaybackSource.addonId(base)): MusicTrack? {
-        if (!policy.maximum) return null
+        if (!policy.maximum || !AddonHttps.isAllowed(base)) return null
         val root = JSONObject(body)
         val original = root.optJSONObject("stream") ?: root.optJSONObject("data") ?: root
         val playback = original.optJSONObject("playback")
@@ -473,8 +485,7 @@ object StreamingAddons {
         val drm = if (drmData == null) null else {
             if (!drmData.optString("scheme").equals("widevine", true)) return null
             val license = drmData.optString("licenseUrl").toHttpUrlOrNull() ?: return null
-            val localTest = license.host in setOf("127.0.0.1", "localhost", "::1") && base.toHttpUrlOrNull()?.host == license.host
-            if ((!license.isHttps && !localTest) || license.username.isNotEmpty() || license.password.isNotEmpty()) return null
+            if (!AddonHttps.isAllowed(license)) return null
             androidx.media3.common.MediaItem.DrmConfiguration.Builder(androidx.media3.common.C.WIDEVINE_UUID)
                 .setLicenseUri(license.toString()).setForceDefaultLicenseUri(true).setMultiSession(false).build()
         }
@@ -523,8 +534,11 @@ object StreamingAddons {
                 inlineXml = xml
                 raw
             }
-            else -> base.toHttpUrlOrNull()?.resolve(raw)?.toString()?.takeIf { raw.isNotBlank() } ?: return null
+            else -> base.toHttpUrlOrNull()?.resolve(raw)?.takeIf { raw.isNotBlank() && AddonHttps.isAllowed(it) }
+                ?.toString() ?: return null
         }
+        // The scoped Media3 factory validates every manifest, segment, key, and
+        // redirect at request time, including relative links in remote manifests.
         val transport = value.optString("manifest").ifBlank { value.optString("mediaType") }.lowercase(Locale.ROOT)
         val declaredMime = value.optString("mimeType").lowercase(Locale.ROOT)
         // Use the same URL inference as Media3. Register the transport before
@@ -561,7 +575,7 @@ object StreamingAddons {
         if (expires <= now + 5_000L) return null
         if (transports.size >= 128) transports.entries.minByOrNull { it.value.expires }?.let { transports.remove(it.key) }
         val scope = stream.toHttpUrlOrNull()?.toString() ?: Regex("<BaseURL[^>]*>\\s*(https?://[^<]+)\\s*</BaseURL>")
-            .find(inlineXml)?.groupValues?.get(1)?.trim()?.replace("&amp;", "&")?.toHttpUrlOrNull()?.toString()
+            .find(inlineXml)?.groupValues?.get(1)?.trim()?.replace("&amp;", "&")?.toHttpUrlOrNull()?.takeIf(AddonHttps::isAllowed)?.toString()
         val provider = policy.configuredSources.firstOrNull { it.id == sourceId && it.kind == PlaybackSourceKind.ADDON }?.name
             ?.let { "Streaming Addon: $it" } ?: candidate.source
         transports[stream] = Transport(headers, mime, bitrate, minOf(expires - 5_000L, now + 180_000L), scope, sourceId, base, provider, atmos, codec, drm)
@@ -581,7 +595,7 @@ object StreamingAddons {
     } == true
     private fun transportFor(url: String): Transport? {
         transports[url]?.let { return it }
-        val target = url.toHttpUrlOrNull() ?: return null
+        val target = url.toHttpUrlOrNull()?.takeIf(AddonHttps::isAllowed) ?: return null
         return transports.entries.firstOrNull { (_, transport) ->
             val origin = transport.headerScope?.toHttpUrlOrNull()
             transport.mime in setOf(androidx.media3.common.MimeTypes.APPLICATION_MPD,

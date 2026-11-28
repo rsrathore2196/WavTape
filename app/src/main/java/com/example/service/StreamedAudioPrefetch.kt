@@ -60,7 +60,9 @@ internal object StreamedAudioPrefetch {
         val length = total ?: androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(cacheKey))
             .takeIf { it > 0 }
         if (MusicCache.fullyCached(context, cacheKey, length)) return
-        val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+        val http = if (com.example.data.remote.StreamingAddons.hasRegisteredTransport(address.toString()))
+            com.example.data.remote.AddonHttps.mediaFactory(5_000, 5_000)
+        else DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(5_000).setReadTimeoutMs(5_000)
         val upstream = DataSource.Factory { YouTubeMediaDataSource(context, DefaultDataSource.Factory(context, http), http) }
         val budget = if (full && length != null && length <= MAX_FULL_BYTES) length else minOf(length ?: OPENING_BYTES, OPENING_BYTES)

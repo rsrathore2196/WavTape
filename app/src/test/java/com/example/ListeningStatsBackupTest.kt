@@ -52,6 +52,33 @@ class ListeningStatsBackupTest {
             assertEquals("Raw historical events restore without being counted twice", 1, target.listeningEventDao().getActualPlays().size)
         } finally { repository.close(); restored.close(); source.close(); target.close(); folder.deleteRecursively() }
     }
+    @Test fun exportedAddonHistoryRetainsPlaysWithoutSignedMediaOrArtworkUrls() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = MusicDatabase.createInMemoryDatabase(context)
+        val folder = File(context.filesDir, "addon-history-backup-test")
+        val pending = File(context.cacheDir, "addon-history-pending.json")
+        val repository = ListeningStatsRepository(context, database, pending)
+        BackupRestoreManager.setAutoBackupLocation(context, folder.absolutePath)
+        try {
+            val marker = "private-fixture-credential"
+            val track = MusicTrack("addon_fixture:abc", "Song", "Singer", "Album", 120_000,
+                "https://relay.example/$marker/cover.jpg", "https://relay.example/song.flac?token=$marker",
+                source = "Streaming Addon: $marker", isLiked = true)
+            repository.record(ListeningSnapshot("session-one", track, mapOf("2026-10-26" to ListeningDay(60_000, 1)), 60_000, true))
+            repository.flush()
+            val backup = BackupRestoreManager.createBackup(context, database).getOrThrow()
+            val raw = File(backup.filePath).readText()
+            assertFalse(raw.contains(marker))
+            val restored = MusicDatabase.createInMemoryDatabase(context)
+            try {
+                val result = BackupRestoreManager.restoreBackup(context, restored, rawJson = raw)
+                assertTrue(result.message, result.success)
+                assertEquals(1, restored.listeningEventDao().getActualPlays().size)
+                assertEquals("", restored.musicDao().getTrackById(track.id)?.audioUrl)
+            } finally { restored.close() }
+        } finally { repository.close(); database.close(); folder.deleteRecursively(); pending.delete() }
+    }
+
     @Test fun malformedStatsAbortTheWholeRestoreBeforeAnyLibraryChanges() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = MusicDatabase.createInMemoryDatabase(context)

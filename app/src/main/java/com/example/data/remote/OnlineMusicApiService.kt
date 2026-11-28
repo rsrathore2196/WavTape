@@ -141,7 +141,10 @@ object OnlineMusicApiService {
     /**
      * Formats an audio stream URL to the requested bitrate quality (lossless/320, 160, 96).
      */
-    fun formatUrlForQuality(rawUrl: String, quality: String): String {
+    fun formatUrlForQuality(url: String, quality: String): String {
+        val rawUrl = if (url.startsWith("http://", ignoreCase = true) && saavnCdnPattern.containsMatchIn(url)) {
+            "https://" + url.substringAfter("://")
+        } else url
         if (quality == "original" || !saavnCdnPattern.containsMatchIn(rawUrl)) return rawUrl
         val q = when (quality.lowercase().trim()) {
             "lossless", "hires", "flac" -> "320" // Highest available lossy AAC stream; this is not lossless.

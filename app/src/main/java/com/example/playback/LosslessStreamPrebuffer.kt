@@ -95,7 +95,8 @@ internal object LosslessStreamPrebuffer {
     suspend fun warmSource(context: Context, item: MediaItem): Boolean = withContext(com.example.performance.AppDispatchers.Io) {
         val uri = item.localConfiguration?.uri ?: return@withContext false
         if (uri.scheme == "xtreme-sabr") return@withContext true // Native session owns its buffer.
-        val source = MusicCache.createCacheDataSourceFactory(context, 3_000, 3_000).createDataSource()
+        val source = MusicCache.createCacheDataSourceFactory(context, 3_000, 3_000,
+            addonOnly = com.example.data.remote.StreamingAddons.hasRegisteredTransport(uri.toString())).createDataSource()
         try {
             source.open(androidx.media3.datasource.DataSpec.Builder().setUri(uri).build())
             val bytes = ByteArray(32 * 1024)
@@ -172,7 +173,7 @@ internal object LosslessStreamPrebuffer {
                 if (!allowed()) return@withLock false
                 data class Metadata(val formats: List<Format>, val durationMs: Long, val manifest: Any?)
                 val manifests = onFastStartPrepared?.let { FastStartManifests() }
-                val cache = MusicCache.createCacheDataSourceFactory(context, 5_000, 5_000)
+                val cache = MusicCache.createCacheDataSourceFactory(context, 5_000, 5_000, addonOnly = true)
                 val upstream = manifests?.recording(cache) ?: cache
                 val byteBudget = if (manifests != null) 24 * 1024 * 1024L else 4 * 1024 * 1024L
                 val bytes = java.util.concurrent.atomic.AtomicLong()
@@ -493,7 +494,8 @@ internal object LosslessStreamPrebuffer {
             if (!withContext(Dispatchers.Main.immediate) { stillCurrent() }) return@withLock null
             val maxBytes = 24L * 1024 * 1024
             val source = MusicCache.createCacheDataSourceFactory(context.applicationContext,
-                connectTimeoutMs = 5_000, readTimeoutMs = 5_000, archiveReplayLimit = maxBytes).createDataSource()
+                connectTimeoutMs = 5_000, readTimeoutMs = 5_000, archiveReplayLimit = maxBytes,
+                addonOnly = com.example.data.remote.StreamingAddons.hasRegisteredTransport(uri.toString())).createDataSource()
             val deadline = SystemClock.elapsedRealtime() + 20_000L
             val jobContext = currentCoroutineContext()
             var bytes = 0L

@@ -909,6 +909,10 @@ class MusicService : MediaLibraryService() {
         val transportSources = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(cacheDataSourceFactory)
             .setLoadErrorHandlingPolicy(PlaybackLoadErrorPolicy())
+        val addonCache by lazy { MusicCache.createCacheDataSourceFactory(this, addonOnly = true) }
+        val addonDrm by lazy { androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider().apply {
+            setDrmHttpDataSourceFactory(com.example.data.remote.AddonHttps.mediaFactory(15_000, 15_000))
+        } }
         val mediaSourceFactory = object : androidx.media3.exoplayer.source.MediaSource.Factory by transportSources {
             override fun createMediaSource(item: MediaItem): androidx.media3.exoplayer.source.MediaSource {
                 val address = item.localConfiguration?.uri
@@ -934,6 +938,13 @@ class MusicService : MediaLibraryService() {
                             .setLoadErrorHandlingPolicy(transport.loadPolicy()).createMediaSource(pinnedItem)
                     }
                     val manifests = FastStartManifests.takeFor(item)
+                    if (com.example.data.remote.StreamingAddons.registeredSourceId(address?.toString().orEmpty()) != null) {
+                        val addonSources = DefaultMediaSourceFactory(this@MusicService)
+                            .setDataSourceFactory(manifests?.replaying(addonCache) ?: addonCache)
+                            .setDrmSessionManagerProvider(addonDrm)
+                            .setLoadErrorHandlingPolicy(PlaybackLoadErrorPolicy())
+                        return addonSources.createMediaSource(com.example.data.remote.StreamingAddons.prepareMediaItem(item))
+                    }
                     val sources = if (manifests == null) transportSources else DefaultMediaSourceFactory(this@MusicService)
                         .setDataSourceFactory(manifests.replaying(cacheDataSourceFactory))
                         .setLoadErrorHandlingPolicy(PlaybackLoadErrorPolicy())

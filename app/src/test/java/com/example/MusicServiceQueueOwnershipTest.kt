@@ -79,7 +79,10 @@ class MusicServiceQueueOwnershipTest {
     private var addonGate: CompletableDeferred<Unit>? = null
     private val addonRequests = AtomicInteger()
 
+    private lateinit var addonStorage: AddonStorageFixture
+
     @Before fun setup() = runBlocking {
+        addonStorage = AddonStorageFixture(app)
         StreamResolver.clearVerifiedLosslessCache()
         AudioQualityPreferences.setPlaybackMode(app, PlaybackMode.BEST_QUALITY)
         PlaybackSourcesPreferences.save(app, PlaybackSource.builtIns)
@@ -161,6 +164,7 @@ class MusicServiceQueueOwnershipTest {
         if (::monitor.isInitialized) ReflectionHelpers.getField<CoroutineScope>(monitor, "scope").coroutineContext[Job]?.cancelAndJoin()
         ReflectionHelpers.setStaticField(NetworkQualityMonitor::class.java, "instance", null)
         StreamResolver.clearVerifiedLosslessCache()
+        addonStorage.close()
     }
 
     private suspend fun resolveQueued(item: MediaItem): MediaItem = suspendCoroutineUninterceptedOrReturn { continuation ->

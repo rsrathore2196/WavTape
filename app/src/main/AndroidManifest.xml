@@ -42,7 +42,7 @@
         android:localeConfig="@xml/app_locales"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true"
         android:theme="@style/Theme.MyApplication">
 

@@ -57,9 +57,8 @@ class YouTubeFallbackAvailabilityTest {
         assertTrue(restored.single { it.kind == PlaybackSourceKind.YOUTUBE }.enabled)
         assertFalse(restored.single { it.kind == PlaybackSourceKind.JIOSAAVN }.enabled)
         assertFalse(restored.single { it.kind == PlaybackSourceKind.INTERNET_ARCHIVE }.enabled)
-        val stored = withContext(Dispatchers.IO) { app.getSharedPreferences("xtreme_playback_sources_prefs", 0).getString("sources_v2", "") }
-        val rows = org.json.JSONArray(stored)
-        val youtube = (0 until rows.length()).map(rows::getJSONObject).single { it.getString("kind") == "YOUTUBE" }
-        assertTrue(youtube.getBoolean("enabled"))
+        val preferences = app.getSharedPreferences("xtreme_playback_sources_prefs", 0)
+        assertFalse(preferences.contains("sources_v2"))
+        assertTrue(preferences.getBoolean("source_enabled_youtube", false))
     }
 }

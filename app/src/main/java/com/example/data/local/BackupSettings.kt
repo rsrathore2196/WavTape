@@ -26,10 +26,10 @@ internal object BackupSettings {
             listOf("proxy_enabled", "haptics_enabled", "dynamic_glass_enabled", "player_dynamic_album_glow",
                 "player_high_contrast_typography", "player_full_screen_album_art", "playback_crossfade_enabled",
                 "playback_spatial_audio", "playback_dolby_atmos", "playback_skip_silence", "playback_bit_perfect", "keep_lyrics_screen_awake",
-                "streaming_addon_enabled", "high_performance_enabled", "mini_player_show_heart",
+                "high_performance_enabled", "mini_player_show_heart",
                 "mini_player_show_next").forEach { put(it, "boolean") }
             listOf("proxy_host", "proxy_type", "lyrics_provider", "lyrics_translation_language",
-                "playback_output_precision", "player_backdrop_effect", "streaming_addon_url", "streaming_addon_name",
+                "playback_output_precision", "player_backdrop_effect",
                 "liquid_glass_profile", "app_font_style").forEach { put(it, "string") }
             listOf("proxy_port", "text_size_index", "ui_size_index", "lyrics_text_size_sp",
                 "total_played_count", "total_listening_minutes", "performance_refresh_rate_hz").forEach { put(it, "int") }
@@ -41,7 +41,7 @@ internal object BackupSettings {
         "xtreme_audio_quality_prefs" to mapOf("wifi_quality_ceiling" to "string", "cellular_quality_ceiling" to "string",
             "treat_metered_wifi_as_cellular" to "boolean", "prefer_youtube_opus" to "boolean",
             "enhancer_return_to_youtube" to "boolean", "playback_mode" to "string"),
-        "xtreme_playback_sources_prefs" to mapOf("sources_v2" to "string", "sources_order" to "string"),
+        PlaybackSourcesPreferences.PREFS_NAME to PlaybackSourcesPreferences.portableFlags.associateWith { "boolean" },
         "xtreme_smart_cache_preferences" to mapOf("key_max_quota_bytes" to "long", "key_smart_auto_trim" to "boolean",
             "key_auto_precache" to "boolean", "key_wifi_only" to "boolean"),
         "xtreme_recent_searches_prefs" to mapOf("recent_search_queries" to "string"),
@@ -64,7 +64,6 @@ internal object BackupSettings {
 
     private fun type(store: String, key: String): String? = fields[store]?.get(key) ?: when {
         store == "lyrics_offset_preferences" && key.startsWith("track_lyrics_offset_") -> "int"
-        store == "xtreme_playback_sources_prefs" && key.startsWith("source_enabled_") -> "boolean"
         else -> null
     }
 
@@ -72,6 +71,13 @@ internal object BackupSettings {
         when (store) {
             DOWNLOADS -> OfflineDownloads.get(context).readPreferences().let {
                 mapOf("wifi_only" to it.wifiOnly, "quality" to it.quality.name)
+            }
+            PlaybackSourcesPreferences.PREFS_NAME -> {
+                val prefs = ReactiveSettingsRepository.preferences(context, store)
+                val legacy = prefs.getString(PlaybackSourcesPreferences.LEGACY_CONFIG, null)
+                    ?.let(PlaybackSourcesPreferences::legacyBuiltinFlags).orEmpty()
+                legacy + prefs.all.filterKeys { it in PlaybackSourcesPreferences.portableFlags }
+                    .mapNotNull { (key, value) -> (value as? Boolean)?.let { key to it } }.toMap()
             }
             LANGUAGE -> mapOf("language_tag" to AppLanguage.selection(context))
             SCROBBLING -> ConnectionStore.get(context).savedLastFmPreferences().let {
@@ -87,7 +93,9 @@ internal object BackupSettings {
 
     fun encode(settings: Map<String, Map<String, Any>>): JSONObject = JSONObject().apply {
         settings.forEach { (store, values) -> put(store, JSONObject().apply {
-            values.forEach { (key, value) -> put(key, JSONObject().put("type", type(store, key)).put("value", value)) }
+            values.forEach { (key, value) ->
+                type(store, key)?.let { put(key, JSONObject().put("type", it).put("value", value)) }
+            }
         }) }
     }
 
@@ -121,8 +129,24 @@ internal object BackupSettings {
             require(store in fields) { "Unknown settings group" }
             val values = json.getJSONObject(store)
             require(values.length() <= 100_000) { "Too many settings" }
-            values.keys().asSequence()
-                .filterNot { store == "xtreme_theme_prefs" && it in retiredThemeKeys }
+            val legacySources = if (store == PlaybackSourcesPreferences.PREFS_NAME) {
+                val raw = values.optJSONObject(PlaybackSourcesPreferences.LEGACY_CONFIG)?.opt("value") as? String
+                val order = values.optJSONObject(PlaybackSourcesPreferences.LEGACY_ORDER)?.opt("value") as? String
+                when {
+                    raw != null -> PlaybackSourcesPreferences.legacyBuiltinFlags(raw)
+                    order != null -> order.split(',').map(String::trim).filter { it in PlaybackSourcesPreferences.DEFAULT_ORDER }
+                        .associate { PlaybackSourcesPreferences.flag(it) to true }
+                    else -> emptyMap()
+                }
+            } else emptyMap()
+            legacySources + values.keys().asSequence()
+                .filterNot { key ->
+                    store == "xtreme_theme_prefs" && key in retiredThemeKeys ||
+                        store == PlaybackSourcesPreferences.OTHER_PREFS && key in PlaybackSourcesPreferences.legacyAddonKeys ||
+                        store == PlaybackSourcesPreferences.PREFS_NAME && (key == PlaybackSourcesPreferences.LEGACY_CONFIG ||
+                            key == PlaybackSourcesPreferences.LEGACY_ORDER ||
+                            key.startsWith("source_enabled_") && key !in PlaybackSourcesPreferences.portableFlags)
+                }
                 .associateWith { key ->
                     val expected = type(store, key) ?: error("Unknown setting: $key")
                     val entry = values.getJSONObject(key)
@@ -179,10 +203,11 @@ internal object BackupSettings {
                     return@forEach
                 }
             }
+            if (store == PlaybackSourcesPreferences.PREFS_NAME) PlaybackSourcesPreferences.load(context)
             val preferences = ReactiveSettingsRepository.preferences(context, store)
             val editor = preferences.edit()
             if (replaceMissing) preferences.all.keys.filter { type(store, it) != null }.forEach(editor::remove)
-            values.forEach { (key, value) -> put(editor, key, value) }
+            values.forEach { (key, value) -> if (type(store, key) != null) put(editor, key, value) }
             check(editor.commit()) { "Could not save restored settings" }
         }
     }

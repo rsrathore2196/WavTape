@@ -1639,7 +1639,7 @@ object LyricsProvider {
 
         for (q in queries) {
             try {
-                val searchUrl = "http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=${urlEncode(q)}&duration=$targetDurationSec&hash="
+                val searchUrl = "https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=${urlEncode(q)}&duration=$targetDurationSec&hash="
                 val request = Request.Builder()
                     .url(searchUrl)
                     .addHeader("User-Agent", "KugouMusic/10.0 (Android)")
@@ -1670,7 +1670,7 @@ object LyricsProvider {
                     }
 
                     // Download lyrics in LRC format
-                    val downloadUrl = "http://krcs.kugou.com/download?ver=1&client=mobi&id=$candId&accesskey=$accessKey&fmt=lrc&charset=utf8"
+                    val downloadUrl = "https://krcs.kugou.com/download?ver=1&client=mobi&id=$candId&accesskey=$accessKey&fmt=lrc&charset=utf8"
                     val dlReq = Request.Builder()
                         .url(downloadUrl)
                         .addHeader("User-Agent", "KugouMusic/10.0 (Android)")
