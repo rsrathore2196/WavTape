@@ -2,6 +2,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="account_connections_secure.xml" />
+        <exclude domain="sharedpref" path="account_connections_secure.xml.bak" />
         <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml" />
         <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml.bak" />
         <exclude domain="sharedpref" path="xtreme_other_settings.xml" />
@@ -21,6 +22,7 @@
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="account_connections_secure.xml" />
+        <exclude domain="sharedpref" path="account_connections_secure.xml.bak" />
         <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml" />
         <exclude domain="sharedpref" path="xtreme_playback_sources_prefs.xml.bak" />
         <exclude domain="sharedpref" path="xtreme_other_settings.xml" />

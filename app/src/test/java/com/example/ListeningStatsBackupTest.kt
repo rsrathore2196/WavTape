@@ -61,7 +61,7 @@ class ListeningStatsBackupTest {
         BackupRestoreManager.setAutoBackupLocation(context, folder.absolutePath)
         try {
             val marker = "private-fixture-credential"
-            val track = MusicTrack("addon_fixture:abc", "Song", "Singer", "Album", 120_000,
+            val track = MusicTrack("yt_abcdefghijk", "Song", "Singer", "Album", 120_000,
                 "https://relay.example/$marker/cover.jpg", "https://relay.example/song.flac?token=$marker",
                 source = "Streaming Addon: $marker", isLiked = true)
             repository.record(ListeningSnapshot("session-one", track, mapOf("2026-10-26" to ListeningDay(60_000, 1)), 60_000, true))

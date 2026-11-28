@@ -222,7 +222,8 @@ internal class ConnectedLibraries(
     }
     companion object {
         private val tokenLock = Mutex()
-        private val http by lazy { OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build() }
+        private val http by lazy { OkHttpClient.Builder().followRedirects(false)
+            .callTimeout(30, TimeUnit.SECONDS).build() }
         private const val LIBRARY_HASH = "973e511ca44261fda7eebac8b653155e7caee3675abb4fb110cc1b8c78b091c3"
         private const val PLAYLIST_HASH = "346811f856fb0b7e4f6c59f8ebea78dd081c6e2fb01b77c954b26259d5fc6763"
         private const val LIKED_HASH = "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240"

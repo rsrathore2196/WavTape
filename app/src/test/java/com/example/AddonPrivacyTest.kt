@@ -79,6 +79,20 @@ class AddonPrivacyTest {
         assertFalse(sources.contains("sources_v2"))
     }
 
+    @Test fun interruptedCleanupOfAnEmptyV2ListCannotResurrectAnOlderAddon() = runBlocking {
+        sources.edit().putString("sources_v2", "[]").commit()
+        other.edit().putString("streaming_addon_url", https).putBoolean("streaming_addon_enabled", true).commit()
+        assertTrue(PlaybackSourcesPreferences.load(context).none { it.kind == PlaybackSourceKind.ADDON })
+        assertEquals("[]", AddonCredentialStore(context.noBackupFilesDir) { key }.read())
+
+        // Recreate a restart after sources_v2 was removed but before the old
+        // single-server preferences were deleted.
+        other.edit().putString("streaming_addon_url", https).putBoolean("streaming_addon_enabled", true).commit()
+        useKey()
+        assertTrue(PlaybackSourcesPreferences.load(context).none { it.kind == PlaybackSourceKind.ADDON })
+        assertFalse(other.contains("streaming_addon_url"))
+    }
+
     @Test fun encryptionFailureKeepsMigrationRecoverableAndBlocksPlaintextPlaybackAndWrites() = runBlocking {
         sources.edit().putString("sources_v2", preferencesJson()).commit()
         PlaybackSourcesPreferences.openCredentials = {

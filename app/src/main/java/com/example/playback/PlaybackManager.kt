@@ -1514,11 +1514,12 @@ class PlaybackManager(
         val current = _uiState.value.currentTrack ?: return
         if (!extras.getBoolean("audio_actual") || extras.getString("track_id") != current.id ||
             player.currentMediaItem?.mediaId != current.id) return
-        val address = extras.getString("active_audio_uri") ?: return
-        if (player.currentMediaItem?.playbackUri()?.toString() != address) return
+        val uri = player.currentMediaItem?.playbackUri() ?: return
+        if (!ActiveAudioAddress.matches(uri, extras.getString("active_audio_id"))) return
+        val address = uri.toString()
         val fallback = losslessFallback
         val policy = NetworkQualityMonitor.getInstance(context).sourcePolicy.value
-        val exceedsCap = !policy.acceptsStreamBitrate(extras.getInt("bitrate", 0), Uri.parse(address))
+        val exceedsCap = !policy.acceptsStreamBitrate(extras.getInt("bitrate", 0), uri)
         val actualTrack = current.copy(audioUrl = address, qualityBadge = extras.getString("qualityBadge").orEmpty(),
             bitrateKbps = extras.getInt("bitrate", current.bitrateKbps))
         val wrongProvider = extras.getString("audio_codec").orEmpty().isNotBlank() && !policyAllows(actualTrack, policy)

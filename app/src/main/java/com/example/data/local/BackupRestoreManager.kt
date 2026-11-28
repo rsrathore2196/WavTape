@@ -26,6 +26,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import com.example.data.remote.StreamingAddons
+import com.example.data.remote.YouTubeAudioStreamService
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -418,8 +421,7 @@ object BackupRestoreManager {
             val (jsonContent, tracksCount) = withContext(AppDispatchers.CpuBounded) {
             val history = requireNotNull(listeningHistory)
             require(history.events.size <= MAX_BACKUP_ITEMS) { "Listening history is too large to restore safely" }
-            val addonTrackIds = allTracks.asSequence().filter { isAddonBackupTrack(it.id, it.source) }.map { it.id }.toMutableSet()
-            history.events.forEach { event -> if (isAddonBackupTrack(event.trackId, event.source)) addonTrackIds.add(event.trackId) }
+            val addonTrackIds = addonBackupTrackIds(allTracks.asSequence(), history)
             val favoriteTracks = allTracks.filter { it.isLiked }
 
             val rootJson = JSONObject()
@@ -427,13 +429,9 @@ object BackupRestoreManager {
             rootJson.put("version", com.example.BuildConfig.VERSION_NAME)
             rootJson.put("schemaVersion", BACKUP_SCHEMA)
             rootJson.put("settings", BackupSettings.encode(settings))
-            rootJson.put("listeningStats", ListeningStatsBackup.encode(listeningTotals.map { row ->
-                if (row.trackId in addonTrackIds || row.trackId.startsWith("addon_")) row.copy(coverUrl = "") else row
-            }))
+            rootJson.put("listeningStats", ListeningStatsBackup.encode(portableListeningTotals(listeningTotals, addonTrackIds)))
             rootJson.put("listeningIdentityMigrations", ListeningStatsBackup.encodeMigrations(listeningMigrations))
-            rootJson.put("listeningHistory", history.copy(events = history.events.map { event ->
-                if (isAddonBackupTrack(event.trackId, event.source)) event.copy(source = BACKUP_ADDON_LABEL) else event
-            }).encode())
+            rootJson.put("listeningHistory", portableListeningHistory(history).encode())
             rootJson.put("createdAt", System.currentTimeMillis())
 
             // User Profile
@@ -459,7 +457,7 @@ object BackupRestoreManager {
                 pObj.put("playlistId", p.playlistId)
                 pObj.put("title", p.title)
                 pObj.put("description", p.description)
-                pObj.put("coverUrl", p.coverUrl)
+                pObj.put("coverUrl", portableArtwork(p.coverUrl))
                 pObj.put("createdAt", p.createdAt)
                 playlistsArray.put(pObj)
             }
@@ -469,16 +467,16 @@ object BackupRestoreManager {
             val tracksToSave = if (allTracks.isNotEmpty()) allTracks else favoriteTracks
             val tracksArray = JSONArray()
             val favoriteArray = JSONArray()
-            for (t in tracksToSave) {
+            for (row in tracksToSave) {
+                val t = portableTrack(row, addonTrackIds)
                 val tObj = JSONObject()
                 tObj.put("id", t.id)
                 tObj.put("title", t.title)
                 tObj.put("artist", t.artist)
                 tObj.put("album", t.album)
                 tObj.put("durationMs", t.durationMs)
-                val addonTrack = isAddonBackupTrack(t.id, t.source)
-                tObj.put("coverUrl", if (addonTrack) "" else t.coverUrl)
-                tObj.put("audioUrl", if (addonTrack) "" else t.audioUrl)
+                tObj.put("coverUrl", t.coverUrl)
+                tObj.put("audioUrl", t.audioUrl)
                 tObj.put("bitrateKbps", t.bitrateKbps)
                 tObj.put("qualityBadge", t.qualityBadge)
                 tObj.put("genre", t.genre)
@@ -489,7 +487,7 @@ object BackupRestoreManager {
                 tObj.put("writer", t.writer)
                 tObj.put("language", t.language)
                 tObj.put("year", t.year)
-                tObj.put("source", if (addonTrack) BACKUP_ADDON_LABEL else t.source)
+                tObj.put("source", t.source)
                 tObj.put("addedAt", t.addedAt)
                 tObj.put("lastPlayedAt", t.lastPlayedAt)
                 tObj.put("isrc", t.isrc)
@@ -586,6 +584,58 @@ object BackupRestoreManager {
     private fun isAddonBackupTrack(id: String, source: String): Boolean =
         id.startsWith("addon_") || source.startsWith("Streaming Addon", ignoreCase = true)
 
+    private fun addonBackupTrackIds(tracks: Sequence<TrackEntity>, history: ListeningHistoryBackup?): Set<String> =
+        buildSet {
+            tracks.forEach { track ->
+                if (isAddonBackupTrack(track.id, track.source) || StreamingAddons.registeredSourceId(track.audioUrl) != null)
+                    add(track.id)
+            }
+            history?.events?.forEach { event ->
+                if (isAddonBackupTrack(event.trackId, event.source)) add(event.trackId)
+            }
+        }
+
+    private val credentialQueryNames = setOf("access_token", "accesstoken", "access_key", "accesskey", "token", "auth", "authorization",
+        "api_key", "apikey", "signature", "sig", "policy", "key-pair-id")
+
+    private fun hasUrlCredentials(url: okhttp3.HttpUrl): Boolean =
+        url.username.isNotEmpty() || url.password.isNotEmpty() || url.queryParameterNames.any { name ->
+            val key = name.lowercase(Locale.ROOT)
+            key in credentialQueryNames || key.startsWith("x-amz-") || key.startsWith("x-goog-")
+        }
+
+    private fun portableArtwork(value: String): String =
+        if (value.toHttpUrlOrNull()?.let(::hasUrlCredentials) == true) "" else value
+
+    private fun portableAudio(track: TrackEntity): String {
+        val value = track.audioUrl
+        if (value.startsWith("data:application/dash+xml", ignoreCase = true) || YouTubeAudioStreamService.isMediaUrl(value))
+            return ""
+        val url = value.toHttpUrlOrNull() ?: return value
+        if (hasUrlCredentials(url)) return ""
+        // Older rows could retain a private relay URL when the persisted source
+        // was normalized to Extended Stream solely because its catalog ID was YouTube.
+        if (track.id.startsWith("yt_") && !YouTubeAudioStreamService.isYouTubeAudio(track.id, value) &&
+            url.host != "saavncdn.com" && !url.host.endsWith(".saavncdn.com") &&
+            url.host != "archive.org" && !url.host.endsWith(".archive.org")) return ""
+        return value
+    }
+
+    private fun portableTrack(track: TrackEntity, addonIds: Set<String>): TrackEntity =
+        if (track.id in addonIds) track.copy(coverUrl = "", audioUrl = "", source = BACKUP_ADDON_LABEL)
+        else track.copy(coverUrl = portableArtwork(track.coverUrl), audioUrl = portableAudio(track))
+
+    private fun portableListeningTotals(rows: List<ListeningTotal>, addonIds: Set<String>): List<ListeningTotal> =
+        rows.map { row ->
+            val cover = if (row.trackId in addonIds || row.trackId.startsWith("addon_")) "" else portableArtwork(row.coverUrl)
+            if (cover == row.coverUrl) row else row.copy(coverUrl = cover)
+        }
+
+    private fun portableListeningHistory(history: ListeningHistoryBackup): ListeningHistoryBackup =
+        history.copy(events = history.events.map { event ->
+            if (isAddonBackupTrack(event.trackId, event.source)) event.copy(source = BACKUP_ADDON_LABEL) else event
+        })
+
     private fun versionKey(track: TrackEntity): String = Regex(
         "\\b(live|remix|remastered|remaster|acoustic|instrumental|karaoke|cover|sped|slowed|reverb|edit|extended|demo)\\b"
     ).findAll(normalizeText("${track.title} ${track.album}")).map { it.value }.distinct().sorted().joinToString("|")
@@ -680,7 +730,7 @@ object BackupRestoreManager {
                 val id = longField(item, "playlistId", required = true)
                 require(id > 0) { "Invalid playlist ID" }
                 PlaylistEntity(id, stringField(item, "title", "Restored Playlist"),
-                    stringField(item, "description"), stringField(item, "coverUrl"),
+                    stringField(item, "description"), portableArtwork(stringField(item, "coverUrl")),
                     longField(item, "createdAt", System.currentTimeMillis()))
             }
         } else emptyList()
@@ -695,15 +745,14 @@ object BackupRestoreManager {
                 require(bitrate <= Int.MAX_VALUE) { "Invalid track bitrate" }
                 val id = stringField(item, "id", required = true).trim()
                 val source = stringField(item, "source")
-                val addonTrack = isAddonBackupTrack(id, source)
                 TrackEntity(
                     id = id,
                     title = stringField(item, "title", "Unknown Track"),
                     artist = stringField(item, "artist", "Unknown Artist"),
                     album = stringField(item, "album"),
                     durationMs = longField(item, "durationMs"),
-                    coverUrl = stringField(item, "coverUrl").takeUnless { addonTrack }.orEmpty(),
-                    audioUrl = stringField(item, "audioUrl").takeUnless { addonTrack }.orEmpty(),
+                    coverUrl = stringField(item, "coverUrl"),
+                    audioUrl = stringField(item, "audioUrl"),
                     bitrateKbps = bitrate.toInt(),
                     qualityBadge = stringField(item, "qualityBadge", "HD • 320 kbps"),
                     genre = stringField(item, "genre", "Unknown"),
@@ -712,7 +761,7 @@ object BackupRestoreManager {
                     isCached = booleanField(item, "isCached"),
                     singers = stringField(item, "singers"), writer = stringField(item, "writer"),
                     language = stringField(item, "language"), year = stringField(item, "year"),
-                    source = if (addonTrack) BACKUP_ADDON_LABEL else source,
+                    source = source,
                     addedAt = longField(item, "addedAt", System.currentTimeMillis()),
                     lastPlayedAt = longField(item, "lastPlayedAt"), isrc = stringField(item, "isrc"),
                     primaryArtists = stringField(item, "primaryArtists", "[]")
@@ -770,10 +819,12 @@ object BackupRestoreManager {
             ListeningHistoryBackup.decode(root.getJSONObject("listeningHistory"))
         } else null
         val avatarImage = profile?.takeIf { it.has("avatarImage") }?.let { AvatarImageStore.decodeBackup(it.get("avatarImage")) }
-        return ParsedBackup(playlists, tracks, validParentRefs, profile, root.has("playlists"), refs.size - validParentRefs.size,
-            if (root.has("listeningStats")) ListeningStatsBackup.decode(root.getJSONArray("listeningStats")) else emptyList(),
+        val addonIds = addonBackupTrackIds(parsedTracks.values.asSequence().flatten(), history)
+        val totals = if (root.has("listeningStats")) ListeningStatsBackup.decode(root.getJSONArray("listeningStats")) else emptyList()
+        return ParsedBackup(playlists, tracks.map { portableTrack(it, addonIds) }, validParentRefs, profile, root.has("playlists"),
+            refs.size - validParentRefs.size, portableListeningTotals(totals, addonIds),
             if (root.has("listeningIdentityMigrations")) ListeningStatsBackup.decodeMigrations(root.getJSONArray("listeningIdentityMigrations")) else emptyList(),
-            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history, root.has("listeningStats"), avatarImage,
+            if (root.has("settings")) BackupSettings.decode(root.getJSONObject("settings")) else emptyMap(), history?.let(::portableListeningHistory), root.has("listeningStats"), avatarImage,
             replaceMissingSettings = schema >= 8)
     }
 

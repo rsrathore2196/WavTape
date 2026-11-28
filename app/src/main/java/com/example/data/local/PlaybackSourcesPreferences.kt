@@ -105,7 +105,11 @@ object PlaybackSourcesPreferences {
             else -> emptyList()
         }
         // A completed encrypted write wins if the process died before removing the old copies.
-        if (encrypted == null && addons.isNotEmpty()) secure.write(encodeAddons(addons))
+        // An empty v2 list can also be authoritative. Keep that decision durable
+        // if a crash separates removal of v2 from removal of the old single URL.
+        if (encrypted == null && (addons.isNotEmpty() || raw != null && !url.isNullOrBlank())) {
+            secure.write(encodeAddons(addons))
+        }
         if (raw != null || order != null || preferences.contains(flag(ID_ADDON))) {
             val flags = if (raw != null) legacyBuiltinFlags(raw) else order.orEmpty().split(',').map(String::trim)
                 .filter { it in DEFAULT_ORDER }.associate { flag(it) to preferences.getBoolean(flag(it), true) }

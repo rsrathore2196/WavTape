@@ -14,6 +14,7 @@ import com.example.playback.PlaybackSourcePolicy
 import com.sun.net.httpserver.HttpsServer
 import com.sun.net.httpserver.HttpsConfigurator
 import kotlinx.coroutines.*
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.junit.*
 import org.junit.Assert.*
@@ -225,16 +226,41 @@ class StreamingAddonIntegrationTest {
             exchange.close()
         }
         server.createContext("/final") { exchange ->
-            received.set(listOf("X-Addon-Key", "Cookie", "Authorization", "Range")
+            received.set(listOf("X-Addon-Key", "Cookie", "Authorization", "Content-Type", "Range")
                 .joinToString("|") { exchange.requestHeaders.getFirst(it).orEmpty() })
             exchange.sendResponseHeaders(204, -1L)
             exchange.close()
         }
         val request = okhttp3.Request.Builder().url("$origin/cross")
             .header("X-Addon-Key", "private-token").header("Cookie", "fixture=secret")
-            .header("Authorization", "Bearer fixture").header("Range", "bytes=0-2").build()
+            .header("Authorization", "Bearer fixture").header("Content-Type", "fixture-private-value")
+            .header("Range", "bytes=0-2").build()
         checkNotNull(StreamingAddons.testClient).newCall(request).execute().use { assertEquals(204, it.code) }
-        assertEquals("|||bytes=0-2", received.get())
+        assertEquals("||||bytes=0-2", received.get())
+    }
+
+    @Test fun addOnPostRedirectDoesNotForwardABodyOutsideItsOrigin() {
+        val origin = base.substringBefore("/a/token")
+        val otherOrigin = origin.replace("127.0.0.1", "localhost")
+        val received = java.util.concurrent.atomic.AtomicInteger()
+        server.createContext("/redirect-post") { exchange ->
+            exchange.responseHeaders.add("Location", "$otherOrigin/post")
+            exchange.sendResponseHeaders(307, -1L)
+            exchange.close()
+        }
+        server.createContext("/post") { exchange ->
+            received.incrementAndGet()
+            exchange.sendResponseHeaders(204, -1L)
+            exchange.close()
+        }
+
+        val body = "fixture-private-body".toRequestBody()
+        val request = okhttp3.Request.Builder().url("$origin/redirect-post").post(body).build()
+        val result = runCatching {
+            checkNotNull(StreamingAddons.testClient).newCall(request).execute().use { it.code }
+        }
+        assertTrue(result.exceptionOrNull() is java.io.IOException)
+        assertEquals(0, received.get())
     }
 
     @Test fun invalidMediaAndDrmUrlsAreRejectedWithoutChangingHttpsStreams() {
@@ -360,7 +386,8 @@ class StreamingAddonIntegrationTest {
         }
         try {
             val playback = async(Dispatchers.IO) { StreamingAddons.resolve(context, song, maximum) }
-            withTimeout(2_300) { searched.await() }
+            val sawEarlySearch = withTimeoutOrNull(2_300) { searched.await(); true } == true
+            assertTrue("Early search did not start. Endpoints reached: ${requests.map { it.substringBefore('?') }}", sawEarlySearch)
             releaseManifest.complete(Unit)
             assertEquals("$base/song.flac", withTimeout(3_000) { playback.await() }?.audioUrl)
             assertEquals(2, requests.count { it.contains("/search?") })

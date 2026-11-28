@@ -290,9 +290,11 @@ class MusicService : MediaLibraryService() {
     private fun publishAudioProperties(item: MediaItem, audio: Bundle) {
         val session = mediaLibrarySession ?: return
         session.setSessionExtras(Bundle(session.sessionExtras).apply {
+            // Do not publish upstream addresses or copy private MediaItem extras.
             putBundle("active_audio", Bundle(audio).apply {
+                (keySet() - ACTUAL_AUDIO_KEYS).forEach(::remove)
                 putString("track_id", item.mediaId)
-                putString("active_audio_uri", item.localConfiguration?.uri?.toString())
+                putString("active_audio_id", com.example.playback.ActiveAudioAddress.publish(item.localConfiguration?.uri))
             })
         })
     }
@@ -377,7 +379,7 @@ class MusicService : MediaLibraryService() {
         // ignores extras values, so comparing only the timeline item can repeat
         // identical replacements after seeks or repeated format callbacks.
         if (published?.getString("track_id") == item.mediaId &&
-            published.getString("active_audio_uri") == item.localConfiguration?.uri?.toString() &&
+            com.example.playback.ActiveAudioAddress.matches(item.localConfiguration?.uri, published.getString("active_audio_id")) &&
             sameAudioProperties(published, audio)) return
         // A saved source owns a cache reader for the current period. Publish its
         // actual codec through session extras without recreating that period.
@@ -1539,6 +1541,7 @@ class MusicService : MediaLibraryService() {
             mediaLibrarySession = null
         }
         exoPlayer = null
+        com.example.playback.ActiveAudioAddress.publish(null)
         com.example.playback.AudioSignalPath.reset()
         YouTubeAudioStreamService.releaseResources()
         super.onDestroy()
@@ -1910,7 +1913,7 @@ class MusicService : MediaLibraryService() {
 
     companion object {
         private val SAAVN_AUDIO_RATE = Regex("_(320|160|96|48)\\.(?:mp4|m4a)$", RegexOption.IGNORE_CASE)
-        private val ACTUAL_AUDIO_KEYS = arrayOf("audio_codec", "audio_codecs", "audio_mime_type", "bitrate", "sample_rate",
+        private val ACTUAL_AUDIO_KEYS = setOf("audio_codec", "audio_codecs", "audio_mime_type", "bitrate", "sample_rate",
             "bit_depth", "isLossless", "media_source", "audio_actual", "qualityBadge", "lossless_invalid")
         @Volatile internal var recoveringAudioTrackId: String? = null
             private set

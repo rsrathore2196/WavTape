@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.*
 import androidx.media3.exoplayer.ExoPlayer
@@ -161,7 +162,8 @@ class AudioMetadataSynchronizationTest {
         val owner = service
         val app = ApplicationProvider.getApplicationContext<Application>()
         val real = ExoPlayer.Builder(app).build()
-        val selected = item()
+        val privateUrl = "https://aac.saavncdn.com/song_320.mp4?token=fixture"
+        val selected = item(uri = privateUrl)
         real.setMediaItem(selected, 12000L)
         var replacements = 0
         var transportCommands = 0
@@ -177,10 +179,18 @@ class AudioMetadataSynchronizationTest {
             .apply { isAccessible = true }.invoke(owner, player, item, audio, true)
         try {
             set("mediaLibrarySession", session); set("exoPlayer", player)
-            val first = properties(owner, selected, aac(), "JIOSAAVN")
+            val first = properties(owner, selected, aac(), "JIOSAAVN").apply {
+                putString("enhancer_origin_uri", privateUrl)
+            }
             publish(selected, first)
             assertEquals(1, replacements)
             val unchanged = session.sessionExtras
+            val publicAudio = checkNotNull(unchanged.getBundle("active_audio"))
+            assertFalse(publicAudio.containsKey("enhancer_origin_uri"))
+            assertFalse(publicAudio.containsKey("active_audio_uri"))
+            val sourceId = publicAudio.getString("active_audio_id")
+            assertTrue(com.example.playback.ActiveAudioAddress.matches(Uri.parse(privateUrl), sourceId))
+            assertFalse(com.example.playback.ActiveAudioAddress.matches(Uri.parse("https://example.org/other"), sourceId))
             publish(player.currentMediaItem!!, Bundle(first))
             assertEquals(1, replacements)
             assertEquals(unchanged, session.sessionExtras)

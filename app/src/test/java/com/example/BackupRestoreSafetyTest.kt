@@ -56,6 +56,25 @@ class BackupRestoreSafetyTest {
         assertEquals("Song", db.musicDao().getTrackById("wavtape-track")?.title)
     }
 
+    @Test fun legacyRestoreDropsAnUnmarkedPrivateRelayButKeepsNativeArtworkAndPublicSources() = runBlocking {
+        val publicCover = "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"
+        val privateTrack = song("yt_abcdefghijk", "Private track").put("source", "Extended Stream")
+            .put("audioUrl", "https://relay.example/fixture-private-path/song.flac").put("coverUrl", publicCover)
+        val publicTrack = song("yt_bcdefghijkl", "Public track").put("source", "Extended Stream")
+            .put("audioUrl", "https://aac.saavncdn.com/song_320.mp4")
+        val local = song("local-track", "Local track").put("audioUrl", "content://audio/tracks/12")
+        val json = backup(listOf(privateTrack, publicTrack, local), listOf(playlist(17, "Playlist")
+            .put("coverUrl", "https://images.example/playlist?accessToken=fixture-private-token")))
+        val result = BackupRestoreManager.restoreBackup(context, db, rawJson = json.toString())
+        assertTrue(result.message, result.success)
+        val dao = db.musicDao()
+        assertEquals("", dao.getTrackById("yt_abcdefghijk")?.audioUrl)
+        assertEquals(publicCover, dao.getTrackById("yt_abcdefghijk")?.coverUrl)
+        assertEquals("https://aac.saavncdn.com/song_320.mp4", dao.getTrackById("yt_bcdefghijkl")?.audioUrl)
+        assertEquals("content://audio/tracks/12", dao.getTrackById("local-track")?.audioUrl)
+        assertEquals("", dao.getAllPlaylistsSync().single().coverUrl)
+    }
+
     @Test fun remappedPlaylistIdsCannotConsumeAnotherImportedId() = runBlocking {
         val dao = db.musicDao()
         dao.insertOrUpdateTrack(local)

@@ -13,9 +13,14 @@ import okhttp3.OkHttpClient
 internal object AddonHttps {
     const val REQUIRED = "Add-ons require HTTPS. Update the server URL to use HTTPS."
     class Required : IOException(REQUIRED)
+    private const val PRIVATE_REDIRECT = "An add-on request body cannot be redirected to another origin."
+    private val mediaRange = Regex("bytes=(?:[0-9]+-[0-9]*|-[0-9]+)")
 
     fun isAllowed(url: HttpUrl): Boolean = url.isHttps && url.username.isEmpty() && url.password.isEmpty()
     fun isAllowed(url: String): Boolean = url.toHttpUrlOrNull()?.let(::isAllowed) == true
+
+    private fun sameOrigin(first: HttpUrl, second: HttpUrl): Boolean =
+        first.scheme == second.scheme && first.host == second.host && first.port == second.port
 
     fun client(builder: OkHttpClient.Builder): OkHttpClient = builder
         .followSslRedirects(false)
@@ -25,9 +30,17 @@ internal object AddonHttps {
             val response = chain.proceed(request)
             if (response.isRedirect) {
                 val target = response.header("Location")?.let(response.request.url::resolve)
-                if (target != null && !isAllowed(target)) {
-                    response.close()
-                    throw Required()
+                if (target != null) {
+                    val error = when {
+                        !isAllowed(target) -> Required()
+                        response.code in setOf(307, 308) && response.request.body != null &&
+                            !sameOrigin(response.request.url, target) -> IOException(PRIVATE_REDIRECT)
+                        else -> null
+                    }
+                    if (error != null) {
+                        response.close()
+                        throw error
+                    }
                 }
             }
             response
@@ -36,15 +49,17 @@ internal object AddonHttps {
             val request = chain.request()
             if (!isAllowed(request.url)) throw Required()
             val origin = chain.call().request().url
-            if (origin.host == request.url.host && origin.port == request.url.port) chain.proceed(request)
+            if (sameOrigin(origin, request.url)) chain.proceed(request)
             else {
-                // Add-ons may supply arbitrary auth header names. Redirects to
-                // another origin get only the headers needed for media transport.
-                val redirected = request.newBuilder()
-                request.headers.names().filterNot { name ->
-                    name.lowercase(java.util.Locale.ROOT) in setOf("host", "connection", "accept-encoding",
-                        "range", "content-type", "content-length", "transfer-encoding")
-                }.forEach(redirected::removeHeader)
+                if (request.body != null) throw IOException(PRIVATE_REDIRECT)
+                // Preserve only generated transport values and a syntactically
+                // valid byte range. Add-ons may use arbitrary names for secrets.
+                val redirected = request.newBuilder().headers(okhttp3.Headers.Builder().build())
+                    .header("Host", request.url.toUrl().authority)
+                request.headers("Range").singleOrNull()?.takeIf(mediaRange::matches)
+                    ?.let { redirected.header("Range", it) }
+                request.header("Accept-Encoding")?.takeIf { it in setOf("gzip", "identity") }
+                    ?.let { redirected.header("Accept-Encoding", it) }
                 chain.proceed(redirected.build())
             }
         }.build()
