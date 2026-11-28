@@ -1,4 +1,6 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.StringReader
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -44,6 +46,30 @@ android {
     // Optional authenticated lyrics routes; public providers work without these values.
     for (keyName in listOf("PAXSENIX_API_KEY", "MUSIXMATCH_API_KEY")) {
       val value = providers.gradleProperty(keyName).orElse(providers.environmentVariable(keyName)).orElse("").get()
+      buildConfigField("String", keyName, "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+    }
+
+    // Last.fm credentials: read from .env first, then Gradle property or environment variables
+    // (such as AI Studio Secrets or CI), falling back to .env.example placeholders.
+    val dotEnvProperties = Properties().apply {
+      val text = providers.fileContents(rootProject.layout.projectDirectory.file(".env")).asText.orNull
+      if (!text.isNullOrBlank()) {
+        StringReader(text).use(::load)
+      }
+    }
+    for ((keyName, placeholder) in listOf(
+      "LASTFM_API_KEY" to "MY_LASTFM_API_KEY",
+      "LASTFM_SECRET" to "MY_LASTFM_SECRET"
+    )) {
+      val envFileValue = dotEnvProperties.getProperty(keyName)?.trim()?.trim('"').orEmpty()
+      val value = envFileValue.takeIf { it.isNotEmpty() && it != placeholder }
+        ?: providers.gradleProperty(keyName)
+          .orElse(providers.environmentVariable(keyName))
+          .orElse(placeholder)
+          .get()
+          .trim()
+          .trim('"')
+          .ifEmpty { placeholder }
       buildConfigField("String", keyName, "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
     }
 
@@ -140,6 +166,8 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("LASTFM_API_KEY")
+  ignoreList.add("LASTFM_SECRET")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
