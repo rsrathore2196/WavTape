@@ -49,9 +49,10 @@ class LosslessPrebufferRegressionTest {
     private lateinit var storage: AddonStorageFixture
 
     @Before fun prepare() = runBlocking {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        resetNetworkMonitor()
         storage = AddonStorageFixture(app)
         StreamingAddons.testClient = StreamingAddons.createClient(AddonTlsFixture.client())
-        Dispatchers.setMain(UnconfinedTestDispatcher())
         com.example.performance.BackgroundWorkCoordinator.resetForTesting()
         AudioQualityPreferences.setWifiQualityCeiling(app, AudioQualityCeiling.MAX)
         val manager = shadowOf(app.getSystemService(ConnectivityManager::class.java))
@@ -105,6 +106,7 @@ class LosslessPrebufferRegressionTest {
         withTimeout(3_000) { while (PlaybackSourcesPreferences.load(app) != sources) delay(10) }
     }
     @After fun cleanup() = runBlocking {
+        resetNetworkMonitor()
         server.stop(0)
         storage.close()
         StreamingAddons.testClient = null
@@ -113,6 +115,11 @@ class LosslessPrebufferRegressionTest {
                 (it.get(null) as? SimpleCache)?.release(); it.set(null, null)
             }
         }
+        com.example.performance.BackgroundWorkCoordinator.resetForTesting()
+        Dispatchers.resetMain()
+    }
+
+    private suspend fun resetNetworkMonitor() {
         val instance = NetworkQualityMonitor::class.java.getDeclaredField("instance").apply { isAccessible = true }
         instance.get(null)?.let { monitor ->
             val scope = NetworkQualityMonitor::class.java.getDeclaredField("scope").apply { isAccessible = true }
@@ -120,8 +127,6 @@ class LosslessPrebufferRegressionTest {
             scope.coroutineContext[Job]?.cancelAndJoin()
             instance.set(null, null)
         }
-        com.example.performance.BackgroundWorkCoordinator.resetForTesting()
-        Dispatchers.resetMain()
     }
     private fun item(path: String): MediaItem {
         val url = "${source.baseUrl}/$path"
