@@ -1349,6 +1349,10 @@ class PlaybackManager(
             showPlaybackFailure("Audio output failed. Please try playing again.")
             return
         }
+        if (failedItem?.playbackUri()?.scheme == com.example.downloads.OfflineDownloads.SCHEME) {
+            showPlaybackFailure("Saved audio could not be played. Try downloading it again.")
+            return
+        }
         if (!fromWatchdog && com.example.service.JioSaavnPlaybackFallback.handles(player.currentMediaItem) &&
             failedPolicy?.let { !com.example.service.NetworkAudioQualityPolicy.awaitingResolution(
                 player.currentMediaItem, it, player.playbackState) } != false) {

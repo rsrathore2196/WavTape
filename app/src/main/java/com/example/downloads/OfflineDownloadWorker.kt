@@ -20,6 +20,9 @@ import androidx.work.WorkerParameters
 import com.example.MainActivity
 import com.example.XtremeMusicApp
 import com.example.data.model.MusicTrack
+import com.example.data.remote.ArchiveFileKey
+import com.example.data.remote.ArchiveFileTransport
+import com.example.data.remote.StreamingAddons
 import com.example.data.remote.YouTubeAudioStreamService
 import com.example.playback.AudioQuality
 import com.example.service.SabrSessionRegistry
@@ -44,6 +47,8 @@ import java.util.concurrent.TimeUnit
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class OfflineDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    private class OfflineLicenseUnavailable : IOException()
+
     override suspend fun getForegroundInfo() = foreground("Preparing offline audio", 0, false)
     override suspend fun doWork(): Result {
         val id = inputData.getString("track_id") ?: return Result.failure()
@@ -91,6 +96,7 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
                     store.update(id) { if (it.status != DownloadStatus.DOWNLOADING) it else it.copy(
                         status = DownloadStatus.FAILED,
                         error = when (error) {
+                            is OfflineLicenseUnavailable -> "This version does not provide an offline license."
                             is java.io.FileNotFoundException -> "Storage is unavailable. Free some space and retry."
                             else -> "Could not save this track. Check your connection and retry."
                         }) }
@@ -107,6 +113,7 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             (applicationContext as XtremeMusicApp).repository.resolveDownloadTrack(selected, quality) else selected
         val video = if (YouTubeAudioStreamService.isYouTubeAudio(lookup.id, lookup.audioUrl))
             YouTubeAudioStreamService.videoIdFromReference(lookup.id, lookup.audioUrl) else null
+        val archive = ArchiveFileKey.nativeTransport(lookup.audioUrl)
         val resolved: MusicTrack
         val plan: OfflinePlan
         if (video != null) {
@@ -119,11 +126,16 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
                 else -> MimeTypes.AUDIO_MP4 }
             resolved = selected.copy(bitrateKbps = audio.bitrateKbps, qualityBadge = audio.qualityBadge, isLossless = false)
             plan = OfflinePlan(uri, mime, "${audio.itag}:${audio.codec}:${audio.contentLength}:${audio.isSabr}", !audio.isHls)
+        } else if (archive != null) {
+            if (!lookup.isLossless || !archive.playableContainer) throw IOException("Archive audio could not be verified")
+            resolved = lookup
+            plan = OfflineTransfer.archivePlan(archive)
         } else {
             resolved = lookup
-            val mime = com.example.data.remote.StreamingAddons.mime(resolved.audioUrl) ?: when {
-                resolved.audioUrl.substringBefore('?').endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
-                resolved.audioUrl.substringBefore('?').endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            if (StreamingAddons.hasLicensedDrm(resolved.audioUrl)) throw OfflineLicenseUnavailable()
+            val mime = StreamingAddons.mime(resolved.audioUrl) ?: when {
+                resolved.audioUrl.substringBefore('?').endsWith(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+                resolved.audioUrl.substringBefore('?').endsWith(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
                 else -> null
             }
             plan = OfflinePlan(resolved.audioUrl, mime, resolved.audioUrl,
@@ -138,22 +150,8 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
             try { withTimeoutOrNull(10_000L) { com.example.data.remote.resolveNativeSongCover(selected, selected.coverUrl) } }
             catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         } else null
-        val http = DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000)
-            .setAllowCrossProtocolRedirects(false)
-        val base = DefaultDataSource.Factory(applicationContext, http)
-        val upstream = DataSource.Factory {
-            val delegate = YouTubeMediaDataSource(applicationContext, base, http)
-            object : DataSource by delegate {
-                override fun open(dataSpec: DataSpec): Long {
-                    val url = dataSpec.uri.toString()
-                    val headers = if (YouTubeAudioStreamService.isMediaUrl(url)) YouTubeAudioStreamService.headersFor(url)
-                        else com.example.data.remote.StreamingAddons.headers(url)
-                    return delegate.open(dataSpec.buildUpon().setHttpRequestHeaders(dataSpec.httpRequestHeaders + headers).build())
-                }
-            }
-        }
         var lastUpdate = 0L
-        val cacheSize = OfflineTransfer.save(store, selected.id, plan, upstream) { total, bytes ->
+        val progress: (Long, Long) -> Unit = { total, bytes ->
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastUpdate >= 750L) {
                 lastUpdate = now
@@ -163,12 +161,33 @@ class OfflineDownloadWorker(context: Context, params: WorkerParameters) : Corout
                 }
             }
         }
+        val cacheSize = if (archive != null) {
+            OfflineTransfer.saveArchive(store, selected.id, plan, source = { resume ->
+                ArchiveFileTransport.source(applicationContext, archive, 15_000, 30_000, resume)
+            }, progress = progress)
+        } else OfflineTransfer.save(store, selected.id, plan, upstreamFactory(), progress)
         currentCoroutineContext().ensureActive()
         val finalTrack = resolved.copy(coverUrl = songCover?.await() ?: selected.coverUrl)
         val artwork = saveArtwork(store, finalTrack)
         currentCoroutineContext().ensureActive()
         store.update(selected.id) { if (it.status != DownloadStatus.DOWNLOADING) it else it.copy(
             status = DownloadStatus.COMPLETE, bytes = cacheSize, total = cacheSize, error = null, artwork = artwork, track = finalTrack) }
+    }
+    private fun upstreamFactory(): DataSource.Factory {
+        val http = DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000)
+            .setAllowCrossProtocolRedirects(false)
+        val base = DefaultDataSource.Factory(applicationContext, http)
+        return DataSource.Factory {
+            val delegate = YouTubeMediaDataSource(applicationContext, base, http)
+            object : DataSource by delegate {
+                override fun open(dataSpec: DataSpec): Long {
+                    val url = dataSpec.uri.toString()
+                    val headers = if (YouTubeAudioStreamService.isMediaUrl(url)) YouTubeAudioStreamService.headersFor(url)
+                        else StreamingAddons.headers(url)
+                    return delegate.open(dataSpec.buildUpon().setHttpRequestHeaders(dataSpec.httpRequestHeaders + headers).build())
+                }
+            }
+        }
     }
     private fun saveArtwork(store: OfflineDownloads, track: MusicTrack): String {
         val directory = store.directory(track.id)

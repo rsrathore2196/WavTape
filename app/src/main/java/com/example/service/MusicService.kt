@@ -379,7 +379,10 @@ class MusicService : MediaLibraryService() {
         if (published?.getString("track_id") == item.mediaId &&
             published.getString("active_audio_uri") == item.localConfiguration?.uri?.toString() &&
             sameAudioProperties(published, audio)) return
-        val changed = replaceItem && !sameAudioProperties(current.mediaMetadata.extras, audio)
+        // A saved source owns a cache reader for the current period. Publish its
+        // actual codec through session extras without recreating that period.
+        val changed = replaceItem && current.localConfiguration?.uri?.scheme != com.example.downloads.OfflineDownloads.SCHEME &&
+            !sameAudioProperties(current.mediaMetadata.extras, audio)
         if (changed) player.replaceMediaItem(player.currentMediaItemIndex, current.buildUpon()
             .setMediaMetadata(current.mediaMetadata.buildUpon().setExtras(audio).build()).build())
         publishAudioProperties(current, audio)
@@ -1305,16 +1308,29 @@ class MusicService : MediaLibraryService() {
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val failedItem = player.currentMediaItem
+                val failedUri = failedItem?.localConfiguration?.uri
                 if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED) {
-                    player.currentMediaItem?.localConfiguration?.uri?.takeIf { it.scheme == MusicCache.OFFLINE_SCHEME }?.let { corrupt ->
-                        serviceScope.launch(AppDispatchers.Io) { MusicCache.invalidateCorruptRepresentation(this@MusicService, corrupt) }
+                    if (failedUri?.scheme == MusicCache.OFFLINE_SCHEME) {
+                        serviceScope.launch(AppDispatchers.Io) { MusicCache.invalidateCorruptRepresentation(this@MusicService, failedUri) }
+                    }
+                }
+                if (failedUri?.scheme == com.example.downloads.OfflineDownloads.SCHEME &&
+                    (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                        error.cause is androidx.media3.exoplayer.source.UnrecognizedInputFormatException)) {
+                    val store = com.example.downloads.OfflineDownloads.get(this@MusicService)
+                    store.records.value[failedItem.mediaId]?.let { saved ->
+                        serviceScope.launch(AppDispatchers.Io) {
+                            try { store.invalidateAudio(saved, "Saved audio is unreadable. Download again.") }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { android.util.Log.w("MusicService", "Could not update the download index") }
+                        }
                     }
                 }
                 losslessDiscoveryJob?.cancel()
                 losslessDiscoveryJob = null
                 losslessDiscoveryKey = null
-                val failedItem = player.currentMediaItem
-                val failedAddress = failedItem?.localConfiguration?.uri?.toString().orEmpty()
+                val failedAddress = failedUri?.toString().orEmpty()
                 val failedPolicy = networkQuality.sourcePolicy.value
                 com.example.data.remote.ArchiveFileKey.nativeTransport(failedAddress)?.let {
                     val transportFailure = com.example.data.remote.ArchiveFileTransport.failureOf(error)

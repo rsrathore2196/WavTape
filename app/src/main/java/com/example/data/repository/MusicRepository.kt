@@ -695,11 +695,13 @@ class MusicRepository private constructor(
         val lossless = quality == com.example.downloads.DownloadQuality.LOSSLESS
         val cap = if (lossless) Int.MAX_VALUE else quality.kbps * 1000
         val ceiling = if (lossless) com.example.playback.AudioQualityCeiling.MAX else com.example.playback.AudioQualityCeiling.HIGH
-        val policy = context?.let { com.example.playback.NetworkQualityMonitor.getInstance(it).sourcePolicySnapshot() }
-            ?.copy(ceiling = ceiling, online = true, returnToYouTube = false, requestTrackId = track.id)
+        val monitor = context?.let(com.example.playback.NetworkQualityMonitor::getInstance)
+        val policy = monitor?.sourcePolicySnapshot()?.copy(ceiling = ceiling, online = true,
+            returnToYouTube = false, requestTrackId = track.id)
             ?: com.example.playback.PlaybackSourcePolicy(ceiling)
         streamResolver.resolve(track, if (lossless) AudioQuality.HI_RES_LOSSLESS else AudioQuality.ULTRA_HD_320,
-            forceRefresh = true, maxBitrateBps = cap, sourcePolicy = policy, retainLosslessLookup = false)
+            forceRefresh = true, maxBitrateBps = cap, sourcePolicy = policy, retainLosslessLookup = false,
+            archiveDownloadAllowed = { monitor?.sourcePolicySnapshot()?.allowsArchive == true })
     }
 
     suspend fun resolveYouTubeFallback(

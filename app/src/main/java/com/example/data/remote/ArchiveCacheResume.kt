@@ -83,7 +83,7 @@ internal class ArchiveCacheResume(private val cache: Cache, private val key: Str
     }
 
     companion object {
-        private const val VALIDATOR = "wavtape_archive_strong_etag"
+        internal const val VALIDATOR = "wavtape_archive_strong_etag"
         private fun changed(): Nothing = throw ArchiveFileTransport.Failure("range_changed")
 
         fun writableSpec(spec: DataSpec): DataSpec = spec.buildUpon()

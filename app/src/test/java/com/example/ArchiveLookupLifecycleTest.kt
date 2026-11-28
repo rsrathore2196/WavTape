@@ -24,6 +24,37 @@ class ArchiveLookupLifecycleTest {
     private val policy = PlaybackSourcePolicy(AudioQualityCeiling.MAX, sources = PlaybackSource.builtIns)
     @After fun reset() { StreamResolver.clearVerifiedLosslessCache() }
 
+    @Test fun downloadingWaitsForArchiveAndDoesNotDependOnTheCurrentPlaybackSelection() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val resolver = StreamResolver(ioDispatcher = Dispatchers.IO, lookupScope = scope,
+            archiveAllowed = { false }, supportsLossless = { true }, resolveYouTube = { _, _, _, _ -> null },
+            fetchById = { _, _ -> selected }, searchYouTube = { emptyList() },
+            findLossless = { _, _, allowed ->
+                started.complete(Unit)
+                release.await()
+                assertTrue(allowed())
+                LosslessSearchPage(listOf(archive))
+            })
+        try {
+            val download = async {
+                resolver.resolve(selected, policy.ceiling.audioQuality, sourcePolicy = policy,
+                    forceRefresh = true, retainLosslessLookup = false, archiveDownloadAllowed = { true })
+            }
+            withTimeout(5_000) { started.await() }
+            resolver.cancelLosslessDiscovery(selected.id)
+            assertFalse(download.isCompleted)
+            release.complete(Unit)
+            val saved = withTimeout(5_000) { download.await() }
+            assertEquals(selected.id, saved.id)
+            assertEquals(archive.audioUrl, saved.audioUrl)
+            val declined = resolver.resolve(selected, policy.ceiling.audioQuality, sourcePolicy = policy,
+                forceRefresh = true, retainLosslessLookup = false, archiveDownloadAllowed = { false })
+            assertEquals(selected.audioUrl, declined.audioUrl)
+        } finally { scope.cancel() }
+    }
+
     @Test fun audibleFallbackDoesNotCancelOrRepeatThePendingVerifiedLookup() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val ready = CompletableDeferred<Unit>(); val entered = CompletableDeferred<Unit>()

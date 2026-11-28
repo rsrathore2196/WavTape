@@ -68,6 +68,7 @@ class OfflineDownloadIntegrityTest {
         store.cache(track.id).applyContentMetadataMutations("audio", ContentMetadataMutations().set("exo_len", 128L))
         assertNull(store.localTrack(track))
         assertEquals(DownloadStatus.FAILED, store.records.value[track.id]?.status)
+        assertNull(store.records.value[track.id]?.plan)
     }
 
     @Test fun partialAudioWithACompleteLedgerIsRejected() = runBlocking(Dispatchers.IO) {
@@ -156,6 +157,7 @@ class OfflineDownloadIntegrityTest {
         val name = OfflineDownloads.workName(pending.id)
         assertTrue(restored.localTrack(saved)?.audioUrl?.startsWith(OfflineDownloads.SCHEME) == true)
         assertEquals(listOf(saved.id), restored.localQueue(listOf(pending, saved)).map { it.id })
+        assertEquals(listOf(saved.id), restored.playableSavedTracks().map { it.id })
         assertTrue("Playback should never schedule an unrelated transfer", work.getWorkInfosForUniqueWork(name).get().isEmpty())
 
         restored.load()

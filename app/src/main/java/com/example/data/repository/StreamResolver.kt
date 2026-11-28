@@ -267,7 +267,8 @@ internal class StreamResolver(
         sourcePolicy: com.example.playback.PlaybackSourcePolicy? = null,
         preferredSourceId: String? = null, manualUpgrade: Boolean = false,
         retainLosslessLookup: Boolean = true, losslessVersion: Long? = null, bestQualityFirst: Boolean = false,
-        cachedFallback: MusicTrack? = null
+        cachedFallback: MusicTrack? = null,
+        archiveDownloadAllowed: (() -> Boolean)? = null
     ): MusicTrack = withContext(ioDispatcher) {
         // Older saved tracks may have a shortened display title alongside the full provider title.
         val track = if (track.title == track.fullTitle) track else track.copy(title = track.fullTitle)
@@ -276,9 +277,10 @@ internal class StreamResolver(
         val cachedFallbackSource = cachedFallback?.let {
             SourceTransitionOrigin.sourceId(track.id, Uri.parse(it.audioUrl), policy)
         }
-        val archiveGeneration = if (policy.allowsArchive) losslessVersion ?: losslessDiscoveryVersion(track.id) else null
-        fun archiveCurrent() = policy.allowsArchive && archiveAllowed(policy) &&
-            archiveGeneration?.let { isLosslessDiscoveryCurrent(track.id, it) } == true
+        val archiveGeneration = if (policy.allowsArchive && archiveDownloadAllowed == null)
+            losslessVersion ?: losslessDiscoveryVersion(track.id) else null
+        fun archiveCurrent() = policy.allowsArchive && (archiveDownloadAllowed?.invoke() ?: (archiveAllowed(policy) &&
+            archiveGeneration?.let { isLosslessDiscoveryCurrent(track.id, it) } == true))
         val defaultAttempt = AttemptState()
         suspend fun failure() = coroutineContext[AttemptState] ?: defaultAttempt
         val attemptFailures = java.util.Collections.synchronizedList(mutableListOf<PlaybackDiagnostics.Reason>())
@@ -362,7 +364,9 @@ internal class StreamResolver(
                     .firstOrNull()?.id
             cachedFor(target)?.let { return@withContext withStream(track, it) }
         }
-        val rejected = failedUrl ?: track.audioUrl.takeIf { forceRefresh }
+        // Download metadata is refreshed even on a first attempt. That refresh
+        // can legitimately confirm the same stable provider URL.
+        val rejected = failedUrl ?: track.audioUrl.takeIf { forceRefresh && archiveDownloadAllowed == null }
         if (forceRefresh && failedUrl != null && youtubeSelection) selectedVideoId(track)?.let {
             // A quality change/timeout is not a CDN client refusal. The loader
             // records actual 401/403/410 refusals; only renew this representation.
@@ -518,11 +522,17 @@ internal class StreamResolver(
                 else -> InternetArchiveApiService.BACKGROUND_TIMEOUT_MS
             }
             val found = attempt(lookupBudget) {
-                val candidates = if (searchLossless != null) searchLossless.invoke("$title ${primary.ifBlank { artist }}".trim())
-                    else losslessPage(track, rejectedUrls + listOfNotNull(failedUrl), policy.key,
-                        ::archiveCurrent, retain = retainLosslessLookup, urgent = true, requestedVersion = archiveGeneration,
-                        retainOnDetach = retainLosslessLookup)
+                val excluded = rejectedUrls + listOfNotNull(failedUrl)
+                val candidates = when {
+                    searchLossless != null -> searchLossless.invoke("$title ${primary.ifBlank { artist }}".trim())
+                    // A durable transfer belongs to its worker, so changing the playing song
+                    // must not cancel its Archive lookup or substitute a lower-quality stream.
+                    archiveDownloadAllowed != null -> findLossless(track, excluded, ::archiveCurrent).also { page = it }.tracks
+                    else -> losslessPage(track, excluded, policy.key, ::archiveCurrent, retain = retainLosslessLookup,
+                        urgent = true, requestedVersion = archiveGeneration, retainOnDetach = retainLosslessLookup)
                         .also { page = it }.tracks
+                }
+                if (archiveDownloadAllowed != null && !archiveCurrent()) return@attempt null
                 withContext(cpuDispatcher) { candidates.firstOrNull { usable(it) && matchesInitialLossless(track, it) && supportsLossless(it) && !isLosslessUrlRejected(it.audioUrl) } }
                     .also { completed = page?.let { it.isSuccessful && it.exhaustive } ?: true }
             }
@@ -656,7 +666,8 @@ internal class StreamResolver(
                     // Only Archive has an existing guarded background upgrade path.
                     // User add-on order and Jio/YouTube fallback order stay strict.
                     resolveProviderCandidates(providers, defer = {
-                        !bestQualityFirst && policy.allowsArchive && it.kind == PlaybackSourceKind.INTERNET_ARCHIVE
+                        archiveDownloadAllowed == null && !bestQualityFirst && policy.allowsArchive &&
+                            it.kind == PlaybackSourceKind.INTERNET_ARCHIVE
                     }, priorityGraceMs = {
                         if (!bestQualityFirst && !policy.maximum && providers.size > 1 && it.kind == PlaybackSourceKind.YOUTUBE)
                             PROVIDER_PRIORITY_GRACE_MS else null
@@ -665,7 +676,7 @@ internal class StreamResolver(
 
             }
         } ?: track.takeIf { manualUpgrade && preferredSourceId == null && providerAllowed(it) &&
-            policy.acceptsRemoteTrack(it) } ?: (if (!currentSourceOnly && !selectedArchive && archiveCurrent() &&
+            policy.acceptsRemoteTrack(it) } ?: (if (archiveDownloadAllowed == null && !currentSourceOnly && !selectedArchive && archiveCurrent() &&
             !policy.returnsToYouTube(track.id) && (preferredSourceId == null || preferredSourceId == policy.sourceId(PlaybackSourceKind.INTERNET_ARCHIVE)) &&
             (hasPendingLosslessDiscovery(track.id, policy.key) || getCachedLosslessMatch(track) != null)) {
             // No audible fallback exists. Let this same bounded verification finish

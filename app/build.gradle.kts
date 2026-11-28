@@ -108,6 +108,7 @@ android {
   sourceSets {
     getByName("test").assets.srcDir("$projectDir/schemas")
     getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    getByName("androidTest").assets.srcDir("src/test/resources/audio")
   }
   dependenciesInfo {
     includeInApk = false

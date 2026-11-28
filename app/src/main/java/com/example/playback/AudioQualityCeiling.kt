@@ -136,6 +136,7 @@ data class PlaybackSourcePolicy(val ceiling: AudioQualityCeiling, val enhancer: 
         }
     }
     fun acceptsStreamBitrate(bitrateKbps: Int, uri: android.net.Uri): Boolean {
+        if (uri.scheme == com.example.downloads.OfflineDownloads.SCHEME) return true
         if (bitrateKbps <= 0 || bitrateKbps.toLong() * 1000 <= ceiling.maxBitrateBps) return true
         // The 320 AAC endpoint can declare a small VBR/container overhead. Keep
         // its actual reported rate, without retrying a valid tier in a loop.

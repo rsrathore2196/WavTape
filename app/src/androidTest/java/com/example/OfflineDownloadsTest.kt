@@ -4,9 +4,11 @@ import android.net.Uri
 import androidx.media3.common.*
 import androidx.media3.datasource.*
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.model.MusicTrack
+import com.example.data.remote.ArchiveFileKey
 import com.example.downloads.*
 import com.example.playback.AudioQualityCeiling
 import com.example.playback.PlaybackSourcePolicy
@@ -78,6 +80,48 @@ class OfflineDownloadsTest {
         try {
             withTimeout(120_000) { ready.await() }
             instrumentation.runOnMainSync { assertEquals("xtreme-offline", player!!.currentMediaItem!!.localConfiguration!!.uri.scheme) }
+        } finally { instrumentation.runOnMainSync { player?.release() } }
+    }
+    @Test fun savedArchiveFlacReachesFirstAudioAndSeeksFromAColdStore() = runBlocking(Dispatchers.IO) {
+        val file = requireNotNull(ArchiveFileKey.create("archive-offline-test", "Song (FLAC).flac"))
+        // Exercise an existing download record as saved by previous app versions.
+        val plan = OfflinePlan(file.url.toString(), null, file.url.toString(), progressive = true)
+        val selected = track("archive-flac").copy(audioUrl = plan.uri, source = "INTERNET_ARCHIVE",
+            bitrateKbps = 1_411, isLossless = true, durationMs = 20_000)
+        val bytes = instrumentation.context.assets.open("unindexed-silence.flac").use { it.readBytes() }
+        val savedBytes = OfflineTransfer.save(store, selected.id, plan, DataSource.Factory { ByteArrayDataSource(bytes) })
+        store.put(DownloadRecord(selected, DownloadStatus.COMPLETE, savedBytes, savedBytes, plan = plan))
+        val local = requireNotNull(store.localTrack(selected))
+        val item = MediaItem.Builder().setMediaId(local.id).setUri(local.audioUrl).build()
+        val cold = OfflineDownloads(context)
+        val playbackScope = this
+        val audible = CompletableDeferred<Unit>()
+        var player: ExoPlayer? = null
+        try {
+            instrumentation.runOnMainSync {
+                player = ExoPlayer.Builder(context).build().apply {
+                    addAnalyticsListener(object : AnalyticsListener {
+                        override fun onAudioPositionAdvancing(eventTime: AnalyticsListener.EventTime, playoutStartSystemTimeMs: Long) {
+                            audible.complete(Unit)
+                        }
+                    })
+                    addListener(object : Player.Listener {
+                        override fun onPlayerError(error: PlaybackException) { audible.completeExceptionally(error) }
+                    })
+                    setMediaSource(cold.source(item, playbackScope))
+                    playWhenReady = true
+                    prepare()
+                }
+            }
+            withTimeout(120_000) { audible.await() }
+            instrumentation.runOnMainSync {
+                val active = requireNotNull(player)
+                assertEquals(item.localConfiguration!!.uri, active.currentMediaItem!!.localConfiguration!!.uri)
+                assertTrue(active.isCurrentMediaItemSeekable)
+                active.pause()
+                active.seekTo(10_000)
+                assertEquals(10_000L, active.currentPosition)
+            }
         } finally { instrumentation.runOnMainSync { player?.release() } }
     }
     @Test fun vodDownloadIncludesManifestSegmentsAndEncryptionKeys() = runBlocking(Dispatchers.IO) {

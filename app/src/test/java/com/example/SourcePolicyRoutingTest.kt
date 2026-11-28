@@ -18,6 +18,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class SourcePolicyRoutingTest {
+    @Test fun savedLosslessDownloadsDoNotUseStreamingBitrateOrResolutionPolicy() {
+        val policy = PlaybackSourcePolicy(AudioQualityCeiling.DATA_SAVER, online = false, sources = emptyList())
+        val item = androidx.media3.common.MediaItem.Builder().setMediaId("ia_album:track.flac")
+            .setUri("xtreme-offline://audio/hash").build()
+        assertTrue(policy.acceptsStreamBitrate(1_411, requireNotNull(item.localConfiguration).uri))
+        assertFalse(com.example.service.NetworkAudioQualityPolicy.awaitingResolution(item, policy,
+            androidx.media3.common.Player.STATE_BUFFERING))
+        val remote = item.buildUpon().setUri("https://archive.org/download/album/track.flac").build()
+        assertFalse(policy.acceptsStreamBitrate(1_411, requireNotNull(remote.localConfiguration).uri))
+        assertTrue(com.example.service.NetworkAudioQualityPolicy.awaitingResolution(remote, policy,
+            androidx.media3.common.Player.STATE_BUFFERING))
+    }
     @Test fun upcomingVerificationExpiresAndInvalidatesOnSourcePolicyChange() {
         val policy = PlaybackSourcePolicy(AudioQualityCeiling.HIGH)
         val prepared = androidx.media3.common.MediaItem.Builder().setMediaId("queued").setMediaMetadata(

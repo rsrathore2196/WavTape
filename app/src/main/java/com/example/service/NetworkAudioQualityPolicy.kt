@@ -14,7 +14,8 @@ internal object NetworkAudioQualityPolicy {
     fun awaitingResolution(item: MediaItem?, policy: com.example.playback.PlaybackSourcePolicy, state: Int): Boolean {
         if (item == null || state != androidx.media3.common.Player.STATE_IDLE && state != androidx.media3.common.Player.STATE_BUFFERING) return false
         val scheme = (item.localConfiguration?.uri ?: item.requestMetadata.mediaUri)?.scheme
-        return scheme != "file" && scheme != "content" && item.mediaMetadata.extras?.getString("source_policy_key") != policy.key
+        return scheme !in setOf("file", "content", com.example.downloads.OfflineDownloads.SCHEME) &&
+            item.mediaMetadata.extras?.getString("source_policy_key") != policy.key
     }
 
     fun preparedFor(item: MediaItem, policy: com.example.playback.PlaybackSourcePolicy,

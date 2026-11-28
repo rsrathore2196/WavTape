@@ -7,6 +7,7 @@ import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
+import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -23,6 +24,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.example.data.model.MusicTrack
+import com.example.data.remote.ArchiveCacheResume
 import com.example.service.PolicyResolvingMediaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +38,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+
+internal const val OFFLINE_AUDIO_KEY = "audio"
 
 /** Permanent, non-evicting storage, independent of the temporary streaming cache. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -116,7 +120,7 @@ class OfflineDownloads internal constructor(
         }
     }
 
-    private suspend fun loadLedger() = lock.withLock { loadLocked() }
+    internal suspend fun loadLedger() = lock.withLock { loadLocked() }
 
     internal suspend fun readPreferences(): DownloadPreferences = withContext(com.example.performance.AppDispatchers.Io) {
         loadLedger()
@@ -342,27 +346,42 @@ class OfflineDownloads internal constructor(
             pendingDeletion.remove(id)
         }
     }
-    internal fun clearPartial(id: String) {
+    internal fun clearPartial(id: String) = synchronized(caches) {
+        if (id in pendingDeletion) throw IOException("This download has been removed")
         val cache = cache(id)
-        cache.keys.toList().forEach(cache::removeResource)
+        for (key in cache.keys) {
+            cache.removeResource(key)
+            // An HTTP open can journal a length and validator before receiving any bytes.
+            if (key in cache.keys) cache.applyContentMetadataMutations(key, ContentMetadataMutations()
+                .remove(ContentMetadata.KEY_CONTENT_LENGTH).remove(ContentMetadata.KEY_REDIRECTED_URI)
+                .remove(ArchiveCacheResume.VALIDATOR))
+        }
     }
     internal fun dataSource(id: String, progressive: Boolean, upstream: DataSource.Factory? = null): CacheDataSource.Factory =
         CacheDataSource.Factory().setCache(cache(id)).setCacheKeyFactory { spec ->
-            if (progressive) "audio" else spec.uri.toString()
+            if (progressive) OFFLINE_AUDIO_KEY else spec.uri.toString()
         }.setUpstreamDataSourceFactory(upstream).apply { if (upstream == null) setCacheWriteDataSinkFactory(null) }
 
     suspend fun localTrack(track: MusicTrack): MusicTrack? = withContext(Dispatchers.IO) {
         loadLedger()
         val saved = records.value[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE && it.plan != null } ?: return@withContext null
+        if (validateSavedAudio(saved)) asOfflineTrack(track, saved) else null
+    }
+
+    private suspend fun validateSavedAudio(saved: DownloadRecord): Boolean {
         // Check the cache on disk as well as the ledger. Clearing app data/files must never leave phantom downloads.
-        if (!retainCache(track.id, saved)) return@withContext null
-        val missing = try { !savedAudioIntact(saved) } finally { releaseOwner(track.id) }
-        if (missing) {
-            update(track.id) { if (it != saved) it else it.copy(status = DownloadStatus.FAILED, error = "Saved audio is missing. Download again.") }
-            return@withContext null
+        val id = saved.track.id
+        if (!retainCache(id, saved)) return false
+        val intact = try { savedAudioIntact(saved) } finally { releaseOwner(id) }
+        if (!intact) {
+            invalidateAudio(saved, "Saved audio is missing. Download again.")
         }
-        if (records.value[track.id] != saved) return@withContext null
-        asOfflineTrack(track, saved)
+        return intact && records.value[id] == saved
+    }
+
+    internal suspend fun invalidateAudio(record: DownloadRecord, message: String) = update(record.track.id) {
+        if (it !== record || it.status != DownloadStatus.COMPLETE) it else
+            it.copy(status = DownloadStatus.FAILED, error = message, plan = null)
     }
 
     private fun savedAudioIntact(record: DownloadRecord): Boolean {
@@ -375,8 +394,8 @@ class OfflineDownloads internal constructor(
             }) return false
         if (record.bytes > 0L && spans.sumOf { it.length } < record.bytes) return false
         if (record.plan?.progressive == true) {
-            val length = ContentMetadata.getContentLength(cache.getContentMetadata("audio"))
-            return length > 0L && cache.isCached("audio", 0L, length)
+            val length = ContentMetadata.getContentLength(cache.getContentMetadata(OFFLINE_AUDIO_KEY))
+            return length > 0L && cache.isCached(OFFLINE_AUDIO_KEY, 0L, length)
         }
         // Adaptive downloads may deliberately contain byte ranges rather than whole
         // resources. Their completed ledger records the total committed span bytes.
@@ -385,12 +404,13 @@ class OfflineDownloads internal constructor(
     internal suspend fun localQueue(tracks: List<MusicTrack>): List<MusicTrack> = withContext(Dispatchers.IO) {
         loadLedger()
         val snapshot = records.value
-        tracks.mapNotNull { track -> snapshot[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE }
+        tracks.mapNotNull { track -> snapshot[track.id]?.takeIf { it.status == DownloadStatus.COMPLETE && it.plan != null }
             ?.let { asOfflineTrack(track, it) } }
     }
     private fun asOfflineTrack(track: MusicTrack, saved: DownloadRecord): MusicTrack =
         track.copy(audioUrl = Uri.Builder().scheme(SCHEME).authority("audio").appendPath(downloadKey(track.id)).build().toString(),
             coverUrl = saved.artwork.takeIf { File(it).isFile }?.let { Uri.fromFile(File(it)).toString() } ?: track.coverUrl,
+            durationMs = saved.track.durationMs.takeIf { it > 0 } ?: track.durationMs,
             bitrateKbps = saved.track.bitrateKbps, qualityBadge = saved.track.qualityBadge,
             isLossless = saved.track.isLossless, isCached = true)
     /** Restored queues can reference a download before the ledger has been loaded. */
@@ -399,6 +419,9 @@ class OfflineDownloads internal constructor(
             // Audio preparation only needs the ledger. Worker reconciliation
             // stays with the Downloads entry points that manage transfers.
             loadLedger()
+            val record = records.value[it.mediaId]
+            if (record?.status == DownloadStatus.COMPLETE && record.plan != null && !validateSavedAudio(record))
+                throw IOException("Saved audio is missing. Download again.")
             it
         }
 

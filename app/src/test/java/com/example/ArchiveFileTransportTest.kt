@@ -25,6 +25,11 @@ import com.example.data.model.MusicTrack
 import com.example.data.remote.ArchiveFileEvidence
 import com.example.data.remote.ArchiveFileKey
 import com.example.data.remote.ArchiveFileTransport
+import com.example.downloads.DownloadRecord
+import com.example.downloads.DownloadStatus
+import com.example.downloads.OfflineDownloads
+import com.example.downloads.OfflineTransfer
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,6 +112,84 @@ class ArchiveFileTransportTest {
             check(count > 0)
             result.write(bytes, 0, count)
         }
+    }
+
+    @Test fun anInterruptedArchiveDownloadReopensAndSavesEveryShortRangeForOfflinePlayback() = runBlocking(Dispatchers.IO) {
+        val encoded = requireNotNull(javaClass.getResourceAsStream("/audio/unindexed-silence.flac")).use { it.readBytes() }
+        val context = RuntimeEnvironment.getApplication()
+        val plan = OfflineTransfer.archivePlan(file)
+        val track = MusicTrack("yt_abcdefghijk", "Song", "Artist", "Album", 20_000, "", plan.uri,
+            source = "INTERNET_ARCHIVE", isLossless = true)
+        var interrupted = true
+        val starts = mutableListOf<Int>()
+        val http = client { request ->
+            val wanted = requireNotNull(request.header("Range")).substringAfter('=')
+            val start = wanted.substringBefore('-').toInt()
+            starts += start
+            if (interrupted && start > 0) throw java.io.IOException("Lost connection")
+            val end = minOf(start + 511, wanted.substringAfter('-').toIntOrNull() ?: encoded.lastIndex, encoded.lastIndex)
+            reply(request, 206, encoded.copyOfRange(start, end + 1), "bytes $start-$end/${encoded.size}", "\"stable\"")
+        }
+        val first = OfflineDownloads(context)
+        first.put(DownloadRecord(track, DownloadStatus.DOWNLOADING, plan = plan))
+        suspend fun save(store: OfflineDownloads) = OfflineTransfer.saveArchive(store, track.id, plan, source = { cache ->
+            ArchiveFileTransport.FileSource(file, http, cache, replaySequential = true) { true }
+        }, progress = { _, _ -> })
+        try {
+            save(first)
+            fail("An interrupted response must not finish the download")
+        } catch (_: java.io.IOException) {
+            assertEquals(DownloadStatus.DOWNLOADING, first.records.value[track.id]?.status)
+        }
+        val reopened = OfflineDownloads(context)
+        reopened.loadLedger()
+        interrupted = false
+        starts.clear()
+        val length = save(reopened)
+        assertEquals(encoded.size.toLong(), length)
+        assertTrue(starts.first() > 0)
+        reopened.put(DownloadRecord(track, DownloadStatus.COMPLETE, length, length, plan = plan))
+
+        val saved = OfflineDownloads(context)
+        assertTrue(requireNotNull(saved.localTrack(track)).audioUrl.startsWith("xtreme-offline://"))
+        val fetches = starts.size
+        val reader = saved.dataSource(track.id, true).createDataSource()
+        try {
+            assertEquals(length, reader.open(spec()))
+            assertArrayEquals(encoded, reader.readAll())
+            reader.close()
+            val offset = 631
+            assertEquals(length - offset, reader.open(spec(offset.toLong())))
+            assertArrayEquals(encoded.copyOfRange(offset, encoded.size), reader.readAll())
+            assertEquals(fetches, starts.size)
+        } finally {
+            reader.close()
+            saved.releaseCache(track.id)
+        }
+    }
+
+    @Test fun archiveRetryClearsMetadataWhenTheInterruptedResponseSavedNoBytes() = runBlocking(Dispatchers.IO) {
+        val context = RuntimeEnvironment.getApplication()
+        val store = OfflineDownloads(context)
+        val plan = OfflineTransfer.archivePlan(file)
+        val track = MusicTrack(file.id, "Song", "Artist", "Album", 20_000, "", plan.uri,
+            source = "INTERNET_ARCHIVE", isLossless = true)
+        store.put(DownloadRecord(track, DownloadStatus.DOWNLOADING, plan = plan))
+        val cache = store.cache(track.id)
+        cache.applyContentMetadataMutations("audio", androidx.media3.datasource.cache.ContentMetadataMutations()
+            .set(ContentMetadata.KEY_CONTENT_LENGTH, audio.size.toLong())
+            .set(com.example.data.remote.ArchiveCacheResume.VALIDATOR, "\"old\""))
+        var attempts = 0
+        val http = client { request ->
+            attempts++
+            reply(request, 200, audio, tag = "\"new\"")
+        }
+        val length = OfflineTransfer.saveArchive(store, track.id, plan, source = { resume ->
+            ArchiveFileTransport.FileSource(file, http, resume, replaySequential = true) { true }
+        }, progress = { _, _ -> })
+        assertEquals(2, attempts)
+        assertEquals(audio.size.toLong(), length)
+        store.releaseCache(track.id)
     }
 
     @Test fun shorterRangesCanStartResumeAndSeekThroughTheMedia3Cache() {
