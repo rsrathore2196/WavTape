@@ -489,15 +489,15 @@ fun AboutPage(
                     Surface(
                         modifier = Modifier.testTag("build_verification_badge"),
                         shape = RoundedCornerShape(6.dp),
-                        color = if (isDarkMode) Color(0xFF103B28) else Color(0xFFDCFCE7),
-                        border = BorderStroke(1.dp, if (isDarkMode) Color(0xFF34D399) else Color(0xFF15803D))
+                        color = if (isDarkMode) Color(0xFF185A3B) else Color(0xFFE6FCEF),
+                        border = BorderStroke(1.dp, if (isDarkMode) Color(0xFF4ADE80) else Color(0xFF22C55E))
                     ) {
                         Text(
                             text = "STABLE",
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.5.sp,
-                            color = if (isDarkMode) Color(0xFFA7F3D0) else Color(0xFF166534),
+                            color = if (isDarkMode) Color(0xFFBBF7D0) else Color(0xFF15803D),
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                         )
                     }
